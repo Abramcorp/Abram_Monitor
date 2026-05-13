@@ -248,6 +248,37 @@ button {
   padding: 12px;
 }
 
+.manager-subsections {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.manager-subsection {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.subsection-head h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.subsection-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .client-card {
   overflow: hidden;
 }
@@ -303,6 +334,39 @@ button {
   background: #fff;
 }
 
+.application-split {
+  display: grid;
+  gap: 12px;
+}
+
+.application-group {
+  display: grid;
+  gap: 10px;
+}
+
+.application-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.application-group-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.application-group-head span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: #edf2f7;
+  font-weight: 700;
+}
+
 .client-application-list {
   display: grid;
   gap: 10px;
@@ -310,7 +374,7 @@ button {
 
 .client-application-card {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -347,6 +411,11 @@ button {
 
 .application-comment {
   grid-column: span 2;
+}
+
+.compact-empty {
+  padding: 12px;
+  box-shadow: none;
 }
 
 .stage-column {
@@ -580,7 +649,8 @@ td select {
 
   .client-card summary,
   .application-line,
-  .manager-head {
+  .manager-head,
+  .subsection-head {
     grid-template-columns: 1fr;
   }
 

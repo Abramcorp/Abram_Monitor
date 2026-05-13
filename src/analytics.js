@@ -158,52 +158,86 @@ function daysBetween(start, end) {
   return Math.max(0, Math.round((endDate - startDate) / 86400000));
 }
 
-function buildCurrentManagerGroups(currentDeals) {
-  return Array.from(groupBy(currentDeals, (deal) => deal.manager).entries())
+function toApplicationSummary(deal) {
+  return {
+    id: deal.id,
+    client: deal.client,
+    manager: deal.manager,
+    bank: deal.bank,
+    stage: deal.stage,
+    stageLabel: deal.stageLabel,
+    status: deal.stageLabel,
+    statusGroup: deal.statusGroup,
+    amountRequested: deal.amountRequested,
+    amountApproved: deal.amountApproved,
+    bureau: deal.bureau,
+    lastActionAt: deal.lastActionAt,
+    nextActionAt: deal.nextActionAt,
+    completedAt: deal.completedAt,
+    comment: deal.comment,
+    timeline: deal.timeline
+  };
+}
+
+function sortByLastAction(items) {
+  return items.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+}
+
+function buildClientGroup(client, clientDeals) {
+  const applications = sortByLastAction(clientDeals.map(toApplicationSummary));
+  const activeApplications = applications.filter((deal) => deal.statusGroup === "current");
+  const completedApplications = applications.filter((deal) => deal.statusGroup === "completed");
+
+  return {
+    client,
+    count: applications.length,
+    activeCount: activeApplications.length,
+    completedCount: completedApplications.length,
+    amountRequested: sum(clientDeals, "amountRequested"),
+    amountApproved: sum(clientDeals, "amountApproved"),
+    lastActionAt: applications[0]?.lastActionAt || "",
+    activeApplications,
+    currentApplications: activeApplications,
+    completedApplications,
+    applications
+  };
+}
+
+function buildManagerClientGroups(deals) {
+  return Array.from(groupBy(deals, (deal) => deal.manager).entries())
     .map(([manager, managerDeals]) => {
       const clients = Array.from(groupBy(managerDeals, (deal) => deal.client).entries())
-        .map(([client, clientDeals]) => {
-          const applications = clientDeals
-            .map((deal) => ({
-              id: deal.id,
-              client: deal.client,
-              manager: deal.manager,
-              bank: deal.bank,
-              stage: deal.stage,
-              stageLabel: deal.stageLabel,
-              status: deal.stageLabel,
-              amountRequested: deal.amountRequested,
-              amountApproved: deal.amountApproved,
-              bureau: deal.bureau,
-              lastActionAt: deal.lastActionAt,
-              nextActionAt: deal.nextActionAt,
-              comment: deal.comment,
-              timeline: deal.timeline
-            }))
-            .sort((a, b) => new Date(b.lastActionAt) - new Date(a.lastActionAt));
-
-          return {
-            client,
-            count: clientDeals.length,
-            amountRequested: sum(clientDeals, "amountRequested"),
-            amountApproved: sum(clientDeals, "amountApproved"),
-            lastActionAt: applications[0]?.lastActionAt || "",
-            currentApplications: applications
-          };
-        })
-        .sort((a, b) => new Date(b.lastActionAt) - new Date(a.lastActionAt) || b.count - a.count);
+        .map(([client, clientDeals]) => buildClientGroup(client, clientDeals))
+        .sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0) || b.count - a.count);
+      const currentDeals = managerDeals.filter((deal) => deal.statusGroup === "current");
+      const completedDeals = managerDeals.filter((deal) => deal.statusGroup === "completed");
 
       return {
         manager,
         clientCount: clients.length,
+        currentClientCount: clients.filter((client) => client.activeCount > 0).length,
+        completedClientCount: clients.filter((client) => client.completedCount > 0).length,
         count: managerDeals.length,
+        activeCount: currentDeals.length,
+        completedCount: completedDeals.length,
         amountRequested: sum(managerDeals, "amountRequested"),
         amountApproved: sum(managerDeals, "amountApproved"),
+        currentAmountRequested: sum(currentDeals, "amountRequested"),
+        completedAmountRequested: sum(completedDeals, "amountRequested"),
         lastActionAt: clients[0]?.lastActionAt || "",
+        currentClients: clients.filter((client) => client.activeCount > 0),
+        completedClients: clients.filter((client) => client.completedCount > 0),
         clients
       };
     })
     .sort((a, b) => b.count - a.count || a.manager.localeCompare(b.manager, "ru"));
+}
+
+function buildCurrentManagerGroups(currentDeals) {
+  return buildManagerClientGroups(currentDeals).map((manager) => ({
+    ...manager,
+    clients: manager.currentClients
+  }));
 }
 
 function calculateDashboard(rawDeals, clock = new Date()) {
@@ -294,6 +328,7 @@ function calculateDashboard(rawDeals, clock = new Date()) {
       completedConversionRate: completedDeals.length ? Math.round((issuedDeals.length / completedDeals.length) * 100) : 0
     },
     currentFunnel,
+    managerClientGroups: buildManagerClientGroups(deals),
     currentSummary: {
       overdueDeals,
       nextActions,
@@ -315,6 +350,7 @@ module.exports = {
   COMPLETED_STAGES,
   CURRENT_STAGES,
   buildCurrentManagerGroups,
+  buildManagerClientGroups,
   calculateDashboard,
   latestIsoDate,
   normalizeDeal,

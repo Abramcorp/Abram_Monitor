@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { calculateDashboard, normalizeDeal, toNumber } = require("../src/analytics");
+const { buildManagerClientGroups, calculateDashboard, normalizeDeal, toNumber } = require("../src/analytics");
 
 test("toNumber handles formatted ruble values", () => {
   assert.equal(toNumber("7 500 000,50 ₽"), 7500000.5);
@@ -86,6 +86,43 @@ test("dashboard groups current clients by manager with application status and la
   assert.equal(manager.clients[0].client, "ООО Клиент");
   assert.equal(manager.clients[0].currentApplications[0].status, "На рассмотрении");
   assert.equal(manager.clients[0].currentApplications[0].lastActionAt, "2026-05-12T08:30:00.000Z");
+});
+
+test("manager client groups split client applications into active and completed", () => {
+  const deals = [
+    normalizeDeal({
+      id: "active",
+      client: "ООО Смешанный клиент",
+      manager: "Елена Иванова",
+      bank: "Банк 1",
+      stage: "review",
+      amountRequested: 1000,
+      updatedAt: "2026-05-12T11:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "completed",
+      client: "ООО Смешанный клиент",
+      manager: "Елена Иванова",
+      bank: "Банк 2",
+      stage: "issued",
+      amountRequested: 2000,
+      amountApproved: 1800,
+      completedAt: "2026-05-10T15:00:00+03:00",
+      updatedAt: "2026-05-10T15:00:00+03:00"
+    })
+  ];
+
+  const [manager] = buildManagerClientGroups(deals);
+  const [client] = manager.clients;
+
+  assert.equal(manager.currentClientCount, 1);
+  assert.equal(manager.completedClientCount, 1);
+  assert.equal(client.activeCount, 1);
+  assert.equal(client.completedCount, 1);
+  assert.equal(client.activeApplications[0].id, "active");
+  assert.equal(client.completedApplications[0].id, "completed");
+  assert.equal(manager.currentClients[0].client, "ООО Смешанный клиент");
+  assert.equal(manager.completedClients[0].client, "ООО Смешанный клиент");
 });
 
 test("dashboard sorts next actions by nearest date", () => {

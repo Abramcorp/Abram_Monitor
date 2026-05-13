@@ -9,7 +9,7 @@ const state = {
     bank: "all",
     stage: "all"
   },
-  view: "current"
+  view: "managers"
 };
 
 const app = document.querySelector("#app");
@@ -140,7 +140,7 @@ function renderFilters(deals) {
 function filteredDeals(group) {
   const query = state.filters.query.toLowerCase();
   return state.dashboard.deals
-    .filter((deal) => deal.statusGroup === group)
+    .filter((deal) => !group || deal.statusGroup === group)
     .filter((deal) => state.filters.manager === "all" || deal.manager === state.filters.manager)
     .filter((deal) => state.filters.bank === "all" || deal.bank === state.filters.bank)
     .filter((deal) => state.filters.stage === "all" || deal.stage === state.filters.stage)
@@ -152,7 +152,7 @@ function filteredDeals(group) {
     });
 }
 
-function groupCurrentDealsByManager(deals) {
+function groupDealsByManagerAndClient(deals) {
   const managers = new Map();
   deals.forEach((deal) => {
     if (!managers.has(deal.manager)) {
@@ -171,28 +171,48 @@ function groupCurrentDealsByManager(deals) {
     .map(([manager, clients]) => {
       const clientGroups = [...clients.entries()]
         .map(([client, applications]) => {
-          const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt) - new Date(a.lastActionAt));
+          const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+          const activeApplications = sortedApplications.filter((deal) => deal.statusGroup === "current");
+          const completedApplications = sortedApplications.filter((deal) => deal.statusGroup === "completed");
           return {
             client,
             count: sortedApplications.length,
+            activeCount: activeApplications.length,
+            completedCount: completedApplications.length,
             amountRequested: sortedApplications.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0),
             amountApproved: sortedApplications.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0),
             lastActionAt: sortedApplications[0]?.lastActionAt || "",
-            currentApplications: sortedApplications
+            activeApplications,
+            completedApplications,
+            applications: sortedApplications
           };
         })
-        .sort((a, b) => new Date(b.lastActionAt) - new Date(a.lastActionAt) || b.count - a.count);
+        .sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0) || b.count - a.count);
+
+      const currentClients = clientGroups.filter((client) => client.activeCount > 0);
+      const completedClients = clientGroups.filter((client) => client.completedCount > 0);
 
       return {
         manager,
         clientCount: clientGroups.length,
         count: clientGroups.reduce((total, client) => total + client.count, 0),
+        activeCount: clientGroups.reduce((total, client) => total + client.activeCount, 0),
+        completedCount: clientGroups.reduce((total, client) => total + client.completedCount, 0),
         amountRequested: clientGroups.reduce((total, client) => total + client.amountRequested, 0),
         lastActionAt: clientGroups[0]?.lastActionAt || "",
+        currentClients,
+        completedClients,
         clients: clientGroups
       };
     })
     .sort((a, b) => b.count - a.count || a.manager.localeCompare(b.manager, "ru"));
+}
+
+function groupCurrentDealsByManager(deals) {
+  return groupDealsByManagerAndClient(deals).map((manager) => ({
+    ...manager,
+    clients: manager.currentClients
+  }));
 }
 
 function renderDealTable(deals) {
@@ -248,8 +268,12 @@ function renderDealTable(deals) {
   `;
 }
 
-function renderClientApplicationTable(applications) {
+function renderClientApplicationCards(applications, emptyText) {
   const stageOptions = state.dashboard.stages.all;
+  if (!applications.length) {
+    return `<div class="empty compact-empty">${emptyText}</div>`;
+  }
+
   return `
     <div class="client-application-list">
       ${applications
@@ -288,6 +312,27 @@ function renderClientApplicationTable(applications) {
           `
         )
         .join("")}
+    </div>
+  `;
+}
+
+function renderClientApplicationSections(client) {
+  return `
+    <div class="application-split">
+      <section class="application-group">
+        <div class="application-group-head">
+          <h4>Активные заявки</h4>
+          <span>${client.activeCount}</span>
+        </div>
+        ${renderClientApplicationCards(client.activeApplications, "Активных заявок нет.")}
+      </section>
+      <section class="application-group">
+        <div class="application-group-head">
+          <h4>Завершенные заявки</h4>
+          <span>${client.completedCount}</span>
+        </div>
+        ${renderClientApplicationCards(client.completedApplications, "Завершенных заявок нет.")}
+      </section>
     </div>
   `;
 }
@@ -342,12 +387,12 @@ function renderManagerGroups(deals) {
                         <summary>
                           <div class="client-summary-main">
                             <strong>${escapeHtml(client.client)}</strong>
-                            <span>${client.count} текущих заявок · ${money(client.amountRequested)}</span>
+                            <span>${client.activeCount} активных · ${client.completedCount} завершенных · ${money(client.amountRequested)}</span>
                           </div>
-                          ${renderApplicationSnapshot(client.currentApplications)}
+                          ${renderApplicationSnapshot(client.activeApplications)}
                         </summary>
                         <div class="client-drilldown">
-                          ${renderClientApplicationTable(client.currentApplications)}
+                          ${renderClientApplicationSections(client)}
                         </div>
                       </details>
                     `
@@ -359,6 +404,93 @@ function renderManagerGroups(deals) {
         )
         .join("")}
     </div>
+  `;
+}
+
+function renderClientCards(clients, emptyText) {
+  if (!clients.length) {
+    return `<div class="empty compact-empty">${emptyText}</div>`;
+  }
+
+  return `
+    <div class="client-stack">
+      ${clients
+        .map(
+          (client) => `
+            <details class="client-card">
+              <summary>
+                <div class="client-summary-main">
+                  <strong>${escapeHtml(client.client)}</strong>
+                  <span>${client.activeCount} активных · ${client.completedCount} завершенных · ${money(client.amountRequested)}</span>
+                </div>
+                ${renderApplicationSnapshot(client.applications)}
+              </summary>
+              <div class="client-drilldown">
+                ${renderClientApplicationSections(client)}
+              </div>
+            </details>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderManagerClientView() {
+  const managers = groupDealsByManagerAndClient(filteredDeals());
+
+  return `
+    ${renderKpis()}
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Менеджеры и клиенты</p>
+          <h2>Клиентские заявки по менеджерам</h2>
+        </div>
+        ${renderFilters(state.dashboard.deals)}
+      </div>
+      ${
+        managers.length
+          ? `<div class="manager-stack">
+              ${managers
+                .map(
+                  (manager) => `
+                    <section class="manager-section">
+                      <header class="manager-head">
+                        <div>
+                          <p class="eyebrow">Менеджер</p>
+                          <h3>${escapeHtml(manager.manager)}</h3>
+                        </div>
+                        <div class="manager-metrics">
+                          <span>${manager.clientCount} клиентов</span>
+                          <strong>${manager.activeCount} активных / ${manager.completedCount} завершенных</strong>
+                          <span>${money(manager.amountRequested)}</span>
+                        </div>
+                      </header>
+                      <div class="manager-subsections">
+                        <section class="manager-subsection">
+                          <div class="subsection-head">
+                            <h4>Текущие</h4>
+                            <span>${manager.currentClients.length} клиентов · ${manager.activeCount} заявок</span>
+                          </div>
+                          ${renderClientCards(manager.currentClients, "Текущих клиентов нет.")}
+                        </section>
+                        <section class="manager-subsection">
+                          <div class="subsection-head">
+                            <h4>Завершенные</h4>
+                            <span>${manager.completedClients.length} клиентов · ${manager.completedCount} заявок</span>
+                          </div>
+                          ${renderClientCards(manager.completedClients, "Завершенных клиентов нет.")}
+                        </section>
+                      </div>
+                    </section>
+                  `
+                )
+                .join("")}
+            </div>`
+          : `<div class="empty">Нет заявок под выбранные фильтры.</div>`
+      }
+    </section>
   `;
 }
 
@@ -547,6 +679,7 @@ function render() {
   tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.view));
 
   const views = {
+    managers: renderManagerClientView,
     current: renderCurrent,
     completed: renderCompleted,
     summary: renderSummary
