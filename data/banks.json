@@ -1,0 +1,56 @@
+[
+  {
+    "id": "bank-bspb",
+    "name": "Банк Санкт-Петербург",
+    "region": "Санкт-Петербург и регионы присутствия",
+    "programs": [
+      {
+        "id": "bspb-working-capital",
+        "name": "Оборотное финансирование",
+        "amountMin": 1000000,
+        "amountMax": 30000000,
+        "rateFrom": 18.5,
+        "termMonthsMax": 36,
+        "clientType": "business",
+        "collateral": "по решению банка",
+        "notes": "Подходит для компаний с прозрачной выручкой и регулярными оборотами."
+      }
+    ]
+  },
+  {
+    "id": "bank-akbars",
+    "name": "Ак Барс",
+    "region": "РФ",
+    "programs": [
+      {
+        "id": "akbars-invest",
+        "name": "Инвестиционный кредит",
+        "amountMin": 3000000,
+        "amountMax": 50000000,
+        "rateFrom": 19,
+        "termMonthsMax": 60,
+        "clientType": "business",
+        "collateral": "залог или поручительство",
+        "notes": "Для покупки оборудования и расширения бизнеса."
+      }
+    ]
+  },
+  {
+    "id": "bank-tochka",
+    "name": "Точка Банк",
+    "region": "РФ",
+    "programs": [
+      {
+        "id": "tochka-fast",
+        "name": "Быстрое финансирование",
+        "amountMin": 500000,
+        "amountMax": 10000000,
+        "rateFrom": 20.5,
+        "termMonthsMax": 24,
+        "clientType": "business",
+        "collateral": "без залога",
+        "notes": "Скоринговая программа для действующих компаний."
+      }
+    ]
+  }
+]

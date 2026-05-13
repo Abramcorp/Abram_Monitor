@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Мониторинг сделок</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Deal Monitor</p>
+          <h1>Мониторинг состояния сделок</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
+          <button class="primary-button" id="newDealButton" type="button">+ Новая сделка</button>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="Разделы мониторинга">
+        <button class="tab is-active" data-view="current" type="button">Текущие</button>
+        <button class="tab" data-view="completed" type="button">Завершенные</button>
+        <button class="tab" data-view="summary" type="button">Сводный отчет</button>
+      </nav>
+
+      <main id="app" aria-live="polite">
+        <div class="loading">Загрузка данных...</div>
+      </main>
+    </div>
+
+    <dialog class="deal-dialog" id="dealDialog">
+      <form method="dialog" class="deal-form" id="dealForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Сделка</p>
+            <h2>Новая заявка</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit">×</button>
+        </div>
+
+        <label>
+          Менеджер
+          <input name="manager" required list="managerOptions" autocomplete="off">
+          <datalist id="managerOptions"></datalist>
+        </label>
+
+        <label>
+          Клиент
+          <input name="client" required autocomplete="off">
+        </label>
+
+        <label>
+          Банк
+          <select name="bank" required></select>
+        </label>
+
+        <label>
+          Этап
+          <select name="stage" required></select>
+        </label>
+
+        <div class="form-grid">
+          <label>
+            Сумма заявки
+            <input name="amountRequested" inputmode="decimal" placeholder="0">
+          </label>
+          <label>
+            Одобрено
+            <input name="amountApproved" inputmode="decimal" placeholder="0">
+          </label>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Бюро
+            <input name="bureau" autocomplete="off">
+          </label>
+          <label>
+            Следующее действие
+            <input name="nextActionAt" type="datetime-local">
+          </label>
+        </div>
+
+        <label>
+          Комментарий
+          <textarea name="comment" rows="4"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit">Отмена</button>
+          <button class="primary-button" id="saveDealButton" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
