@@ -4,7 +4,17 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { calculateDashboard } = require("./src/analytics");
-const { createBank, createDeal, getBanks, getDeals, updateDeal } = require("./src/store");
+const {
+  createBank,
+  createClient,
+  createDeal,
+  createKnowledgeEntry,
+  getBanks,
+  getClients,
+  getDeals,
+  getKnowledge,
+  updateDeal
+} = require("./src/store");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -114,6 +124,28 @@ async function handleApi(request, response) {
   if (request.method === "POST" && pathname === "/api/banks") {
     const payload = await readBody(request);
     sendJson(response, 201, { bank: createBank(payload) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/clients") {
+    sendJson(response, 200, { clients: getClients() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/clients") {
+    const payload = await readBody(request);
+    sendJson(response, 201, { client: createClient(payload) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/knowledge") {
+    sendJson(response, 200, { knowledge: getKnowledge() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/knowledge") {
+    const payload = await readBody(request);
+    sendJson(response, 201, { entry: createKnowledgeEntry(payload) });
     return;
   }
 

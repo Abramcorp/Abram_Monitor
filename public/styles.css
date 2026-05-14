@@ -110,6 +110,10 @@ button {
   margin-bottom: 18px;
 }
 
+.mode-tabs {
+  margin-bottom: 10px;
+}
+
 .tab.is-active {
   border-color: var(--ink);
   background: var(--ink);
@@ -215,6 +219,23 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfd;
+}
+
+.manager-accordion {
+  overflow: hidden;
+}
+
+.manager-accordion > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.manager-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+
+.manager-accordion:not([open]) .manager-head {
+  border-bottom: 0;
 }
 
 .manager-head {
@@ -418,6 +439,59 @@ button {
   box-shadow: none;
 }
 
+.knowledge-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.knowledge-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfd;
+}
+
+.knowledge-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.knowledge-card-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.knowledge-card-head time {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.knowledge-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.knowledge-columns h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.knowledge-columns ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.knowledge-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
 .stage-column {
   min-height: 150px;
   border: 1px solid var(--line);
@@ -615,7 +689,8 @@ td select {
   }
 
   .content-grid,
-  .report-grid {
+  .report-grid,
+  .knowledge-columns {
     grid-template-columns: 1fr;
   }
 

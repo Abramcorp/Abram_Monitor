@@ -2,22 +2,44 @@
 
 const state = {
   banks: [],
+  clients: [],
   dashboard: null,
+  knowledge: [],
   filters: {
     query: "",
     manager: "all",
     bank: "all",
     stage: "all"
   },
-  view: "managers"
+  mode: "analyst",
+  view: "funnels"
 };
 
 const app = document.querySelector("#app");
-const tabs = document.querySelectorAll(".tab");
+const modeTabs = document.querySelectorAll("[data-mode]");
+const viewTabs = document.querySelector("#viewTabs");
 const refreshButton = document.querySelector("#refreshButton");
+const newClientButton = document.querySelector("#newClientButton");
 const newDealButton = document.querySelector("#newDealButton");
+const newKnowledgeButton = document.querySelector("#newKnowledgeButton");
 const dialog = document.querySelector("#dealDialog");
 const form = document.querySelector("#dealForm");
+const clientDialog = document.querySelector("#clientDialog");
+const clientForm = document.querySelector("#clientForm");
+const knowledgeDialog = document.querySelector("#knowledgeDialog");
+const knowledgeForm = document.querySelector("#knowledgeForm");
+
+const VIEWS_BY_MODE = {
+  analyst: [
+    { id: "funnels", label: "Менеджерские воронки" },
+    { id: "knowledge", label: "База знаний" }
+  ],
+  board: [
+    { id: "summary", label: "Сводный отчет" },
+    { id: "completed", label: "Завершенные" },
+    { id: "knowledge", label: "База знаний" }
+  ]
+};
 
 const currency = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
@@ -67,13 +89,42 @@ async function requestJson(url, options) {
 }
 
 async function loadData() {
-  const [dashboard, bankPayload] = await Promise.all([
+  const [dashboard, bankPayload, clientPayload, knowledgePayload] = await Promise.all([
     requestJson("/api/dashboard"),
-    requestJson("/api/banks")
+    requestJson("/api/banks"),
+    requestJson("/api/clients"),
+    requestJson("/api/knowledge")
   ]);
   state.dashboard = dashboard;
   state.banks = bankPayload.banks;
+  state.clients = clientPayload.clients;
+  state.knowledge = knowledgePayload.knowledge;
   render();
+}
+
+function resetFilters() {
+  state.filters = { query: "", manager: "all", bank: "all", stage: "all" };
+}
+
+function renderViewTabs() {
+  viewTabs.innerHTML = VIEWS_BY_MODE[state.mode]
+    .map((view) => `<button class="tab ${state.view === view.id ? "is-active" : ""}" data-view="${view.id}" type="button">${view.label}</button>`)
+    .join("");
+
+  viewTabs.querySelectorAll("[data-view]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      state.view = tab.dataset.view;
+      resetFilters();
+      render();
+    });
+  });
+}
+
+function updateActionVisibility() {
+  const analystMode = state.mode === "analyst";
+  newClientButton.hidden = !analystMode;
+  newDealButton.hidden = !analystMode;
+  newKnowledgeButton.hidden = false;
 }
 
 function renderKpis() {
@@ -152,8 +203,19 @@ function filteredDeals(group) {
     });
 }
 
-function groupDealsByManagerAndClient(deals) {
+function groupDealsByManagerAndClient(deals, clients = []) {
   const managers = new Map();
+  clients.forEach((client) => {
+    const managerName = client.manager || "Без менеджера";
+    if (!managers.has(managerName)) {
+      managers.set(managerName, new Map());
+    }
+    const managerClients = managers.get(managerName);
+    if (!managerClients.has(client.name)) {
+      managerClients.set(client.name, []);
+    }
+  });
+
   deals.forEach((deal) => {
     if (!managers.has(deal.manager)) {
       managers.set(deal.manager, new Map());
@@ -189,7 +251,7 @@ function groupDealsByManagerAndClient(deals) {
         })
         .sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0) || b.count - a.count);
 
-      const currentClients = clientGroups.filter((client) => client.activeCount > 0);
+      const currentClients = clientGroups.filter((client) => client.activeCount > 0 || client.count === 0);
       const completedClients = clientGroups.filter((client) => client.completedCount > 0);
 
       return {
@@ -209,7 +271,7 @@ function groupDealsByManagerAndClient(deals) {
 }
 
 function groupCurrentDealsByManager(deals) {
-  return groupDealsByManagerAndClient(deals).map((manager) => ({
+  return groupDealsByManagerAndClient(deals, state.clients).map((manager) => ({
     ...manager,
     clients: manager.currentClients
   }));
@@ -338,6 +400,10 @@ function renderClientApplicationSections(client) {
 }
 
 function renderApplicationSnapshot(applications) {
+  if (!applications.length) {
+    return `<div class="application-snapshot muted">Заявок пока нет</div>`;
+  }
+
   return `
     <div class="application-snapshot">
       ${applications
@@ -367,8 +433,8 @@ function renderManagerGroups(deals) {
       ${managers
         .map(
           (manager) => `
-            <section class="manager-section">
-              <header class="manager-head">
+            <details class="manager-section manager-accordion">
+              <summary class="manager-head">
                 <div>
                   <p class="eyebrow">Менеджер</p>
                   <h3>${escapeHtml(manager.manager)}</h3>
@@ -378,7 +444,7 @@ function renderManagerGroups(deals) {
                   <strong>${manager.count} заявок</strong>
                   <span>${money(manager.amountRequested)}</span>
                 </div>
-              </header>
+              </summary>
               <div class="client-stack">
                 ${manager.clients
                   .map(
@@ -399,7 +465,7 @@ function renderManagerGroups(deals) {
                   )
                   .join("")}
               </div>
-            </section>
+            </details>
           `
         )
         .join("")}
@@ -437,7 +503,7 @@ function renderClientCards(clients, emptyText) {
 }
 
 function renderManagerClientView() {
-  const managers = groupDealsByManagerAndClient(filteredDeals());
+  const managers = groupDealsByManagerAndClient(filteredDeals(), state.clients);
 
   return `
     ${renderKpis()}
@@ -455,8 +521,8 @@ function renderManagerClientView() {
               ${managers
                 .map(
                   (manager) => `
-                    <section class="manager-section">
-                      <header class="manager-head">
+                    <details class="manager-section manager-accordion">
+                      <summary class="manager-head">
                         <div>
                           <p class="eyebrow">Менеджер</p>
                           <h3>${escapeHtml(manager.manager)}</h3>
@@ -466,7 +532,7 @@ function renderManagerClientView() {
                           <strong>${manager.activeCount} активных / ${manager.completedCount} завершенных</strong>
                           <span>${money(manager.amountRequested)}</span>
                         </div>
-                      </header>
+                      </summary>
                       <div class="manager-subsections">
                         <section class="manager-subsection">
                           <div class="subsection-head">
@@ -483,13 +549,102 @@ function renderManagerClientView() {
                           ${renderClientCards(manager.completedClients, "Завершенных клиентов нет.")}
                         </section>
                       </div>
-                    </section>
+                    </details>
                   `
                 )
                 .join("")}
             </div>`
           : `<div class="empty">Нет заявок под выбранные фильтры.</div>`
       }
+    </section>
+  `;
+}
+
+function filteredKnowledge() {
+  const query = state.filters.query.toLowerCase();
+  return state.knowledge
+    .filter((entry) => state.filters.bank === "all" || entry.bank === state.filters.bank)
+    .filter((entry) => {
+      if (!query) {
+        return true;
+      }
+      return [entry.bank, entry.topic, entry.notes, ...(entry.requirements || []), ...(entry.documents || [])]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+}
+
+function renderKnowledgeFilters() {
+  const bankOptions = [...new Set(state.knowledge.map((entry) => entry.bank))]
+    .sort((a, b) => a.localeCompare(b, "ru"))
+    .map((bank) => `<option value="${escapeHtml(bank)}" ${state.filters.bank === bank ? "selected" : ""}>${escapeHtml(bank)}</option>`)
+    .join("");
+
+  return `
+    <div class="filters">
+      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, тема, требование">
+      <select id="bankFilter">
+        <option value="all">Все банки</option>
+        ${bankOptions}
+      </select>
+    </div>
+  `;
+}
+
+function renderKnowledgeList(items) {
+  if (!items.length) {
+    return `<div class="empty">В базе знаний пока нет записей под выбранные фильтры.</div>`;
+  }
+
+  return `
+    <div class="knowledge-grid">
+      ${items
+        .map(
+          (entry) => `
+            <article class="knowledge-card">
+              <div class="knowledge-card-head">
+                <div>
+                  <p class="eyebrow">${escapeHtml(entry.bank)}</p>
+                  <h3>${escapeHtml(entry.topic)}</h3>
+                </div>
+                <time>${formatDate(entry.updatedAt)}</time>
+              </div>
+              <div class="knowledge-columns">
+                <section>
+                  <h4>Требования</h4>
+                  <ul>
+                    ${(entry.requirements || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || `<li>Не указано</li>`}
+                  </ul>
+                </section>
+                <section>
+                  <h4>Документы</h4>
+                  <ul>
+                    ${(entry.documents || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || `<li>Не указано</li>`}
+                  </ul>
+                </section>
+              </div>
+              <p class="knowledge-note">${escapeHtml(entry.notes || "Без заметок")}</p>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderKnowledgeView() {
+  const items = filteredKnowledge();
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">База знаний</p>
+          <h2>Банки, требования и документы</h2>
+        </div>
+        ${renderKnowledgeFilters()}
+      </div>
+      ${renderKnowledgeList(items)}
     </section>
   `;
 }
@@ -676,12 +831,15 @@ function render() {
     return;
   }
 
-  tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === state.view));
+  modeTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.mode === state.mode));
+  renderViewTabs();
+  updateActionVisibility();
 
   const views = {
-    managers: renderManagerClientView,
+    funnels: renderManagerClientView,
     current: renderCurrent,
     completed: renderCompleted,
+    knowledge: renderKnowledgeView,
     summary: renderSummary
   };
 
@@ -738,24 +896,36 @@ function fillDealFormOptions() {
   const bankSelect = form.elements.bank;
   const stageSelect = form.elements.stage;
   const managerOptions = document.querySelector("#managerOptions");
+  const clientOptions = document.querySelector("#clientOptions");
+  const bankOptions = document.querySelector("#bankOptions");
 
-  const managerNames = [...new Set(state.dashboard.deals.map((deal) => deal.manager))]
+  const managerNames = [...new Set([...state.dashboard.deals.map((deal) => deal.manager), ...state.clients.map((client) => client.manager)])]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "ru"));
-  const bankNames = [...new Set([...state.banks.map((bank) => bank.name), ...state.dashboard.deals.map((deal) => deal.bank)])].sort((a, b) =>
-    a.localeCompare(b, "ru")
-  );
+  const clientNames = [...new Set([...state.clients.map((client) => client.name), ...state.dashboard.deals.map((deal) => deal.client)])]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  const bankNames = [
+    ...new Set([
+      ...state.banks.map((bank) => bank.name),
+      ...state.dashboard.deals.map((deal) => deal.bank),
+      ...state.knowledge.map((entry) => entry.bank)
+    ])
+  ].sort((a, b) => a.localeCompare(b, "ru"));
   managerOptions.innerHTML = managerNames.map((manager) => `<option value="${escapeHtml(manager)}"></option>`).join("");
+  clientOptions.innerHTML = clientNames.map((client) => `<option value="${escapeHtml(client)}"></option>`).join("");
+  bankOptions.innerHTML = bankNames.map((bank) => `<option value="${escapeHtml(bank)}"></option>`).join("");
   bankSelect.innerHTML = bankNames.map((bank) => `<option value="${escapeHtml(bank)}">${escapeHtml(bank)}</option>`).join("");
   stageSelect.innerHTML = state.dashboard.stages.current
     .map((stage) => `<option value="${stage.id}">${stage.label}</option>`)
     .join("");
 }
 
-tabs.forEach((tab) => {
+modeTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
-    state.view = tab.dataset.view;
-    state.filters = { query: "", manager: "all", bank: "all", stage: "all" };
+    state.mode = tab.dataset.mode;
+    state.view = VIEWS_BY_MODE[state.mode][0].id;
+    resetFilters();
     render();
   });
 });
@@ -766,6 +936,18 @@ newDealButton.addEventListener("click", () => {
   fillDealFormOptions();
   form.reset();
   dialog.showModal();
+});
+
+newClientButton.addEventListener("click", () => {
+  fillDealFormOptions();
+  clientForm.reset();
+  clientDialog.showModal();
+});
+
+newKnowledgeButton.addEventListener("click", () => {
+  fillDealFormOptions();
+  knowledgeForm.reset();
+  knowledgeDialog.showModal();
 });
 
 form.addEventListener("submit", async (event) => {
@@ -780,6 +962,37 @@ form.addEventListener("submit", async (event) => {
     body: JSON.stringify(Object.fromEntries(formData.entries()))
   });
   dialog.close();
+  await loadData();
+});
+
+clientForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value === "cancel") {
+    return;
+  }
+
+  event.preventDefault();
+  const formData = new FormData(clientForm);
+  await requestJson("/api/clients", {
+    method: "POST",
+    body: JSON.stringify(Object.fromEntries(formData.entries()))
+  });
+  clientDialog.close();
+  await loadData();
+});
+
+knowledgeForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value === "cancel") {
+    return;
+  }
+
+  event.preventDefault();
+  const formData = new FormData(knowledgeForm);
+  await requestJson("/api/knowledge", {
+    method: "POST",
+    body: JSON.stringify(Object.fromEntries(formData.entries()))
+  });
+  knowledgeDialog.close();
+  state.view = "knowledge";
   await loadData();
 });
 

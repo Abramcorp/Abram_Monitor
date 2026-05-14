@@ -15,15 +15,18 @@
         </div>
         <div class="topbar-actions">
           <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
+          <button class="primary-button" id="newClientButton" type="button">+ Клиент</button>
           <button class="primary-button" id="newDealButton" type="button">+ Новая сделка</button>
+          <button class="ghost-button" id="newKnowledgeButton" type="button">+ Запись БЗ</button>
         </div>
       </header>
 
-      <nav class="tabs" aria-label="Разделы мониторинга">
-        <button class="tab is-active" data-view="managers" type="button">Менеджеры</button>
-        <button class="tab" data-view="current" type="button">Текущие</button>
-        <button class="tab" data-view="completed" type="button">Завершенные</button>
-        <button class="tab" data-view="summary" type="button">Сводный отчет</button>
+      <nav class="tabs mode-tabs" aria-label="Режимы доступа">
+        <button class="tab is-active" data-mode="analyst" type="button">Аналитики</button>
+        <button class="tab" data-mode="board" type="button">Правление</button>
+      </nav>
+
+      <nav class="tabs" id="viewTabs" aria-label="Разделы мониторинга">
       </nav>
 
       <main id="app" aria-live="polite">
@@ -38,7 +41,7 @@
             <p class="eyebrow">Сделка</p>
             <h2>Новая заявка</h2>
           </div>
-          <button class="icon-button" value="cancel" title="Закрыть" type="submit">×</button>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
         </div>
 
         <label>
@@ -49,7 +52,8 @@
 
         <label>
           Клиент
-          <input name="client" required autocomplete="off">
+          <input name="client" required list="clientOptions" autocomplete="off">
+          <datalist id="clientOptions"></datalist>
         </label>
 
         <label>
@@ -90,8 +94,94 @@
         </label>
 
         <div class="dialog-actions">
-          <button class="ghost-button" value="cancel" type="submit">Отмена</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
           <button class="primary-button" id="saveDealButton" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="deal-dialog" id="clientDialog">
+      <form method="dialog" class="deal-form" id="clientForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Клиент</p>
+            <h2>Новый клиент</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <label>
+          Менеджер
+          <input name="manager" required list="managerOptions" autocomplete="off">
+        </label>
+
+        <label>
+          Наименование
+          <input name="name" required autocomplete="off">
+        </label>
+
+        <div class="form-grid">
+          <label>
+            Контакт
+            <input name="contact" autocomplete="off">
+          </label>
+          <label>
+            Телефон
+            <input name="phone" autocomplete="off">
+          </label>
+        </div>
+
+        <label>
+          Комментарий
+          <textarea name="comment" rows="3"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="deal-dialog" id="knowledgeDialog">
+      <form method="dialog" class="deal-form" id="knowledgeForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">База знаний</p>
+            <h2>Новая запись</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <label>
+          Банк
+          <input name="bank" required list="bankOptions" autocomplete="off">
+          <datalist id="bankOptions"></datalist>
+        </label>
+
+        <label>
+          Тема
+          <input name="topic" required autocomplete="off">
+        </label>
+
+        <label>
+          Требования
+          <textarea name="requirements" rows="4" placeholder="Каждое требование с новой строки"></textarea>
+        </label>
+
+        <label>
+          Документы
+          <textarea name="documents" rows="4" placeholder="Каждый документ с новой строки"></textarea>
+        </label>
+
+        <label>
+          Заметки
+          <textarea name="notes" rows="3"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Сохранить</button>
         </div>
       </form>
     </dialog>

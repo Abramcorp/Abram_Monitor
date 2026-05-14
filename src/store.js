@@ -7,6 +7,8 @@ const { normalizeDeal } = require("./analytics");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DEALS_FILE = path.join(DATA_DIR, "deals.json");
 const BANKS_FILE = path.join(DATA_DIR, "banks.json");
+const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
+const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 
 function readJson(filePath, fallback) {
   try {
@@ -90,10 +92,75 @@ function createBank(payload) {
   return bank;
 }
 
+function getClients() {
+  return readJson(CLIENTS_FILE, []);
+}
+
+function createClient(payload) {
+  const clients = getClients();
+  const client = {
+    id: payload.id || `client-${Date.now()}`,
+    name: String(payload.name || payload.client || "").trim(),
+    manager: String(payload.manager || "").trim() || "Без менеджера",
+    contact: String(payload.contact || "").trim(),
+    phone: String(payload.phone || "").trim(),
+    comment: String(payload.comment || "").trim()
+  };
+
+  if (!client.name) {
+    throw new Error("Client name is required");
+  }
+
+  clients.push(client);
+  writeJson(CLIENTS_FILE, clients);
+  return client;
+}
+
+function getKnowledge() {
+  return readJson(KNOWLEDGE_FILE, []);
+}
+
+function createKnowledgeEntry(payload) {
+  const entries = getKnowledge();
+  const now = new Date().toISOString();
+  const entry = {
+    id: payload.id || `kb-${Date.now()}`,
+    bank: String(payload.bank || "").trim(),
+    topic: String(payload.topic || "").trim(),
+    requirements: normalizeList(payload.requirements),
+    documents: normalizeList(payload.documents),
+    notes: String(payload.notes || "").trim(),
+    updatedAt: now
+  };
+
+  if (!entry.bank || !entry.topic) {
+    throw new Error("Bank and topic are required");
+  }
+
+  entries.push(entry);
+  writeJson(KNOWLEDGE_FILE, entries);
+  return entry;
+}
+
+function normalizeList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 module.exports = {
   createBank,
+  createClient,
   createDeal,
+  createKnowledgeEntry,
   getBanks,
+  getClients,
   getDeals,
+  getKnowledge,
   updateDeal
 };
