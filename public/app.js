@@ -11,6 +11,10 @@ const state = {
     bank: "all",
     stage: "all"
   },
+  board: {
+    status: "current",
+    groupBy: "manager"
+  },
   mode: "analyst",
   view: "funnels"
 };
@@ -31,14 +35,32 @@ const knowledgeForm = document.querySelector("#knowledgeForm");
 
 const VIEWS_BY_MODE = {
   analyst: [
-    { id: "funnels", label: "Менеджерские воронки" },
+    { id: "funnels", label: "Менеджеры" },
     { id: "knowledge", label: "База знаний" }
   ],
   board: [
     { id: "summary", label: "Сводный отчет" },
-    { id: "completed", label: "Завершенные" },
     { id: "knowledge", label: "База знаний" }
   ]
+};
+
+const REQUIREMENT_LABELS = {
+  businessRegion: "Регион ведения бизнеса",
+  ipAge: "Возраст ИП",
+  revenue: "Выручка",
+  documentation: "Документация",
+  okved: "ОКВЭД",
+  accountPresence: "Наличие счета"
+};
+
+const BOARD_STATUS_LABELS = {
+  current: "Текущие",
+  completed: "Завершенные"
+};
+
+const BOARD_GROUP_LABELS = {
+  manager: "По менеджерам",
+  bank: "По банкам"
 };
 
 const currency = new Intl.NumberFormat("ru-RU", {
@@ -234,18 +256,30 @@ function groupDealsByManagerAndClient(deals, clients = []) {
       const clientGroups = [...clients.entries()]
         .map(([client, applications]) => {
           const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
-          const activeApplications = sortedApplications.filter((deal) => deal.statusGroup === "current");
-          const completedApplications = sortedApplications.filter((deal) => deal.statusGroup === "completed");
+          const plannedApplications = sortedApplications.filter((deal) => deal.stage === "lead");
+          const currentApplications = sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "lead");
+          const successfulApplications = sortedApplications.filter((deal) => deal.stage === "issued");
+          const refusedApplications = sortedApplications.filter((deal) => deal.stage === "rejected" || deal.stage === "withdrawn");
+          const activeApplications = [...currentApplications, ...plannedApplications];
+          const completedApplications = [...successfulApplications, ...refusedApplications];
           return {
             client,
             count: sortedApplications.length,
             activeCount: activeApplications.length,
             completedCount: completedApplications.length,
+            currentCount: currentApplications.length,
+            plannedCount: plannedApplications.length,
+            successfulCount: successfulApplications.length,
+            refusedCount: refusedApplications.length,
             amountRequested: sortedApplications.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0),
             amountApproved: sortedApplications.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0),
             lastActionAt: sortedApplications[0]?.lastActionAt || "",
             activeApplications,
+            currentApplications,
+            plannedApplications,
             completedApplications,
+            successfulApplications,
+            refusedApplications,
             applications: sortedApplications
           };
         })
@@ -260,6 +294,10 @@ function groupDealsByManagerAndClient(deals, clients = []) {
         count: clientGroups.reduce((total, client) => total + client.count, 0),
         activeCount: clientGroups.reduce((total, client) => total + client.activeCount, 0),
         completedCount: clientGroups.reduce((total, client) => total + client.completedCount, 0),
+        currentCount: clientGroups.reduce((total, client) => total + client.currentCount, 0),
+        plannedCount: clientGroups.reduce((total, client) => total + client.plannedCount, 0),
+        successfulCount: clientGroups.reduce((total, client) => total + client.successfulCount, 0),
+        refusedCount: clientGroups.reduce((total, client) => total + client.refusedCount, 0),
         amountRequested: clientGroups.reduce((total, client) => total + client.amountRequested, 0),
         lastActionAt: clientGroups[0]?.lastActionAt || "",
         currentClients,
@@ -379,22 +417,28 @@ function renderClientApplicationCards(applications, emptyText) {
 }
 
 function renderClientApplicationSections(client) {
+  const sections = [
+    ["Текущие", client.currentApplications || [], client.currentCount || 0, "Текущих заявок нет."],
+    ["Плановые", client.plannedApplications || [], client.plannedCount || 0, "Плановых заявок нет."],
+    ["Завершенные успешно", client.successfulApplications || [], client.successfulCount || 0, "Успешно завершенных заявок нет."],
+    ["Отказы", client.refusedApplications || [], client.refusedCount || 0, "Отказов нет."]
+  ];
+
   return `
     <div class="application-split">
-      <section class="application-group">
-        <div class="application-group-head">
-          <h4>Активные заявки</h4>
-          <span>${client.activeCount}</span>
-        </div>
-        ${renderClientApplicationCards(client.activeApplications, "Активных заявок нет.")}
-      </section>
-      <section class="application-group">
-        <div class="application-group-head">
-          <h4>Завершенные заявки</h4>
-          <span>${client.completedCount}</span>
-        </div>
-        ${renderClientApplicationCards(client.completedApplications, "Завершенных заявок нет.")}
-      </section>
+      ${sections
+        .map(
+          ([title, applications, count, emptyText]) => `
+            <section class="application-group">
+              <div class="application-group-head">
+                <h4>${title}</h4>
+                <span>${count}</span>
+              </div>
+              ${renderClientApplicationCards(applications, emptyText)}
+            </section>
+          `
+        )
+        .join("")}
     </div>
   `;
 }
@@ -487,7 +531,7 @@ function renderClientCards(clients, emptyText) {
               <summary>
                 <div class="client-summary-main">
                   <strong>${escapeHtml(client.client)}</strong>
-                  <span>${client.activeCount} активных · ${client.completedCount} завершенных · ${money(client.amountRequested)}</span>
+                  <span>${client.currentCount || 0} текущих · ${client.plannedCount || 0} плановых · ${client.completedCount} завершенных · ${money(client.amountRequested)}</span>
                 </div>
                 ${renderApplicationSnapshot(client.applications)}
               </summary>
@@ -503,17 +547,15 @@ function renderClientCards(clients, emptyText) {
 }
 
 function renderManagerClientView() {
-  const managers = groupDealsByManagerAndClient(filteredDeals(), state.clients);
+  const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients);
 
   return `
-    ${renderKpis()}
     <section class="panel">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Менеджеры и клиенты</p>
-          <h2>Клиентские заявки по менеджерам</h2>
+          <h2>Карточки менеджеров</h2>
         </div>
-        ${renderFilters(state.dashboard.deals)}
       </div>
       ${
         managers.length
@@ -529,32 +571,18 @@ function renderManagerClientView() {
                         </div>
                         <div class="manager-metrics">
                           <span>${manager.clientCount} клиентов</span>
-                          <strong>${manager.activeCount} активных / ${manager.completedCount} завершенных</strong>
+                          <strong>${manager.currentCount} текущих · ${manager.plannedCount} плановых</strong>
+                          <span>${manager.successfulCount} успешных · ${manager.refusedCount} отказов</span>
                           <span>${money(manager.amountRequested)}</span>
                         </div>
                       </summary>
-                      <div class="manager-subsections">
-                        <section class="manager-subsection">
-                          <div class="subsection-head">
-                            <h4>Текущие</h4>
-                            <span>${manager.currentClients.length} клиентов · ${manager.activeCount} заявок</span>
-                          </div>
-                          ${renderClientCards(manager.currentClients, "Текущих клиентов нет.")}
-                        </section>
-                        <section class="manager-subsection">
-                          <div class="subsection-head">
-                            <h4>Завершенные</h4>
-                            <span>${manager.completedClients.length} клиентов · ${manager.completedCount} заявок</span>
-                          </div>
-                          ${renderClientCards(manager.completedClients, "Завершенных клиентов нет.")}
-                        </section>
-                      </div>
+                      ${renderClientCards(manager.clients, "Клиентов пока нет.")}
                     </details>
                   `
                 )
                 .join("")}
             </div>`
-          : `<div class="empty">Нет заявок под выбранные фильтры.</div>`
+          : `<div class="empty">Клиенты и заявки пока не добавлены.</div>`
       }
     </section>
   `;
@@ -563,27 +591,34 @@ function renderManagerClientView() {
 function filteredKnowledge() {
   const query = state.filters.query.toLowerCase();
   return state.knowledge
-    .filter((entry) => state.filters.bank === "all" || entry.bank === state.filters.bank)
-    .filter((entry) => {
+    .filter((bank) => state.filters.bank === "all" || bank.bank === state.filters.bank)
+    .map((bank) => ({
+      ...bank,
+      programs: (bank.programs || []).filter((program) => {
+        if (!query) {
+          return true;
+        }
+        const requirementText = Object.values(program.requirements || {}).join(" ");
+        return [bank.bank, program.program, program.notes, requirementText].join(" ").toLowerCase().includes(query);
+      })
+    }))
+    .filter((bank) => {
       if (!query) {
         return true;
       }
-      return [entry.bank, entry.topic, entry.notes, ...(entry.requirements || []), ...(entry.documents || [])]
-        .join(" ")
-        .toLowerCase()
-        .includes(query);
+      return bank.programs.length > 0;
     });
 }
 
 function renderKnowledgeFilters() {
-  const bankOptions = [...new Set(state.knowledge.map((entry) => entry.bank))]
+  const bankOptions = [...new Set(state.knowledge.map((bank) => bank.bank))]
     .sort((a, b) => a.localeCompare(b, "ru"))
     .map((bank) => `<option value="${escapeHtml(bank)}" ${state.filters.bank === bank ? "selected" : ""}>${escapeHtml(bank)}</option>`)
     .join("");
 
   return `
     <div class="filters">
-      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, тема, требование">
+      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, требование">
       <select id="bankFilter">
         <option value="all">Все банки</option>
         ${bankOptions}
@@ -592,40 +627,61 @@ function renderKnowledgeFilters() {
   `;
 }
 
-function renderKnowledgeList(items) {
-  if (!items.length) {
+function renderRequirementGrid(requirements = {}) {
+  return `
+    <div class="requirement-grid">
+      ${Object.entries(REQUIREMENT_LABELS)
+        .map(
+          ([key, label]) => `
+            <div class="requirement-item">
+              <span>${label}</span>
+              <strong>${escapeHtml(requirements[key] || "Не указано")}</strong>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderKnowledgeList(banks) {
+  if (!banks.length) {
     return `<div class="empty">В базе знаний пока нет записей под выбранные фильтры.</div>`;
   }
 
   return `
-    <div class="knowledge-grid">
-      ${items
+    <div class="knowledge-bank-stack">
+      ${banks
         .map(
-          (entry) => `
-            <article class="knowledge-card">
-              <div class="knowledge-card-head">
+          (bank) => `
+            <details class="knowledge-bank" open>
+              <summary class="knowledge-bank-head">
                 <div>
-                  <p class="eyebrow">${escapeHtml(entry.bank)}</p>
-                  <h3>${escapeHtml(entry.topic)}</h3>
+                  <p class="eyebrow">Банк</p>
+                  <h3>${escapeHtml(bank.bank)}</h3>
                 </div>
-                <time>${formatDate(entry.updatedAt)}</time>
+                <span>${(bank.programs || []).length} программ</span>
+              </summary>
+              <div class="knowledge-grid">
+                ${(bank.programs || [])
+                  .map(
+                    (program) => `
+                      <article class="knowledge-card">
+                        <div class="knowledge-card-head">
+                          <div>
+                            <p class="eyebrow">Программа</p>
+                            <h4>${escapeHtml(program.program)}</h4>
+                          </div>
+                          <time>${formatDate(program.updatedAt || bank.updatedAt)}</time>
+                        </div>
+                        ${renderRequirementGrid(program.requirements)}
+                        <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
+                      </article>
+                    `
+                  )
+                  .join("")}
               </div>
-              <div class="knowledge-columns">
-                <section>
-                  <h4>Требования</h4>
-                  <ul>
-                    ${(entry.requirements || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || `<li>Не указано</li>`}
-                  </ul>
-                </section>
-                <section>
-                  <h4>Документы</h4>
-                  <ul>
-                    ${(entry.documents || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || `<li>Не указано</li>`}
-                  </ul>
-                </section>
-              </div>
-              <p class="knowledge-note">${escapeHtml(entry.notes || "Без заметок")}</p>
-            </article>
+            </details>
           `
         )
         .join("")}
@@ -640,7 +696,7 @@ function renderKnowledgeView() {
       <div class="panel-head">
         <div>
           <p class="eyebrow">База знаний</p>
-          <h2>Банки, требования и документы</h2>
+          <h2>Банки, программы и требования</h2>
         </div>
         ${renderKnowledgeFilters()}
       </div>
@@ -776,51 +832,114 @@ function renderCompleted() {
   `;
 }
 
+function renderBoardControls() {
+  return `
+    <div class="board-controls">
+      <div class="segmented" role="group" aria-label="Тип отчета">
+        ${Object.entries(BOARD_STATUS_LABELS)
+          .map(
+            ([value, label]) => `
+              <button class="${state.board.status === value ? "is-active" : ""}" data-board-status="${value}" type="button">${label}</button>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="segmented" role="group" aria-label="Группировка отчета">
+        ${Object.entries(BOARD_GROUP_LABELS)
+          .map(
+            ([value, label]) => `
+              <button class="${state.board.groupBy === value ? "is-active" : ""}" data-board-group="${value}" type="button">${label}</button>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderBoardApplicationRows(applications, groupBy) {
+  if (!applications.length) {
+    return `<div class="empty compact-empty">Заявок нет.</div>`;
+  }
+
+  return `
+    <div class="board-deal-list">
+      ${applications
+        .map(
+          (deal) => `
+            <article class="board-deal-row">
+              <div>
+                <strong>${escapeHtml(deal.client)}</strong>
+                <span>${escapeHtml(groupBy === "bank" ? deal.manager : deal.bank)} · ${escapeHtml(deal.stageLabel)}</span>
+              </div>
+              <div>
+                <span>Дата заявки</span>
+                <strong>${formatDate(deal.applicationDate)}</strong>
+              </div>
+              <div>
+                <span>Последнее действие</span>
+                <strong>${formatDate(deal.lastActionAt)}</strong>
+              </div>
+              <div>
+                <span>Сумма заявки</span>
+                <strong>${money(deal.amountRequested)}</strong>
+              </div>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderBoardSummaryGroups(groups) {
+  if (!groups.length) {
+    return `<div class="empty">Нет данных для выбранного отчета.</div>`;
+  }
+
+  return `
+    <div class="board-group-stack">
+      ${groups
+        .map(
+          (group) => `
+            <details class="board-group-card">
+              <summary>
+                <div>
+                  <p class="eyebrow">${state.board.groupBy === "bank" ? "Банк" : "Менеджер"}</p>
+                  <h3>${escapeHtml(group.name)}</h3>
+                </div>
+                <div class="manager-metrics">
+                  <span>${group.count} сделок</span>
+                  <strong>${money(group.amountRequested)}</strong>
+                  ${state.board.status === "completed" ? `<span>Одобрено ${money(group.amountApproved)}</span>` : ""}
+                </div>
+              </summary>
+              ${renderBoardApplicationRows(group.applications || [], state.board.groupBy)}
+            </details>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function renderSummary() {
-  const totals = state.dashboard.totals;
+  const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
+  const totalCount = groups.reduce((total, group) => total + group.count, 0);
+  const totalAmount = groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0);
+
   return `
     ${renderKpis()}
-    <section class="report-grid">
-      <div class="panel">
-        <p class="eyebrow">Текущий портфель</p>
-        <h2>${money(totals.amountRequestedCurrent)}</h2>
-        <p class="muted">Сумма заявок в активной работе.</p>
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Правление</p>
+          <h2>${BOARD_STATUS_LABELS[state.board.status]} сделки · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}</h2>
+          <p class="muted">${totalCount} сделок · ${money(totalAmount)} общая сумма заявок</p>
+        </div>
+        ${renderBoardControls()}
       </div>
-      <div class="panel">
-        <p class="eyebrow">Документы</p>
-        <h2>${state.dashboard.currentSummary.needsDocuments}</h2>
-        <p class="muted">Сделки, где следующий шаг зависит от пакета документов.</p>
-      </div>
-      <div class="panel">
-        <p class="eyebrow">Рассмотрение банка</p>
-        <h2>${state.dashboard.currentSummary.inBankReview}</h2>
-        <p class="muted">Поданные, рассматриваемые и одобренные сделки.</p>
-      </div>
-    </section>
-
-    <section class="content-grid">
-      <div class="panel">
-        <p class="eyebrow">Нагрузка</p>
-        <h2>Текущие сделки по банкам</h2>
-        ${renderBarRows(state.dashboard.currentSummary.byBank, "bank", "amountRequested")}
-      </div>
-      <aside class="panel">
-        <p class="eyebrow">Риск SLA</p>
-        <h2>Просроченные действия</h2>
-        <ul class="list">
-          ${state.dashboard.currentSummary.overdueDeals
-            .map(
-              (deal) => `
-                <li class="list-item">
-                  <strong>${escapeHtml(deal.client)}</strong>
-                  <span>${escapeHtml(deal.bank)} · ${formatDate(deal.nextActionAt)}</span>
-                  <span class="muted">${escapeHtml(deal.comment || deal.stageLabel)}</span>
-                </li>
-              `
-            )
-            .join("") || `<li class="list-item muted">Просроченных действий нет.</li>`}
-        </ul>
-      </aside>
+      ${renderBoardSummaryGroups(groups)}
     </section>
   `;
 }
@@ -880,6 +999,20 @@ function bindDynamicControls() {
       render();
     });
   }
+
+  document.querySelectorAll("[data-board-status]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.board.status = button.dataset.boardStatus;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-board-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.board.groupBy = button.dataset.boardGroup;
+      render();
+    });
+  });
 
   document.querySelectorAll("[data-stage-select]").forEach((select) => {
     select.addEventListener("change", async (event) => {

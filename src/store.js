@@ -29,6 +29,10 @@ function writeJson(filePath, value) {
   fs.renameSync(tempPath, filePath);
 }
 
+function cleanText(value) {
+  return String(value || "").trim();
+}
+
 function getDeals() {
   return readJson(DEALS_FILE, []).map(normalizeDeal);
 }
@@ -117,29 +121,40 @@ function createClient(payload) {
 }
 
 function getKnowledge() {
-  return readJson(KNOWLEDGE_FILE, []);
+  return normalizeKnowledgeEntries(readJson(KNOWLEDGE_FILE, []));
 }
 
 function createKnowledgeEntry(payload) {
-  const entries = getKnowledge();
+  const banks = getKnowledge();
   const now = new Date().toISOString();
-  const entry = {
+  const bankName = cleanText(payload.bank);
+  const program = normalizeKnowledgeProgram({
     id: payload.id || `kb-${Date.now()}`,
-    bank: String(payload.bank || "").trim(),
-    topic: String(payload.topic || "").trim(),
-    requirements: normalizeList(payload.requirements),
-    documents: normalizeList(payload.documents),
-    notes: String(payload.notes || "").trim(),
+    program: payload.program || payload.topic,
+    requirements: payload.requirements || payload,
+    notes: payload.notes,
     updatedAt: now
-  };
+  });
 
-  if (!entry.bank || !entry.topic) {
-    throw new Error("Bank and topic are required");
+  if (!bankName || !program.program) {
+    throw new Error("Bank and program are required");
   }
 
-  entries.push(entry);
-  writeJson(KNOWLEDGE_FILE, entries);
-  return entry;
+  let bank = banks.find((item) => item.bank.toLowerCase() === bankName.toLowerCase());
+  if (!bank) {
+    bank = {
+      id: `bank-knowledge-${Date.now()}`,
+      bank: bankName,
+      programs: [],
+      updatedAt: now
+    };
+    banks.push(bank);
+  }
+
+  bank.programs.push(program);
+  bank.updatedAt = now;
+  writeJson(KNOWLEDGE_FILE, banks);
+  return { bank: bank.bank, program };
 }
 
 function normalizeList(value) {
@@ -151,6 +166,74 @@ function normalizeList(value) {
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeRequirementText(value) {
+  if (Array.isArray(value)) {
+    return normalizeList(value).join("\n");
+  }
+  return cleanText(value);
+}
+
+function normalizeRequirements(source = {}) {
+  return {
+    businessRegion: normalizeRequirementText(source.businessRegion || source.region || source.business_region),
+    ipAge: normalizeRequirementText(source.ipAge || source.age || source.ip_age),
+    revenue: normalizeRequirementText(source.revenue || source.turnover),
+    documentation: normalizeRequirementText(source.documentation || source.documents),
+    okved: normalizeRequirementText(source.okved || source.okveds),
+    accountPresence: normalizeRequirementText(source.accountPresence || source.account || source.account_presence)
+  };
+}
+
+function normalizeKnowledgeProgram(raw = {}) {
+  const requirements = raw.requirements && !Array.isArray(raw.requirements) ? raw.requirements : raw;
+  const legacyRequirements = Array.isArray(raw.requirements) ? normalizeList(raw.requirements).join("\n") : "";
+  const legacyDocuments = Array.isArray(raw.documents) ? normalizeList(raw.documents).join("\n") : normalizeRequirementText(raw.documents);
+
+  return {
+    id: cleanText(raw.id) || `kb-${Date.now()}`,
+    program: cleanText(raw.program || raw.topic || raw.name),
+    requirements: normalizeRequirements({
+      ...requirements,
+      documentation: requirements.documentation || legacyDocuments,
+      revenue: requirements.revenue || legacyRequirements
+    }),
+    notes: cleanText(raw.notes),
+    updatedAt: cleanText(raw.updatedAt) || new Date().toISOString()
+  };
+}
+
+function normalizeKnowledgeEntries(entries) {
+  const bankMap = new Map();
+
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const bankName = cleanText(entry.bank || entry.name);
+    if (!bankName) {
+      continue;
+    }
+
+    if (!bankMap.has(bankName.toLowerCase())) {
+      bankMap.set(bankName.toLowerCase(), {
+        id: cleanText(entry.id) || `bank-knowledge-${bankMap.size + 1}`,
+        bank: bankName,
+        programs: [],
+        updatedAt: cleanText(entry.updatedAt)
+      });
+    }
+
+    const bank = bankMap.get(bankName.toLowerCase());
+    const programs = Array.isArray(entry.programs) ? entry.programs : [entry];
+    for (const rawProgram of programs) {
+      const program = normalizeKnowledgeProgram(rawProgram);
+      if (program.program) {
+        bank.programs.push(program);
+      }
+    }
+    bank.updatedAt = bank.updatedAt || bank.programs[0]?.updatedAt || "";
+  }
+
+  return Array.from(bankMap.values()).sort((left, right) => left.bank.localeCompare(right.bank, "ru"));
 }
 
 module.exports = {

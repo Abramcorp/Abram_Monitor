@@ -168,6 +168,9 @@ function toApplicationSummary(deal) {
     stageLabel: deal.stageLabel,
     status: deal.stageLabel,
     statusGroup: deal.statusGroup,
+    createdAt: deal.createdAt,
+    submittedAt: deal.submittedAt,
+    applicationDate: deal.submittedAt || deal.createdAt,
     amountRequested: deal.amountRequested,
     amountApproved: deal.amountApproved,
     bureau: deal.bureau,
@@ -185,20 +188,31 @@ function sortByLastAction(items) {
 
 function buildClientGroup(client, clientDeals) {
   const applications = sortByLastAction(clientDeals.map(toApplicationSummary));
-  const activeApplications = applications.filter((deal) => deal.statusGroup === "current");
-  const completedApplications = applications.filter((deal) => deal.statusGroup === "completed");
+  const plannedApplications = applications.filter((deal) => deal.stage === "lead");
+  const currentApplications = applications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "lead");
+  const successfulApplications = applications.filter((deal) => deal.stage === "issued");
+  const refusedApplications = applications.filter((deal) => deal.stage === "rejected" || deal.stage === "withdrawn");
+  const activeApplications = [...currentApplications, ...plannedApplications];
+  const completedApplications = [...successfulApplications, ...refusedApplications];
 
   return {
     client,
     count: applications.length,
     activeCount: activeApplications.length,
     completedCount: completedApplications.length,
+    currentCount: currentApplications.length,
+    plannedCount: plannedApplications.length,
+    successfulCount: successfulApplications.length,
+    refusedCount: refusedApplications.length,
     amountRequested: sum(clientDeals, "amountRequested"),
     amountApproved: sum(clientDeals, "amountApproved"),
     lastActionAt: applications[0]?.lastActionAt || "",
     activeApplications,
-    currentApplications: activeApplications,
+    currentApplications,
+    plannedApplications,
     completedApplications,
+    successfulApplications,
+    refusedApplications,
     applications
   };
 }
@@ -220,6 +234,10 @@ function buildManagerClientGroups(deals) {
         count: managerDeals.length,
         activeCount: currentDeals.length,
         completedCount: completedDeals.length,
+        currentCount: clients.reduce((total, client) => total + client.currentCount, 0),
+        plannedCount: clients.reduce((total, client) => total + client.plannedCount, 0),
+        successfulCount: clients.reduce((total, client) => total + client.successfulCount, 0),
+        refusedCount: clients.reduce((total, client) => total + client.refusedCount, 0),
         amountRequested: sum(managerDeals, "amountRequested"),
         amountApproved: sum(managerDeals, "amountApproved"),
         currentAmountRequested: sum(currentDeals, "amountRequested"),
@@ -238,6 +256,39 @@ function buildCurrentManagerGroups(currentDeals) {
     ...manager,
     clients: manager.currentClients
   }));
+}
+
+function buildBoardSummary(deals, statusGroup, grouping) {
+  const field = grouping === "bank" ? "bank" : "manager";
+  const fallback = grouping === "bank" ? "Банк не указан" : "Менеджер не указан";
+  const filteredDeals = deals.filter((deal) => deal.statusGroup === statusGroup);
+
+  return Array.from(groupBy(filteredDeals, (deal) => deal[field] || fallback).entries())
+    .map(([name, items]) => ({
+      id: `${grouping}-${statusGroup}-${name}`.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-|-$/g, ""),
+      name,
+      groupBy: grouping,
+      statusGroup,
+      count: items.length,
+      amountRequested: sum(items, "amountRequested"),
+      amountApproved: sum(items, "amountApproved"),
+      lastActionAt: latestIsoDate(items.map((deal) => deal.lastActionAt)),
+      applications: sortByLastAction(items.map(toApplicationSummary))
+    }))
+    .sort((a, b) => b.amountRequested - a.amountRequested || a.name.localeCompare(b.name, "ru"));
+}
+
+function buildBoardSummaries(deals) {
+  return {
+    current: {
+      manager: buildBoardSummary(deals, "current", "manager"),
+      bank: buildBoardSummary(deals, "current", "bank")
+    },
+    completed: {
+      manager: buildBoardSummary(deals, "completed", "manager"),
+      bank: buildBoardSummary(deals, "completed", "bank")
+    }
+  };
 }
 
 function calculateDashboard(rawDeals, clock = new Date()) {
@@ -329,6 +380,7 @@ function calculateDashboard(rawDeals, clock = new Date()) {
     },
     currentFunnel,
     managerClientGroups: buildManagerClientGroups(deals),
+    boardSummaries: buildBoardSummaries(deals),
     currentSummary: {
       overdueDeals,
       nextActions,
@@ -349,6 +401,7 @@ module.exports = {
   ALL_STAGES,
   COMPLETED_STAGES,
   CURRENT_STAGES,
+  buildBoardSummary,
   buildCurrentManagerGroups,
   buildManagerClientGroups,
   calculateDashboard,
