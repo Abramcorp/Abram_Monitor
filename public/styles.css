@@ -411,6 +411,27 @@ button {
   margin-top: 8px;
 }
 
+.client-summary-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.client-summary-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .client-summary-dates span {
   color: var(--muted);
   font-size: 13px;

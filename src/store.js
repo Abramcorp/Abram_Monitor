@@ -335,6 +335,9 @@ function normalizeClient(raw = {}) {
     manager: cleanText(raw.manager) || "Без аналитика",
     contact: cleanText(raw.contact),
     phone: cleanText(raw.phone),
+    crmUrl: cleanText(raw.crmUrl || raw.crmLink),
+    driveUrl: cleanText(raw.driveUrl || raw.diskUrl || raw.driveLink),
+    instructionUrl: cleanText(raw.instructionUrl || raw.instructionLink),
     comment: cleanText(raw.comment),
     createdAt,
     updatedAt: updatedAt || createdAt

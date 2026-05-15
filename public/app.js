@@ -196,6 +196,20 @@ function formatActionEntry(action) {
   return `${escapeHtml(action.action)} — ${actionDate.format(date)} — ${actionTime.format(date)}`;
 }
 
+function safeExternalUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const url = new URL(text);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function applicationStageClass(stage) {
   return `application-stage-${String(stage || "planned").replace(/[^a-z0-9-]/gi, "")}`;
 }
@@ -410,6 +424,9 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
             client,
             contact: meta.contact || "",
             phone: meta.phone || "",
+            crmUrl: meta.crmUrl || "",
+            driveUrl: meta.driveUrl || "",
+            instructionUrl: meta.instructionUrl || "",
             comment: meta.comment || "",
             createdAt: addedAt,
             count: sortedApplications.length,
@@ -680,6 +697,32 @@ function renderAddApplicationButton(manager, client) {
   `;
 }
 
+function renderClientLinks(client) {
+  const links = [
+    ["CRM", client.crmUrl],
+    ["Диск", client.driveUrl],
+    ["Инструкция", client.instructionUrl]
+  ]
+    .map(([label, url]) => [label, safeExternalUrl(url)])
+    .filter(([, url]) => url);
+
+  if (!links.length) {
+    return "";
+  }
+
+  return `
+    <div class="client-summary-links">
+      ${links
+        .map(
+          ([label, url]) => `
+            <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function renderClientSummary(client, options = {}) {
   const settings = typeof options === "object" ? options : {};
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
@@ -697,6 +740,7 @@ function renderClientSummary(client, options = {}) {
         <span>Дата начала: ${formatDateWithAge(client.startedAt, "в работе")}</span>
         <span>Последнее изменение: ${formatDateWithAge(client.lastActionAt, "назад")}</span>
       </div>
+      ${renderClientLinks(client)}
     </div>
     <span class="applications-toggle" role="button" aria-label="Раскрыть заявки">Заявки</span>
   `;

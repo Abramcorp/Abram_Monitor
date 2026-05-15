@@ -80,6 +80,9 @@ test("normalizeClient keeps client card dates when present", () => {
     name: "ООО Архив",
     manager: "Анна Орлова",
     contact: "Иван",
+    crmUrl: "https://crm.example/client-1",
+    driveUrl: "https://drive.example/folder",
+    instructionUrl: "https://docs.example/instruction",
     createdAt: "2026-05-10T10:00:00+03:00",
     updatedAt: "2026-05-11T12:30:00+03:00"
   });
@@ -87,6 +90,9 @@ test("normalizeClient keeps client card dates when present", () => {
   assert.equal(client.name, "ООО Архив");
   assert.equal(client.manager, "Анна Орлова");
   assert.equal(client.contact, "Иван");
+  assert.equal(client.crmUrl, "https://crm.example/client-1");
+  assert.equal(client.driveUrl, "https://drive.example/folder");
+  assert.equal(client.instructionUrl, "https://docs.example/instruction");
   assert.equal(client.createdAt, "2026-05-10T07:00:00.000Z");
   assert.equal(client.updatedAt, "2026-05-11T09:30:00.000Z");
 });
