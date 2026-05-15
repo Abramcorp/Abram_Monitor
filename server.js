@@ -5,15 +5,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { calculateDashboard } = require("./src/analytics");
 const {
+  addDealAction,
   createBank,
   createClient,
   createDeal,
   createKnowledgeEntry,
+  createManager,
+  deleteManager,
   getBanks,
   getClients,
   getDeals,
   getKnowledge,
-  updateDeal
+  getManagers,
+  updateDeal,
+  updateKnowledgeProgram,
+  initStore
 } = require("./src/store");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -89,25 +95,37 @@ async function handleApi(request, response) {
   const pathname = url.pathname;
 
   if (request.method === "GET" && pathname === "/api/dashboard") {
-    sendJson(response, 200, calculateDashboard(getDeals()));
+    sendJson(response, 200, calculateDashboard(await getDeals()));
     return;
   }
 
   if (request.method === "GET" && pathname === "/api/deals") {
-    sendJson(response, 200, { deals: getDeals() });
+    sendJson(response, 200, { deals: await getDeals() });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/deals") {
     const payload = await readBody(request);
-    sendJson(response, 201, { deal: createDeal(payload) });
+    sendJson(response, 201, { deal: await createDeal(payload) });
+    return;
+  }
+
+  const dealActionMatch = pathname.match(/^\/api\/deals\/([^/]+)\/actions$/);
+  if (request.method === "POST" && dealActionMatch) {
+    const payload = await readBody(request);
+    const deal = await addDealAction(decodeURIComponent(dealActionMatch[1]), payload);
+    if (!deal) {
+      sendJson(response, 404, { error: "Deal not found" });
+      return;
+    }
+    sendJson(response, 201, { deal });
     return;
   }
 
   const dealMatch = pathname.match(/^\/api\/deals\/([^/]+)$/);
   if (request.method === "PATCH" && dealMatch) {
     const payload = await readBody(request);
-    const deal = updateDeal(decodeURIComponent(dealMatch[1]), payload);
+    const deal = await updateDeal(decodeURIComponent(dealMatch[1]), payload);
     if (!deal) {
       sendJson(response, 404, { error: "Deal not found" });
       return;
@@ -117,35 +135,69 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/banks") {
-    sendJson(response, 200, { banks: getBanks() });
+    sendJson(response, 200, { banks: await getBanks() });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/banks") {
     const payload = await readBody(request);
-    sendJson(response, 201, { bank: createBank(payload) });
+    sendJson(response, 201, { bank: await createBank(payload) });
     return;
   }
 
   if (request.method === "GET" && pathname === "/api/clients") {
-    sendJson(response, 200, { clients: getClients() });
+    sendJson(response, 200, { clients: await getClients() });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/clients") {
     const payload = await readBody(request);
-    sendJson(response, 201, { client: createClient(payload) });
+    sendJson(response, 201, { client: await createClient(payload) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/managers") {
+    sendJson(response, 200, { managers: await getManagers() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/managers") {
+    const payload = await readBody(request);
+    sendJson(response, 201, { manager: await createManager(payload) });
+    return;
+  }
+
+  const managerMatch = pathname.match(/^\/api\/managers\/([^/]+)$/);
+  if (request.method === "DELETE" && managerMatch) {
+    const manager = await deleteManager(decodeURIComponent(managerMatch[1]));
+    if (!manager) {
+      sendJson(response, 404, { error: "Manager not found" });
+      return;
+    }
+    sendJson(response, 200, { manager });
     return;
   }
 
   if (request.method === "GET" && pathname === "/api/knowledge") {
-    sendJson(response, 200, { knowledge: getKnowledge() });
+    sendJson(response, 200, { knowledge: await getKnowledge() });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/knowledge") {
     const payload = await readBody(request);
-    sendJson(response, 201, { entry: createKnowledgeEntry(payload) });
+    sendJson(response, 201, { entry: await createKnowledgeEntry(payload) });
+    return;
+  }
+
+  const knowledgeProgramMatch = pathname.match(/^\/api\/knowledge\/programs\/([^/]+)$/);
+  if (request.method === "PATCH" && knowledgeProgramMatch) {
+    const payload = await readBody(request);
+    const entry = await updateKnowledgeProgram(decodeURIComponent(knowledgeProgramMatch[1]), payload);
+    if (!entry) {
+      sendJson(response, 404, { error: "Knowledge program not found" });
+      return;
+    }
+    sendJson(response, 200, { entry });
     return;
   }
 
@@ -164,6 +216,14 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Deal Monitor is running at http://localhost:${PORT}`);
+async function start() {
+  await initStore();
+  server.listen(PORT, () => {
+    console.log(`Deal Monitor is running at http://localhost:${PORT}`);
+  });
+}
+
+start().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });

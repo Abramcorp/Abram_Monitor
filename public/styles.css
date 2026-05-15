@@ -99,6 +99,11 @@ button {
   padding: 0 14px;
 }
 
+.danger-button {
+  border-color: #f1c4c7;
+  color: var(--red);
+}
+
 .icon-button {
   width: 40px;
   padding: 0;
@@ -108,10 +113,6 @@ button {
 
 .tabs {
   margin-bottom: 18px;
-}
-
-.mode-tabs {
-  margin-bottom: 10px;
 }
 
 .tab.is-active {
@@ -224,6 +225,11 @@ button {
   color: var(--ink);
 }
 
+.deal-form input[readonly] {
+  background: #f3f5f7;
+  color: var(--muted);
+}
+
 .filters input {
   width: min(320px, 100%);
 }
@@ -291,6 +297,34 @@ button {
   font-size: 20px;
 }
 
+.summary-amounts,
+.client-summary-amounts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summary-amounts {
+  justify-content: flex-end;
+}
+
+.summary-amounts span,
+.client-summary-amounts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: #eef3f8;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.summary-amounts strong {
+  font-size: 13px;
+}
+
 .client-stack {
   padding: 12px;
 }
@@ -332,8 +366,9 @@ button {
 
 .client-card summary {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) 1fr;
+  grid-template-columns: minmax(280px, 1fr) auto;
   gap: 16px;
+  align-items: center;
   padding: 12px;
   list-style: none;
   cursor: pointer;
@@ -343,36 +378,67 @@ button {
   display: none;
 }
 
-.client-summary-main strong,
-.client-summary-main span {
+.client-title {
   display: block;
+  margin-bottom: 8px;
 }
 
-.client-summary-main span {
-  margin-top: 4px;
+.client-summary-stats,
+.client-summary-dates,
+.client-summary-amounts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.client-summary-stats span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: #f1f4f8;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.client-summary-dates {
+  margin-top: 8px;
+}
+
+.client-summary-amounts {
+  margin-top: 8px;
+}
+
+.client-summary-dates span {
   color: var(--muted);
   font-size: 13px;
 }
 
-.application-snapshot {
-  display: grid;
-  gap: 6px;
+.client-summary-amounts strong {
+  margin: 0;
+  font-size: 13px;
 }
 
-.application-line {
-  display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(130px, auto) minmax(84px, auto);
-  gap: 10px;
+.applications-toggle {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 30px;
   border-radius: 6px;
-  padding: 5px 8px;
-  background: #f1f4f8;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
   font-size: 13px;
+  font-weight: 700;
 }
 
-.application-line time {
-  color: var(--muted);
+.client-card[open] .applications-toggle {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
 }
 
 .client-drilldown {
@@ -381,14 +447,60 @@ button {
   background: #fff;
 }
 
+.client-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.small-button {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
 .application-split {
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(250px, 1fr) minmax(280px, 1.08fr) minmax(180px, 0.62fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.application-completed-rail {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
 }
 
 .application-group {
   display: grid;
   gap: 10px;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7f9fb;
+}
+
+.application-group-collapsible {
+  padding: 0;
+  overflow: hidden;
+}
+
+.application-group-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px;
+}
+
+.application-group-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.application-group-collapsible .client-application-list,
+.application-group-collapsible .compact-empty {
+  margin: 0 10px 10px;
 }
 
 .application-group-head {
@@ -403,7 +515,7 @@ button {
   font-size: 14px;
 }
 
-.application-group-head span {
+.application-group-head > span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -414,6 +526,16 @@ button {
   font-weight: 700;
 }
 
+.application-group-head .application-group-amount {
+  min-width: 0;
+  min-height: 26px;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: #e9f7ec;
+  color: var(--green);
+  font-size: 13px;
+}
+
 .client-application-list {
   display: grid;
   gap: 10px;
@@ -421,12 +543,61 @@ button {
 
 .client-application-card {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 10px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
-  background: #fbfcfd;
+  background: #fff;
+}
+
+.application-card-head {
+  display: grid;
+  gap: 3px;
+}
+
+.application-card-head strong {
+  overflow-wrap: anywhere;
+}
+
+.application-card-head span {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.application-card-head em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.application-stage-lead {
+  border-color: #e3b91c;
+  background: #fff7cc;
+}
+
+.application-stage-submitted {
+  border-color: #52bfc1;
+  background: #e2fafa;
+}
+
+.application-stage-approved {
+  border-color: #80c58b;
+  background: #ecf9ee;
+}
+
+.application-stage-rejected {
+  border-color: #ed8f8f;
+  background: #fff0f0;
+}
+
+.application-stage-blocked {
+  border-color: #b58be2;
+  background: #f5ecff;
+}
+
+.application-action-button {
+  justify-self: start;
 }
 
 .application-field {
@@ -447,7 +618,8 @@ button {
   font-size: 14px;
 }
 
-.application-field select {
+.application-field select,
+.application-field input {
   min-height: 34px;
   min-width: 0;
   border: 1px solid var(--line);
@@ -457,7 +629,29 @@ button {
 }
 
 .application-comment {
-  grid-column: span 2;
+  min-width: 0;
+}
+
+.application-history-field {
+  gap: 8px;
+}
+
+.application-history {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.application-history li {
+  overflow-wrap: anywhere;
+}
+
+.application-history-empty {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .compact-empty {
@@ -506,6 +700,45 @@ button {
   padding: 0 14px 14px;
 }
 
+.knowledge-program-groups {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.knowledge-bank .knowledge-program-groups {
+  padding: 0 14px 14px;
+}
+
+.knowledge-program-group {
+  display: grid;
+  gap: 10px;
+}
+
+.knowledge-program-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.knowledge-program-group-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.knowledge-program-group-head span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 26px;
+  border-radius: 999px;
+  background: #edf2f7;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .knowledge-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -530,6 +763,22 @@ button {
 .knowledge-card-head time {
   color: var(--muted);
   font-size: 13px;
+}
+
+.knowledge-card-head h4 span {
+  color: var(--green);
+  font-size: 14px;
+}
+
+.knowledge-card-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.knowledge-sections {
+  justify-content: flex-start;
+  margin-bottom: 14px;
 }
 
 .knowledge-columns {
@@ -661,8 +910,8 @@ td select {
   font-weight: 700;
 }
 
-.status-pill.issued,
-.bar.issued {
+.status-pill.approved,
+.bar.approved {
   background: rgba(18, 128, 108, 0.14);
   color: var(--green);
 }
@@ -673,8 +922,8 @@ td select {
   color: var(--red);
 }
 
-.status-pill.withdrawn,
-.bar.withdrawn {
+.status-pill.blocked,
+.bar.blocked {
   background: rgba(182, 106, 19, 0.16);
   color: var(--amber);
 }
@@ -858,7 +1107,12 @@ td select {
   .report-grid,
   .knowledge-columns,
   .requirement-grid,
+  .application-split,
   .board-deal-row {
+    grid-template-columns: 1fr;
+  }
+
+  .application-split {
     grid-template-columns: 1fr;
   }
 
@@ -891,7 +1145,6 @@ td select {
   }
 
   .client-card summary,
-  .application-line,
   .manager-head,
   .subsection-head,
   .board-group-card > summary,
@@ -901,6 +1154,10 @@ td select {
 
   .manager-metrics {
     justify-items: start;
+  }
+
+  .summary-amounts {
+    justify-content: flex-start;
   }
 
   .board-controls,

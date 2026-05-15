@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Мониторинг сделок</title>
+    <title>Мониторинг заявок</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -11,20 +11,15 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Deal Monitor</p>
-          <h1>Мониторинг состояния сделок</h1>
+          <h1>Мониторинг состояния заявок</h1>
         </div>
         <div class="topbar-actions">
           <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
+          <button class="primary-button" id="newManagerButton" type="button">+ Аналитик</button>
           <button class="primary-button" id="newClientButton" type="button">+ Клиент</button>
-          <button class="primary-button" id="newDealButton" type="button">+ Новая сделка</button>
           <button class="ghost-button" id="newKnowledgeButton" type="button">+ Запись БЗ</button>
         </div>
       </header>
-
-      <nav class="tabs mode-tabs" aria-label="Режимы доступа">
-        <button class="tab is-active" data-mode="analyst" type="button">Аналитики</button>
-        <button class="tab" data-mode="board" type="button">Правление</button>
-      </nav>
 
       <nav class="tabs" id="viewTabs" aria-label="Разделы мониторинга">
       </nav>
@@ -38,17 +33,17 @@
       <form method="dialog" class="deal-form" id="dealForm">
         <div class="dialog-head">
           <div>
-            <p class="eyebrow">Сделка</p>
+            <p class="eyebrow">Заявка</p>
             <h2>Новая заявка</h2>
           </div>
           <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
         </div>
 
         <label>
-          Менеджер
-          <input name="manager" required list="managerOptions" autocomplete="off">
-          <datalist id="managerOptions"></datalist>
+          Аналитик
+          <select name="manager" required></select>
         </label>
+        <input name="managerLocked" type="hidden">
 
         <label>
           Клиент
@@ -57,14 +52,29 @@
         </label>
 
         <label>
-          Банк
-          <select name="bank" required></select>
+          Программа
+          <select name="knowledgeProgramId" required></select>
         </label>
+        <input name="bank" type="hidden">
+        <input name="program" type="hidden">
+        <input name="programType" type="hidden">
+        <input name="programAmountRange" type="hidden">
 
         <label>
-          Этап
+          Статус заявки
           <select name="stage" required></select>
         </label>
+
+        <div class="form-grid">
+          <label>
+            Дата обращения
+            <input name="inquiryAt" type="datetime-local">
+          </label>
+          <label>
+            Дата подписания
+            <input name="signedAt" type="datetime-local">
+          </label>
+        </div>
 
         <div class="form-grid">
           <label>
@@ -95,7 +105,36 @@
 
         <div class="dialog-actions">
           <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
-          <button class="primary-button" id="saveDealButton" value="default" type="submit">Сохранить</button>
+          <button class="primary-button" id="saveDealButton" value="default" type="submit">Сохранить заявку</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="deal-dialog" id="dealActionDialog">
+      <form method="dialog" class="deal-form" id="dealActionForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Хронология</p>
+            <h2>Новое действие</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <input name="dealId" type="hidden">
+
+        <label>
+          Дата и время
+          <input name="actionAt" type="datetime-local" required>
+        </label>
+
+        <label>
+          Действие / комментарий
+          <textarea name="action" rows="4" required></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Добавить</button>
         </div>
       </form>
     </dialog>
@@ -111,8 +150,8 @@
         </div>
 
         <label>
-          Менеджер
-          <input name="manager" required list="managerOptions" autocomplete="off">
+          Аналитик
+          <select name="manager" required></select>
         </label>
 
         <label>
@@ -143,15 +182,39 @@
       </form>
     </dialog>
 
+    <dialog class="deal-dialog" id="managerDialog">
+      <form method="dialog" class="deal-form" id="managerForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Учетная карточка</p>
+            <h2>Новый аналитик</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <label>
+          Имя
+          <input name="name" required autocomplete="off">
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="deal-dialog" id="knowledgeDialog">
       <form method="dialog" class="deal-form" id="knowledgeForm">
         <div class="dialog-head">
           <div>
             <p class="eyebrow">База знаний</p>
-            <h2>Новая запись</h2>
+            <h2 id="knowledgeDialogTitle">Новая запись</h2>
           </div>
           <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
         </div>
+
+        <input name="programId" type="hidden">
 
         <label>
           Банк
@@ -159,10 +222,25 @@
           <datalist id="bankOptions"></datalist>
         </label>
 
-        <label>
-          Программа
-          <input name="program" required autocomplete="off">
-        </label>
+        <div class="form-grid">
+          <label>
+            Программа
+            <input name="program" required autocomplete="off" placeholder="Оборотный">
+          </label>
+          <label>
+            Сумма
+            <input name="amountRange" autocomplete="off" placeholder="от 5 до 50 млн">
+          </label>
+          <label>
+            Тип программы
+            <select name="programType" required>
+              <option value="Экспресс">Экспресс</option>
+              <option value="Стандарт">Стандарт</option>
+              <option value="Физическое лицо">Физическое лицо</option>
+              <option value="Добивка">Добивка</option>
+            </select>
+          </label>
+        </div>
 
         <div class="form-grid">
           <label>

@@ -1,24 +1,28 @@
 "use strict";
 
 const CURRENT_STAGES = [
-  { id: "lead", label: "Новая заявка" },
-  { id: "documents", label: "Запрос документов" },
-  { id: "ki_check", label: "Проверка КИ" },
-  { id: "submitted", label: "Подана в банк" },
-  { id: "review", label: "На рассмотрении" },
-  { id: "approved", label: "Одобрено" }
+  { id: "planned", label: "Плановая" },
+  { id: "lead", label: "Закинули лид" },
+  { id: "submitted", label: "Подписали заявку ждем решение" }
 ];
 
 const COMPLETED_STAGES = [
-  { id: "issued", label: "Выдано" },
-  { id: "rejected", label: "Отказ" },
-  { id: "withdrawn", label: "Клиент отказался" }
+  { id: "approved", label: "Одобрено" },
+  { id: "rejected", label: "Отклонено" },
+  { id: "blocked", label: "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)" }
 ];
 
 const ALL_STAGES = [...CURRENT_STAGES, ...COMPLETED_STAGES];
 const STAGE_LABELS = Object.fromEntries(ALL_STAGES.map((stage) => [stage.id, stage.label]));
 const CURRENT_STAGE_IDS = new Set(CURRENT_STAGES.map((stage) => stage.id));
 const COMPLETED_STAGE_IDS = new Set(COMPLETED_STAGES.map((stage) => stage.id));
+const LEGACY_STAGE_MAP = {
+  documents: "lead",
+  ki_check: "lead",
+  review: "submitted",
+  issued: "approved",
+  withdrawn: "blocked"
+};
 
 function cleanText(value) {
   return String(value ?? "").trim();
@@ -59,22 +63,48 @@ function latestIsoDate(values) {
   return timestamps.length ? new Date(timestamps[0]).toISOString() : "";
 }
 
+function earliestIsoDate(values) {
+  const timestamps = values
+    .map(toIsoDate)
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  return timestamps.length ? new Date(timestamps[0]).toISOString() : "";
+}
+
+function normalizeDealAction(raw = {}, index = 0) {
+  const action = cleanText(raw.action || raw.comment || raw.text);
+  const actionAt = toIsoDate(raw.actionAt || raw.date || raw.createdAt);
+  if (!action || !actionAt) {
+    return null;
+  }
+
+  return {
+    id: cleanText(raw.id) || `action-${index + 1}`,
+    action,
+    actionAt
+  };
+}
+
 function stageFromLegacyStatus(rawStage, rawStatus) {
   const stage = cleanText(rawStage).toLowerCase();
   if (CURRENT_STAGE_IDS.has(stage) || COMPLETED_STAGE_IDS.has(stage)) {
     return stage;
   }
+  if (LEGACY_STAGE_MAP[stage]) {
+    return LEGACY_STAGE_MAP[stage];
+  }
 
   const status = cleanText(rawStatus).toLowerCase();
-  if (/выдан|финансирован|закрыт/.test(status)) return "issued";
-  if (/отказ/.test(status)) return "rejected";
-  if (/клиент.*отказ|отозван|withdraw/.test(status)) return "withdrawn";
-  if (/одобрен/.test(status)) return "approved";
-  if (/рассмотр/.test(status)) return "review";
-  if (/подан|банк/.test(status)) return "submitted";
-  if (/ки|кредитн/.test(status)) return "ki_check";
-  if (/документ|обращение/.test(status)) return "documents";
-  return "lead";
+  if (/нет возможности|невозможно|не.*завести|блок|отозван|клиент.*отказ|withdraw/.test(status)) return "blocked";
+  if (/отказ|отклон/.test(status)) return "rejected";
+  if (/одобрен|выдан|финансирован|закрыт/.test(status)) return "approved";
+  if (/подпис|рассмотр|подан|банк/.test(status)) return "submitted";
+  if (/лид|документ|обращение|ки|кредитн/.test(status)) return "lead";
+  if (/план/.test(status)) return "planned";
+  return "planned";
 }
 
 function normalizeDeal(raw = {}) {
@@ -85,16 +115,25 @@ function normalizeDeal(raw = {}) {
   const rawUpdatedAt = toIsoDate(raw.updatedAt);
   const createdAt = rawCreatedAt || rawUpdatedAt || now;
   const updatedAt = rawUpdatedAt || rawCreatedAt || now;
+  const inquiryAt = toIsoDate(raw.inquiryAt);
   const submittedAt = toIsoDate(raw.submittedAt);
+  const signedAt = toIsoDate(raw.signedAt) || submittedAt;
   const kiRequestedAt = toIsoDate(raw.kiRequestedAt);
   const analystCallAt = toIsoDate(raw.analystCallAt);
   const nextActionAt = toIsoDate(raw.nextActionAt);
   const creditVisibleAt = toIsoDate(raw.creditVisibleAt);
   const completedAt = completed ? toIsoDate(raw.completedAt) || updatedAt : "";
+  const actions = (Array.isArray(raw.actions) ? raw.actions : [])
+    .map(normalizeDealAction)
+    .filter(Boolean)
+    .sort((left, right) => new Date(left.actionAt) - new Date(right.actionAt));
   const lastActionAt = latestIsoDate([
     rawUpdatedAt,
+    ...actions.map((action) => action.actionAt),
     analystCallAt,
+    signedAt,
     submittedAt,
+    inquiryAt,
     kiRequestedAt,
     creditVisibleAt,
     completedAt,
@@ -104,8 +143,12 @@ function normalizeDeal(raw = {}) {
   return {
     id: cleanText(raw.id) || `deal-${Date.now()}`,
     client: cleanText(raw.client) || "Без названия",
-    manager: cleanText(raw.manager) || "Без менеджера",
+    manager: cleanText(raw.manager) || "Без аналитика",
     bank: cleanText(raw.bank) || "Банк не выбран",
+    knowledgeProgramId: cleanText(raw.knowledgeProgramId || raw.programId),
+    program: cleanText(raw.program || raw.programName),
+    programType: cleanText(raw.programType),
+    programAmountRange: cleanText(raw.programAmountRange || raw.amountRange),
     stage,
     stageLabel: STAGE_LABELS[stage],
     status: cleanText(raw.status) || STAGE_LABELS[stage],
@@ -113,13 +156,16 @@ function normalizeDeal(raw = {}) {
     amountRequested: toNumber(raw.amountRequested),
     amountApproved: toNumber(raw.amountApproved),
     bureau: cleanText(raw.bureau),
+    inquiryAt,
     submittedAt,
+    signedAt,
     kiRequestedAt,
     analystCallAt,
     nextActionAt,
     creditVisibleAt,
     completedAt,
     lastActionAt,
+    actions,
     timeline: cleanText(raw.timeline),
     comment: cleanText(raw.comment),
     createdAt,
@@ -164,19 +210,26 @@ function toApplicationSummary(deal) {
     client: deal.client,
     manager: deal.manager,
     bank: deal.bank,
+    knowledgeProgramId: deal.knowledgeProgramId,
+    program: deal.program,
+    programType: deal.programType,
+    programAmountRange: deal.programAmountRange,
     stage: deal.stage,
     stageLabel: deal.stageLabel,
     status: deal.stageLabel,
     statusGroup: deal.statusGroup,
     createdAt: deal.createdAt,
+    inquiryAt: deal.inquiryAt,
     submittedAt: deal.submittedAt,
-    applicationDate: deal.submittedAt || deal.createdAt,
+    signedAt: deal.signedAt,
+    applicationDate: deal.signedAt || deal.submittedAt || deal.inquiryAt || deal.createdAt,
     amountRequested: deal.amountRequested,
     amountApproved: deal.amountApproved,
     bureau: deal.bureau,
     lastActionAt: deal.lastActionAt,
     nextActionAt: deal.nextActionAt,
     completedAt: deal.completedAt,
+    actions: deal.actions,
     comment: deal.comment,
     timeline: deal.timeline
   };
@@ -188,12 +241,16 @@ function sortByLastAction(items) {
 
 function buildClientGroup(client, clientDeals) {
   const applications = sortByLastAction(clientDeals.map(toApplicationSummary));
-  const plannedApplications = applications.filter((deal) => deal.stage === "lead");
-  const currentApplications = applications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "lead");
-  const successfulApplications = applications.filter((deal) => deal.stage === "issued");
-  const refusedApplications = applications.filter((deal) => deal.stage === "rejected" || deal.stage === "withdrawn");
+  const plannedApplications = applications.filter((deal) => deal.stage === "planned");
+  const currentApplications = applications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
+  const successfulApplications = applications.filter((deal) => deal.stage === "approved");
+  const refusedApplications = applications.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked");
   const activeApplications = [...currentApplications, ...plannedApplications];
   const completedApplications = [...successfulApplications, ...refusedApplications];
+  const plannedDeals = clientDeals.filter((deal) => deal.stage === "planned");
+  const currentDeals = clientDeals.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
+  const approvedDeals = clientDeals.filter((deal) => deal.stage === "approved");
+  const startedAt = earliestIsoDate(clientDeals.flatMap((deal) => [deal.inquiryAt, deal.signedAt]));
 
   return {
     client,
@@ -206,6 +263,10 @@ function buildClientGroup(client, clientDeals) {
     refusedCount: refusedApplications.length,
     amountRequested: sum(clientDeals, "amountRequested"),
     amountApproved: sum(clientDeals, "amountApproved"),
+    plannedAmountRequested: sum(plannedDeals, "amountRequested"),
+    currentAmountRequested: sum(currentDeals, "amountRequested"),
+    approvedAmount: sum(approvedDeals, "amountApproved"),
+    startedAt,
     lastActionAt: applications[0]?.lastActionAt || "",
     activeApplications,
     currentApplications,
@@ -225,6 +286,7 @@ function buildManagerClientGroups(deals) {
         .sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0) || b.count - a.count);
       const currentDeals = managerDeals.filter((deal) => deal.statusGroup === "current");
       const completedDeals = managerDeals.filter((deal) => deal.statusGroup === "completed");
+      const currentApplicationDeals = currentDeals.filter((deal) => deal.stage !== "planned");
 
       return {
         manager,
@@ -240,8 +302,10 @@ function buildManagerClientGroups(deals) {
         refusedCount: clients.reduce((total, client) => total + client.refusedCount, 0),
         amountRequested: sum(managerDeals, "amountRequested"),
         amountApproved: sum(managerDeals, "amountApproved"),
-        currentAmountRequested: sum(currentDeals, "amountRequested"),
+        currentAmountRequested: sum(currentApplicationDeals, "amountRequested"),
         completedAmountRequested: sum(completedDeals, "amountRequested"),
+        plannedAmountRequested: clients.reduce((total, client) => total + client.plannedAmountRequested, 0),
+        approvedAmount: clients.reduce((total, client) => total + client.approvedAmount, 0),
         lastActionAt: clients[0]?.lastActionAt || "",
         currentClients: clients.filter((client) => client.activeCount > 0),
         completedClients: clients.filter((client) => client.completedCount > 0),
@@ -260,21 +324,36 @@ function buildCurrentManagerGroups(currentDeals) {
 
 function buildBoardSummary(deals, statusGroup, grouping) {
   const field = grouping === "bank" ? "bank" : "manager";
-  const fallback = grouping === "bank" ? "Банк не указан" : "Менеджер не указан";
+  const fallback = grouping === "bank" ? "Банк не указан" : "Аналитик не указан";
   const filteredDeals = deals.filter((deal) => deal.statusGroup === statusGroup);
+  const allGroups = groupBy(deals, (deal) => deal[field] || fallback);
 
   return Array.from(groupBy(filteredDeals, (deal) => deal[field] || fallback).entries())
-    .map(([name, items]) => ({
-      id: `${grouping}-${statusGroup}-${name}`.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-|-$/g, ""),
-      name,
-      groupBy: grouping,
-      statusGroup,
-      count: items.length,
-      amountRequested: sum(items, "amountRequested"),
-      amountApproved: sum(items, "amountApproved"),
-      lastActionAt: latestIsoDate(items.map((deal) => deal.lastActionAt)),
-      applications: sortByLastAction(items.map(toApplicationSummary))
-    }))
+    .map(([name, items]) => {
+      const groupDeals = allGroups.get(name) || items;
+      const plannedDeals = groupDeals.filter((deal) => deal.stage === "planned");
+      const currentDeals = groupDeals.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
+      const approvedDeals = groupDeals.filter((deal) => deal.stage === "approved");
+      const totalAmountRequested = sum(groupDeals, "amountRequested");
+      const approvedAmount = sum(approvedDeals, "amountApproved");
+
+      return {
+        id: `${grouping}-${statusGroup}-${name}`.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-|-$/g, ""),
+        name,
+        groupBy: grouping,
+        statusGroup,
+        count: items.length,
+        amountRequested: sum(items, "amountRequested"),
+        amountApproved: sum(items, "amountApproved"),
+        plannedAmountRequested: sum(plannedDeals, "amountRequested"),
+        currentAmountRequested: sum(currentDeals, "amountRequested"),
+        approvedAmount,
+        totalAmountRequested,
+        approvalConversionRate: totalAmountRequested ? Math.round((approvedAmount / totalAmountRequested) * 100) : 0,
+        lastActionAt: latestIsoDate(items.map((deal) => deal.lastActionAt)),
+        applications: sortByLastAction(items.map(toApplicationSummary))
+      };
+    })
     .sort((a, b) => b.amountRequested - a.amountRequested || a.name.localeCompare(b.name, "ru"));
 }
 
@@ -295,7 +374,7 @@ function calculateDashboard(rawDeals, clock = new Date()) {
   const deals = rawDeals.map(normalizeDeal);
   const currentDeals = deals.filter((deal) => deal.statusGroup === "current");
   const completedDeals = deals.filter((deal) => deal.statusGroup === "completed");
-  const issuedDeals = completedDeals.filter((deal) => deal.stage === "issued");
+  const issuedDeals = completedDeals.filter((deal) => deal.stage === "approved");
   const overdueDeals = currentDeals.filter((deal) => {
     if (!deal.nextActionAt) {
       return false;
@@ -324,7 +403,7 @@ function calculateDashboard(rawDeals, clock = new Date()) {
   });
 
   const completedByBank = formatGroup(groupBy(completedDeals, (deal) => deal.bank), (bank, items) => {
-    const issued = items.filter((deal) => deal.stage === "issued");
+    const issued = items.filter((deal) => deal.stage === "approved");
     const amountApproved = sum(items, "amountApproved");
     return {
       bank,
@@ -386,8 +465,8 @@ function calculateDashboard(rawDeals, clock = new Date()) {
       nextActions,
       byBank: currentByBank,
       byManager: buildCurrentManagerGroups(currentDeals),
-      needsDocuments: currentDeals.filter((deal) => deal.stage === "documents").length,
-      inBankReview: currentDeals.filter((deal) => ["submitted", "review", "approved"].includes(deal.stage)).length
+      needsDocuments: currentDeals.filter((deal) => deal.stage === "lead").length,
+      inBankReview: currentDeals.filter((deal) => deal.stage === "submitted").length
     },
     completedAnalytics: {
       byResult: completedByResult,

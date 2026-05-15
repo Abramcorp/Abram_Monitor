@@ -5,6 +5,7 @@ const state = {
   clients: [],
   dashboard: null,
   knowledge: [],
+  managers: [],
   filters: {
     query: "",
     manager: "all",
@@ -15,14 +16,14 @@ const state = {
     status: "current",
     groupBy: "manager"
   },
-  mode: "analyst",
+  knowledgeSection: "banks",
   view: "funnels"
 };
 
 const app = document.querySelector("#app");
-const modeTabs = document.querySelectorAll("[data-mode]");
 const viewTabs = document.querySelector("#viewTabs");
 const refreshButton = document.querySelector("#refreshButton");
+const newManagerButton = document.querySelector("#newManagerButton");
 const newClientButton = document.querySelector("#newClientButton");
 const newDealButton = document.querySelector("#newDealButton");
 const newKnowledgeButton = document.querySelector("#newKnowledgeButton");
@@ -30,19 +31,19 @@ const dialog = document.querySelector("#dealDialog");
 const form = document.querySelector("#dealForm");
 const clientDialog = document.querySelector("#clientDialog");
 const clientForm = document.querySelector("#clientForm");
+const managerDialog = document.querySelector("#managerDialog");
+const managerForm = document.querySelector("#managerForm");
+const dealActionDialog = document.querySelector("#dealActionDialog");
+const dealActionForm = document.querySelector("#dealActionForm");
 const knowledgeDialog = document.querySelector("#knowledgeDialog");
 const knowledgeForm = document.querySelector("#knowledgeForm");
+const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
 
-const VIEWS_BY_MODE = {
-  analyst: [
-    { id: "funnels", label: "Менеджеры" },
-    { id: "knowledge", label: "База знаний" }
-  ],
-  board: [
-    { id: "summary", label: "Сводный отчет" },
-    { id: "knowledge", label: "База знаний" }
-  ]
-};
+const VIEWS = [
+  { id: "funnels", label: "Аналитики" },
+  { id: "summary", label: "Сводный отчет" },
+  { id: "knowledge", label: "База знаний" }
+];
 
 const REQUIREMENT_LABELS = {
   businessRegion: "Регион ведения бизнеса",
@@ -59,8 +60,14 @@ const BOARD_STATUS_LABELS = {
 };
 
 const BOARD_GROUP_LABELS = {
-  manager: "По менеджерам",
+  manager: "По аналитикам",
   bank: "По банкам"
+};
+
+const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
+const KNOWLEDGE_SECTIONS = {
+  banks: "Банки",
+  programs: "Программы"
 };
 
 const currency = new Intl.NumberFormat("ru-RU", {
@@ -76,6 +83,19 @@ const dateTime = new Intl.DateTimeFormat("ru-RU", {
   minute: "2-digit"
 });
 
+const actionDate = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric"
+});
+
+const actionTime = new Intl.DateTimeFormat("ru-RU", {
+  hour: "2-digit",
+  minute: "2-digit"
+});
+
+const DAY_MS = 86400000;
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -89,12 +109,100 @@ function money(value) {
   return currency.format(Number(value || 0));
 }
 
+function percent(part, total) {
+  const base = Number(total || 0);
+  if (!base) {
+    return 0;
+  }
+  return Math.round((Number(part || 0) / base) * 100);
+}
+
 function formatDate(value) {
   if (!value) {
     return "—";
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : dateTime.format(date);
+}
+
+function localDay(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function daysSince(value, base = new Date()) {
+  const start = localDay(value);
+  const end = localDay(base);
+  if (!start || !end) {
+    return null;
+  }
+  return Math.max(0, Math.floor((end - start) / DAY_MS));
+}
+
+function dayLabel(count) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word = mod10 === 1 && mod100 !== 11 ? "день" : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? "дня" : "дней";
+  return `${count} ${word}`;
+}
+
+function earliestDate(values) {
+  const timestamps = values
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+
+  return timestamps.length ? new Date(timestamps[0]).toISOString() : "";
+}
+
+function formatDateWithAge(value, ageText) {
+  const days = daysSince(value);
+  if (!value || days === null) {
+    return "—";
+  }
+  return `${formatDate(value)} (${dayLabel(days)} ${ageText})`;
+}
+
+function formatDateTimeInput(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function formatActionEntry(action) {
+  const date = new Date(action.actionAt);
+  if (Number.isNaN(date.getTime())) {
+    return escapeHtml(action.action);
+  }
+  return `${escapeHtml(action.action)} — ${actionDate.format(date)} — ${actionTime.format(date)}`;
+}
+
+function applicationStageClass(stage) {
+  return `application-stage-${String(stage || "planned").replace(/[^a-z0-9-]/gi, "")}`;
+}
+
+function getStageDateRequirements(stage, currentStage = "") {
+  const requirements = [];
+  if (stage === "lead") {
+    requirements.push({ field: "inquiryAt", label: "Дата обращения" });
+  }
+  if (stage === "submitted") {
+    if (currentStage === "lead") {
+      requirements.push({ field: "inquiryAt", label: "Дата обращения" });
+    }
+    requirements.push({ field: "signedAt", label: "Дата подписания" });
+  }
+  return requirements;
 }
 
 async function requestJson(url, options) {
@@ -111,15 +219,17 @@ async function requestJson(url, options) {
 }
 
 async function loadData() {
-  const [dashboard, bankPayload, clientPayload, knowledgePayload] = await Promise.all([
+  const [dashboard, bankPayload, clientPayload, managerPayload, knowledgePayload] = await Promise.all([
     requestJson("/api/dashboard"),
     requestJson("/api/banks"),
     requestJson("/api/clients"),
+    requestJson("/api/managers"),
     requestJson("/api/knowledge")
   ]);
   state.dashboard = dashboard;
   state.banks = bankPayload.banks;
   state.clients = clientPayload.clients;
+  state.managers = managerPayload.managers;
   state.knowledge = knowledgePayload.knowledge;
   render();
 }
@@ -129,7 +239,7 @@ function resetFilters() {
 }
 
 function renderViewTabs() {
-  viewTabs.innerHTML = VIEWS_BY_MODE[state.mode]
+  viewTabs.innerHTML = VIEWS
     .map((view) => `<button class="tab ${state.view === view.id ? "is-active" : ""}" data-view="${view.id}" type="button">${view.label}</button>`)
     .join("");
 
@@ -143,18 +253,20 @@ function renderViewTabs() {
 }
 
 function updateActionVisibility() {
-  const analystMode = state.mode === "analyst";
-  newClientButton.hidden = !analystMode;
-  newDealButton.hidden = !analystMode;
+  newManagerButton.hidden = state.view !== "funnels";
+  newClientButton.hidden = false;
+  if (newDealButton) {
+    newDealButton.hidden = true;
+  }
   newKnowledgeButton.hidden = false;
 }
 
 function renderKpis() {
   const totals = state.dashboard.totals;
   const kpis = [
-    ["Текущие сделки", totals.current],
+    ["Текущие заявки", totals.current],
     ["Завершенные", totals.completed],
-    ["Выдано", totals.issued],
+    ["Одобрено", totals.issued],
     ["Просрочено действий", totals.overdue],
     ["Конверсия завершенных", `${totals.completedConversionRate}%`]
   ];
@@ -193,9 +305,9 @@ function renderFilters(deals) {
 
   return `
     <div class="filters">
-      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Клиент, менеджер, банк">
+      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Клиент, аналитик, банк">
       <select id="managerFilter">
-        <option value="all">Все менеджеры</option>
+        <option value="all">Все аналитики</option>
         ${managerOptions}
       </select>
       <select id="bankFilter">
@@ -221,29 +333,41 @@ function filteredDeals(group) {
       if (!query) {
         return true;
       }
-      return [deal.client, deal.manager, deal.bank, deal.status, deal.comment, deal.timeline].join(" ").toLowerCase().includes(query);
+      return [deal.client, deal.manager, deal.bank, deal.program, deal.programType, deal.programAmountRange, deal.status, deal.comment, deal.timeline]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
     });
 }
 
-function groupDealsByManagerAndClient(deals, clients = []) {
-  const managers = new Map();
-  clients.forEach((client) => {
-    const managerName = client.manager || "Без менеджера";
-    if (!managers.has(managerName)) {
-      managers.set(managerName, new Map());
+function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) {
+  const managerGroups = new Map();
+  const managerMeta = new Map();
+
+  managerRecords.forEach((manager) => {
+    managerMeta.set(manager.name, manager);
+    if (!managerGroups.has(manager.name)) {
+      managerGroups.set(manager.name, new Map());
     }
-    const managerClients = managers.get(managerName);
+  });
+
+  clients.forEach((client) => {
+    const managerName = client.manager || "";
+    if (!managerGroups.has(managerName)) {
+      return;
+    }
+    const managerClients = managerGroups.get(managerName);
     if (!managerClients.has(client.name)) {
       managerClients.set(client.name, []);
     }
   });
 
   deals.forEach((deal) => {
-    if (!managers.has(deal.manager)) {
-      managers.set(deal.manager, new Map());
+    if (!managerGroups.has(deal.manager)) {
+      return;
     }
 
-    const clients = managers.get(deal.manager);
+    const clients = managerGroups.get(deal.manager);
     if (!clients.has(deal.client)) {
       clients.set(deal.client, []);
     }
@@ -251,18 +375,23 @@ function groupDealsByManagerAndClient(deals, clients = []) {
     clients.get(deal.client).push(deal);
   });
 
-  return [...managers.entries()]
+  return [...managerGroups.entries()]
     .map(([manager, clients]) => {
+      const managerRecord = managerMeta.get(manager) || { id: "", name: manager };
       const clientGroups = [...clients.entries()]
         .map(([client, applications]) => {
           const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
-          const plannedApplications = sortedApplications.filter((deal) => deal.stage === "lead");
-          const currentApplications = sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "lead");
-          const successfulApplications = sortedApplications.filter((deal) => deal.stage === "issued");
-          const refusedApplications = sortedApplications.filter((deal) => deal.stage === "rejected" || deal.stage === "withdrawn");
+          const plannedApplications = sortedApplications.filter((deal) => deal.stage === "planned");
+          const currentApplications = sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
+          const successfulApplications = sortedApplications.filter((deal) => deal.stage === "approved");
+          const refusedApplications = sortedApplications.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked");
           const activeApplications = [...currentApplications, ...plannedApplications];
           const completedApplications = [...successfulApplications, ...refusedApplications];
+          const sumRequested = (items) => items.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0);
+          const sumApproved = (items) => items.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0);
+          const startedAt = earliestDate(sortedApplications.flatMap((deal) => [deal.inquiryAt, deal.signedAt]));
           return {
+            manager,
             client,
             count: sortedApplications.length,
             activeCount: activeApplications.length,
@@ -271,8 +400,12 @@ function groupDealsByManagerAndClient(deals, clients = []) {
             plannedCount: plannedApplications.length,
             successfulCount: successfulApplications.length,
             refusedCount: refusedApplications.length,
-            amountRequested: sortedApplications.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0),
-            amountApproved: sortedApplications.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0),
+            amountRequested: sumRequested(sortedApplications),
+            amountApproved: sumApproved(sortedApplications),
+            plannedAmountRequested: sumRequested(plannedApplications),
+            currentAmountRequested: sumRequested(currentApplications),
+            approvedAmount: sumApproved(successfulApplications),
+            startedAt,
             lastActionAt: sortedApplications[0]?.lastActionAt || "",
             activeApplications,
             currentApplications,
@@ -289,6 +422,7 @@ function groupDealsByManagerAndClient(deals, clients = []) {
       const completedClients = clientGroups.filter((client) => client.completedCount > 0);
 
       return {
+        managerId: managerRecord.id,
         manager,
         clientCount: clientGroups.length,
         count: clientGroups.reduce((total, client) => total + client.count, 0),
@@ -299,6 +433,10 @@ function groupDealsByManagerAndClient(deals, clients = []) {
         successfulCount: clientGroups.reduce((total, client) => total + client.successfulCount, 0),
         refusedCount: clientGroups.reduce((total, client) => total + client.refusedCount, 0),
         amountRequested: clientGroups.reduce((total, client) => total + client.amountRequested, 0),
+        amountApproved: clientGroups.reduce((total, client) => total + client.amountApproved, 0),
+        plannedAmountRequested: clientGroups.reduce((total, client) => total + client.plannedAmountRequested, 0),
+        currentAmountRequested: clientGroups.reduce((total, client) => total + client.currentAmountRequested, 0),
+        approvedAmount: clientGroups.reduce((total, client) => total + client.approvedAmount, 0),
         lastActionAt: clientGroups[0]?.lastActionAt || "",
         currentClients,
         completedClients,
@@ -309,7 +447,7 @@ function groupDealsByManagerAndClient(deals, clients = []) {
 }
 
 function groupCurrentDealsByManager(deals) {
-  return groupDealsByManagerAndClient(deals, state.clients).map((manager) => ({
+  return groupDealsByManagerAndClient(deals, state.clients, state.managers).map((manager) => ({
     ...manager,
     clients: manager.currentClients
   }));
@@ -327,9 +465,9 @@ function renderDealTable(deals) {
         <thead>
           <tr>
             <th>Клиент</th>
-            <th>Менеджер</th>
-            <th>Банк</th>
-            <th>Этап</th>
+            <th>Аналитик</th>
+            <th>Программа</th>
+            <th>Статус заявки</th>
             <th>Заявка</th>
             <th>Одобрено</th>
             <th>Следующее действие</th>
@@ -346,9 +484,9 @@ function renderDealTable(deals) {
                     <span class="table-meta muted">${escapeHtml(deal.bureau || "Бюро не указано")}</span>
                   </td>
                   <td>${escapeHtml(deal.manager)}</td>
-                  <td>${escapeHtml(deal.bank)}</td>
+                  <td>${escapeHtml(applicationProgramTitle(deal))}</td>
                   <td>
-                    <select data-stage-select="${escapeHtml(deal.id)}">
+                    <select data-stage-select="${escapeHtml(deal.id)}" data-current-stage="${escapeHtml(deal.stage)}">
                       ${stageOptions
                         .map((stage) => `<option value="${stage.id}" ${stage.id === deal.stage ? "selected" : ""}>${stage.label}</option>`)
                         .join("")}
@@ -368,7 +506,21 @@ function renderDealTable(deals) {
   `;
 }
 
-function renderClientApplicationCards(applications, emptyText) {
+function renderApplicationActions(actions = []) {
+  if (!actions.length) {
+    return `<div class="application-history-empty">Действий пока нет.</div>`;
+  }
+
+  return `
+    <ol class="application-history">
+      ${actions
+        .map((action) => `<li>${formatActionEntry(action)}</li>`)
+        .join("")}
+    </ol>
+  `;
+}
+
+function renderClientApplicationCards(applications, emptyText, type) {
   const stageOptions = state.dashboard.stages.all;
   if (!applications.length) {
     return `<div class="empty compact-empty">${emptyText}</div>`;
@@ -379,34 +531,48 @@ function renderClientApplicationCards(applications, emptyText) {
       ${applications
         .map(
           (deal) => `
-            <article class="client-application-card">
-              <div class="application-field">
-                <span>Банк</span>
-                <strong>${escapeHtml(deal.bank)}</strong>
+            <article class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}">
+              <div class="application-card-head">
+                <strong>${escapeHtml(applicationProgramTitle(deal))}</strong>
+                <span>${money(deal.amountRequested)}</span>
+                <em>${escapeHtml(deal.stageLabel)}</em>
               </div>
+              <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
+                + Действие
+              </button>
               <label class="application-field">
                 <span>Статус</span>
-                <select data-stage-select="${escapeHtml(deal.id)}">
+                <select data-stage-select="${escapeHtml(deal.id)}" data-current-stage="${escapeHtml(deal.stage)}">
                   ${stageOptions
                     .map((stage) => `<option value="${stage.id}" ${stage.id === deal.stage ? "selected" : ""}>${stage.label}</option>`)
                     .join("")}
                 </select>
               </label>
+              <label class="application-field">
+                <span>Дата обращения</span>
+                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="inquiryAt" type="datetime-local" value="${formatDateTimeInput(deal.inquiryAt)}">
+              </label>
+              <label class="application-field">
+                <span>Дата подписания</span>
+                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
+              </label>
               <div class="application-field">
                 <span>Последнее действие</span>
                 <strong>${formatDate(deal.lastActionAt)}</strong>
               </div>
-              <div class="application-field">
-                <span>Следующее действие</span>
-                <strong>${formatDate(deal.nextActionAt)}</strong>
-              </div>
-              <div class="application-field">
-                <span>Заявка</span>
-                <strong>${money(deal.amountRequested)}</strong>
-              </div>
-              <div class="application-field application-comment">
-                <span>Комментарий</span>
-                <strong>${escapeHtml(deal.comment || deal.timeline || "—")}</strong>
+              ${
+                type === "approved"
+                  ? `<div class="application-field"><span>Одобрено</span><strong>${money(deal.amountApproved)}</strong></div>`
+                  : ""
+              }
+              ${
+                type === "refused"
+                  ? `<div class="application-field application-comment"><span>Причина</span><strong>${escapeHtml(deal.comment || deal.timeline || "—")}</strong></div>`
+                  : ""
+              }
+              <div class="application-field application-history-field">
+                <span>Хронология</span>
+                ${renderApplicationActions(deal.actions)}
               </div>
             </article>
           `
@@ -417,51 +583,99 @@ function renderClientApplicationCards(applications, emptyText) {
 }
 
 function renderClientApplicationSections(client) {
-  const sections = [
-    ["Текущие", client.currentApplications || [], client.currentCount || 0, "Текущих заявок нет."],
-    ["Плановые", client.plannedApplications || [], client.plannedCount || 0, "Плановых заявок нет."],
-    ["Завершенные успешно", client.successfulApplications || [], client.successfulCount || 0, "Успешно завершенных заявок нет."],
-    ["Отказы", client.refusedApplications || [], client.refusedCount || 0, "Отказов нет."]
-  ];
+  const renderSection = ([title, applications, count, emptyText, type, collapsible]) => collapsible
+    ? `
+      <details class="application-group application-group-collapsible application-group-${escapeHtml(type)}">
+        <summary class="application-group-head">
+          <h4>${title} (${count})</h4>
+        </summary>
+        ${renderClientApplicationCards(applications, emptyText, type)}
+      </details>
+    `
+    : `
+      <section class="application-group application-group-${escapeHtml(type)}">
+        <div class="application-group-head">
+          <h4>${title} (${count})</h4>
+          ${type === "approved" ? `<span class="application-group-amount">${money(client.approvedAmount)}</span>` : ""}
+        </div>
+        ${renderClientApplicationCards(applications, emptyText, type)}
+      </section>
+    `;
+
+  const plannedSection = ["План подач", client.plannedApplications || [], client.plannedCount || 0, "Плановых заявок нет.", "planned", false];
+  const currentSection = ["Текущие", client.currentApplications || [], client.currentCount || 0, "Текущих заявок нет.", "current", false];
+  const approvedSection = ["Одобрено", client.successfulApplications || [], client.successfulCount || 0, "Одобренных заявок нет.", "approved", false];
+  const refusedSection = ["Отказ / непринятые", client.refusedApplications || [], client.refusedCount || 0, "Отказов и непринятых заявок нет.", "refused", true];
 
   return `
     <div class="application-split">
-      ${sections
-        .map(
-          ([title, applications, count, emptyText]) => `
-            <section class="application-group">
-              <div class="application-group-head">
-                <h4>${title}</h4>
-                <span>${count}</span>
-              </div>
-              ${renderClientApplicationCards(applications, emptyText)}
-            </section>
-          `
-        )
-        .join("")}
+      ${renderSection(plannedSection)}
+      ${renderSection(currentSection)}
+      <div class="application-completed-rail">
+        ${renderSection(approvedSection)}
+        ${renderSection(refusedSection)}
+      </div>
     </div>
   `;
 }
 
-function renderApplicationSnapshot(applications) {
-  if (!applications.length) {
-    return `<div class="application-snapshot muted">Заявок пока нет</div>`;
-  }
-
+function renderSummaryAmountBadges(source) {
   return `
-    <div class="application-snapshot">
-      ${applications
-        .map(
-          (deal) => `
-            <div class="application-line">
-              <span>${escapeHtml(deal.bank)}</span>
-              <strong>${escapeHtml(deal.stageLabel)}</strong>
-              <time>${formatDate(deal.lastActionAt)}</time>
-            </div>
-          `
-        )
-        .join("")}
+    <div class="summary-amounts">
+      <span>План подач <strong>${money(source.plannedAmountRequested)}</strong></span>
+      <span>Текущие <strong>${money(source.currentAmountRequested)}</strong></span>
+      <span>Одобрено <strong>${money(source.approvedAmount)}</strong></span>
     </div>
+  `;
+}
+
+function renderReportTotals(groups) {
+  const totalRequested = groups.reduce((total, group) => total + Number(group.totalAmountRequested || group.amountRequested || 0), 0);
+  const approvedAmount = groups.reduce((total, group) => total + Number(group.approvedAmount || 0), 0);
+  return {
+    count: groups.reduce((total, group) => total + group.count, 0),
+    amountRequested: groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0),
+    totalAmountRequested: totalRequested,
+    plannedAmountRequested: groups.reduce((total, group) => total + Number(group.plannedAmountRequested || 0), 0),
+    currentAmountRequested: groups.reduce((total, group) => total + Number(group.currentAmountRequested || 0), 0),
+    approvedAmount,
+    approvalConversionRate: percent(approvedAmount, totalRequested)
+  };
+}
+
+function renderAddApplicationButton(manager, client) {
+  return `
+    <div class="client-actions">
+      <button
+        class="ghost-button small-button"
+        data-add-application
+        data-manager="${escapeHtml(manager)}"
+        data-client="${escapeHtml(client)}"
+        type="button"
+      >
+        + Заявка
+      </button>
+    </div>
+  `;
+}
+
+function renderClientSummary(client) {
+  const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
+  return `
+    <div class="client-summary-main">
+      <strong class="client-title">${escapeHtml(client.client)}</strong>
+      <div class="client-summary-amounts">
+        <span>План подач <strong>${client.plannedCount || 0} · ${money(client.plannedAmountRequested)}</strong></span>
+        <span>Текущие заявки <strong>${client.currentCount || 0} · ${money(client.currentAmountRequested)}</strong></span>
+        <span>Одобрения <strong>${client.successfulCount || 0} · ${money(client.approvedAmount)}</strong></span>
+        <span>Завершенные подачи <strong>${completedLabel}</strong></span>
+      </div>
+      <div class="client-summary-dates">
+        <span>Дата начала: ${formatDateWithAge(client.startedAt, "в работе")}</span>
+        <span>Последнее изменение: ${formatDateWithAge(client.lastActionAt, "назад")}</span>
+      </div>
+    </div>
+    <span class="applications-toggle" role="button" aria-label="Раскрыть заявки">Заявки</span>
   `;
 }
 
@@ -480,7 +694,7 @@ function renderManagerGroups(deals) {
             <details class="manager-section manager-accordion">
               <summary class="manager-head">
                 <div>
-                  <p class="eyebrow">Менеджер</p>
+                  <p class="eyebrow">Аналитик</p>
                   <h3>${escapeHtml(manager.manager)}</h3>
                 </div>
                 <div class="manager-metrics">
@@ -495,11 +709,7 @@ function renderManagerGroups(deals) {
                     (client) => `
                       <details class="client-card">
                         <summary>
-                          <div class="client-summary-main">
-                            <strong>${escapeHtml(client.client)}</strong>
-                            <span>${client.activeCount} активных · ${client.completedCount} завершенных · ${money(client.amountRequested)}</span>
-                          </div>
-                          ${renderApplicationSnapshot(client.activeApplications)}
+                          ${renderClientSummary(client, "active")}
                         </summary>
                         <div class="client-drilldown">
                           ${renderClientApplicationSections(client)}
@@ -529,13 +739,10 @@ function renderClientCards(clients, emptyText) {
           (client) => `
             <details class="client-card">
               <summary>
-                <div class="client-summary-main">
-                  <strong>${escapeHtml(client.client)}</strong>
-                  <span>${client.currentCount || 0} текущих · ${client.plannedCount || 0} плановых · ${client.completedCount} завершенных · ${money(client.amountRequested)}</span>
-                </div>
-                ${renderApplicationSnapshot(client.applications)}
+                ${renderClientSummary(client)}
               </summary>
               <div class="client-drilldown">
+                ${renderAddApplicationButton(client.manager || "", client.client)}
                 ${renderClientApplicationSections(client)}
               </div>
             </details>
@@ -547,14 +754,14 @@ function renderClientCards(clients, emptyText) {
 }
 
 function renderManagerClientView() {
-  const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients);
+  const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients, state.managers);
 
   return `
     <section class="panel">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Менеджеры и клиенты</p>
-          <h2>Карточки менеджеров</h2>
+          <p class="eyebrow">Аналитики и клиенты</p>
+          <h2>Карточки аналитиков</h2>
         </div>
       </div>
       ${
@@ -566,14 +773,23 @@ function renderManagerClientView() {
                     <details class="manager-section manager-accordion">
                       <summary class="manager-head">
                         <div>
-                          <p class="eyebrow">Менеджер</p>
+                          <p class="eyebrow">Аналитик</p>
                           <h3>${escapeHtml(manager.manager)}</h3>
                         </div>
                         <div class="manager-metrics">
-                          <span>${manager.clientCount} клиентов</span>
-                          <strong>${manager.currentCount} текущих · ${manager.plannedCount} плановых</strong>
-                          <span>${manager.successfulCount} успешных · ${manager.refusedCount} отказов</span>
-                          <span>${money(manager.amountRequested)}</span>
+                          <strong>${manager.clientCount} клиентов</strong>
+                          <div class="summary-amounts">
+                            <span>План подач <strong>${manager.plannedCount} · ${money(manager.plannedAmountRequested)}</strong></span>
+                            <span>Текущие заявки <strong>${manager.currentCount} · ${money(manager.currentAmountRequested)}</strong></span>
+                          </div>
+                          <button
+                            class="ghost-button small-button danger-button"
+                            data-delete-manager="${escapeHtml(manager.managerId)}"
+                            data-manager-name="${escapeHtml(manager.manager)}"
+                            type="button"
+                          >
+                            Удалить
+                          </button>
                         </div>
                       </summary>
                       ${renderClientCards(manager.clients, "Клиентов пока нет.")}
@@ -582,7 +798,7 @@ function renderManagerClientView() {
                 )
                 .join("")}
             </div>`
-          : `<div class="empty">Клиенты и заявки пока не добавлены.</div>`
+          : `<div class="empty">Аналитики пока не добавлены.</div>`
       }
     </section>
   `;
@@ -599,7 +815,7 @@ function filteredKnowledge() {
           return true;
         }
         const requirementText = Object.values(program.requirements || {}).join(" ");
-        return [bank.bank, program.program, program.notes, requirementText].join(" ").toLowerCase().includes(query);
+        return [bank.bank, program.program, program.programType, program.amountRange, program.notes, requirementText].join(" ").toLowerCase().includes(query);
       })
     }))
     .filter((bank) => {
@@ -608,6 +824,68 @@ function filteredKnowledge() {
       }
       return bank.programs.length > 0;
     });
+}
+
+function groupProgramsByType(programs = []) {
+  const groups = new Map(PROGRAM_TYPES.map((type) => [type, []]));
+  programs.forEach((program) => {
+    const type = PROGRAM_TYPES.includes(program.programType) ? program.programType : "Стандарт";
+    groups.get(type).push(program);
+  });
+  return [...groups.entries()].filter(([, items]) => items.length);
+}
+
+function flattenKnowledgePrograms() {
+  return state.knowledge.flatMap((bank) =>
+    (bank.programs || []).map((program) => ({
+      bank,
+      program,
+      label: `${bank.bank} - ${program.program}${program.amountRange ? ` (${program.amountRange})` : ""}`
+    }))
+  );
+}
+
+function applicationProgramTitle(deal) {
+  if (!deal.program) {
+    return deal.bank || "Программа не выбрана";
+  }
+  return `${deal.bank} - ${deal.program}${deal.programAmountRange ? ` (${deal.programAmountRange})` : ""}`;
+}
+
+function renderApplicationProgramOptions() {
+  const entries = flattenKnowledgePrograms();
+  if (!entries.length) {
+    return `<option value="">Сначала добавьте программу в Базе знаний</option>`;
+  }
+
+  const grouped = new Map(PROGRAM_TYPES.map((type) => [type, []]));
+  entries.forEach((entry) => {
+    const type = PROGRAM_TYPES.includes(entry.program.programType) ? entry.program.programType : "Стандарт";
+    grouped.get(type).push(entry);
+  });
+
+  return [...grouped.entries()]
+    .filter(([, items]) => items.length)
+    .map(
+      ([type, items]) => `
+        <optgroup label="${escapeHtml(type)}">
+          ${items
+            .sort((left, right) => left.label.localeCompare(right.label, "ru"))
+            .map((entry) => `<option value="${escapeHtml(entry.program.id)}">${escapeHtml(entry.label)}</option>`)
+            .join("")}
+        </optgroup>
+      `
+    )
+    .join("");
+}
+
+function syncApplicationProgramFields() {
+  const programId = form.elements.knowledgeProgramId?.value;
+  const entry = flattenKnowledgePrograms().find((item) => item.program.id === programId);
+  form.elements.bank.value = entry?.bank.bank || "";
+  form.elements.program.value = entry?.program.program || "";
+  form.elements.programType.value = entry?.program.programType || "";
+  form.elements.programAmountRange.value = entry?.program.amountRange || "";
 }
 
 function renderKnowledgeFilters() {
@@ -623,6 +901,20 @@ function renderKnowledgeFilters() {
         <option value="all">Все банки</option>
         ${bankOptions}
       </select>
+    </div>
+  `;
+}
+
+function renderKnowledgeSectionControls() {
+  return `
+    <div class="segmented knowledge-sections" role="group" aria-label="Подраздел базы знаний">
+      ${Object.entries(KNOWLEDGE_SECTIONS)
+        .map(
+          ([value, label]) => `
+            <button class="${state.knowledgeSection === value ? "is-active" : ""}" data-knowledge-section="${value}" type="button">${label}</button>
+          `
+        )
+        .join("")}
     </div>
   `;
 }
@@ -644,7 +936,26 @@ function renderRequirementGrid(requirements = {}) {
   `;
 }
 
-function renderKnowledgeList(banks) {
+function renderKnowledgeProgramCard(program, bank, showBank = false) {
+  return `
+    <article class="knowledge-card">
+      <div class="knowledge-card-head">
+        <div>
+          <p class="eyebrow">${showBank ? escapeHtml(bank.bank) : "Программа"}</p>
+          <h4>${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}</h4>
+        </div>
+        <div class="knowledge-card-actions">
+          <time>${formatDate(program.updatedAt || bank.updatedAt)}</time>
+          <button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button>
+        </div>
+      </div>
+      ${renderRequirementGrid(program.requirements)}
+      <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
+    </article>
+  `;
+}
+
+function renderKnowledgeBanks(banks) {
   if (!banks.length) {
     return `<div class="empty">В базе знаний пока нет записей под выбранные фильтры.</div>`;
   }
@@ -663,23 +974,7 @@ function renderKnowledgeList(banks) {
                 <span>${(bank.programs || []).length} программ</span>
               </summary>
               <div class="knowledge-grid">
-                ${(bank.programs || [])
-                  .map(
-                    (program) => `
-                      <article class="knowledge-card">
-                        <div class="knowledge-card-head">
-                          <div>
-                            <p class="eyebrow">Программа</p>
-                            <h4>${escapeHtml(program.program)}</h4>
-                          </div>
-                          <time>${formatDate(program.updatedAt || bank.updatedAt)}</time>
-                        </div>
-                        ${renderRequirementGrid(program.requirements)}
-                        <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
-                      </article>
-                    `
-                  )
-                  .join("")}
+                ${(bank.programs || []).map((program) => renderKnowledgeProgramCard(program, bank)).join("")}
               </div>
             </details>
           `
@@ -689,6 +984,50 @@ function renderKnowledgeList(banks) {
   `;
 }
 
+function renderKnowledgePrograms(banks) {
+  const programs = banks.flatMap((bank) => (bank.programs || []).map((program) => ({ bank, program })));
+  if (!programs.length) {
+    return `<div class="empty">В базе знаний пока нет программ под выбранные фильтры.</div>`;
+  }
+
+  const groups = new Map(PROGRAM_TYPES.map((type) => [type, []]));
+  programs.forEach((entry) => {
+    const type = PROGRAM_TYPES.includes(entry.program.programType) ? entry.program.programType : "Стандарт";
+    groups.get(type).push(entry);
+  });
+  return `
+    <div class="knowledge-program-groups">
+      ${[...groups.entries()]
+        .filter(([, entries]) => entries.length)
+        .map(([type, entries]) => {
+          return `
+            <section class="knowledge-program-group">
+              <div class="knowledge-program-group-head">
+                <h4>${escapeHtml(type)}</h4>
+                <span>${entries.length}</span>
+              </div>
+              <div class="knowledge-grid">
+                ${entries.map(({ bank, program }) => renderKnowledgeProgramCard(program, bank, true)).join("")}
+              </div>
+            </section>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function updateApplicationDateRequirements() {
+  const requiredFields = new Set(getStageDateRequirements(form.elements.stage.value).map((requirement) => requirement.field));
+  const inquiryInput = form.elements.inquiryAt;
+  const signedInput = form.elements.signedAt;
+
+  inquiryInput.required = requiredFields.has("inquiryAt");
+  signedInput.required = requiredFields.has("signedAt");
+  inquiryInput.setCustomValidity("");
+  signedInput.setCustomValidity("");
+}
+
 function renderKnowledgeView() {
   const items = filteredKnowledge();
   return `
@@ -696,11 +1035,12 @@ function renderKnowledgeView() {
       <div class="panel-head">
         <div>
           <p class="eyebrow">База знаний</p>
-          <h2>Банки, программы и требования</h2>
+          <h2>${KNOWLEDGE_SECTIONS[state.knowledgeSection]}</h2>
         </div>
         ${renderKnowledgeFilters()}
       </div>
-      ${renderKnowledgeList(items)}
+      ${renderKnowledgeSectionControls()}
+      ${state.knowledgeSection === "banks" ? renderKnowledgeBanks(items) : renderKnowledgePrograms(items)}
     </section>
   `;
 }
@@ -713,7 +1053,7 @@ function renderCurrent() {
       <div class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Менеджеры</p>
+            <p class="eyebrow">Аналитики</p>
             <h2>Текущие клиенты</h2>
           </div>
           ${renderFilters(state.dashboard.deals.filter((deal) => deal.statusGroup === "current"))}
@@ -730,7 +1070,7 @@ function renderCurrent() {
               (deal) => `
                 <li class="list-item">
                   <strong>${escapeHtml(deal.client)}</strong>
-                  <span>${escapeHtml(deal.manager)} · ${escapeHtml(deal.bank)} · ${escapeHtml(deal.stageLabel)}</span>
+                  <span>${escapeHtml(deal.manager)} · ${escapeHtml(applicationProgramTitle(deal))} · ${escapeHtml(deal.stageLabel)}</span>
                   <span class="muted">${formatDate(deal.nextActionAt)}</span>
                 </li>
               `
@@ -811,11 +1151,11 @@ function renderCompleted() {
               (bank) => `
                 <div class="list-item">
                   <strong>${escapeHtml(bank.bank)} · ${bank.conversionRate}%</strong>
-                  <span class="muted">Выдано ${bank.issuedCount} из ${bank.count}; среднее ${money(bank.averageApproved)}</span>
+                  <span class="muted">Одобрено ${bank.issuedCount} из ${bank.count}; среднее ${money(bank.averageApproved)}</span>
                 </div>
               `
             )
-            .join("") || `<div class="list-item muted">Нет завершенных сделок.</div>`}
+            .join("") || `<div class="list-item muted">Нет завершенных заявок.</div>`}
         </div>
       </aside>
     </section>
@@ -870,7 +1210,7 @@ function renderBoardApplicationRows(applications, groupBy) {
             <article class="board-deal-row">
               <div>
                 <strong>${escapeHtml(deal.client)}</strong>
-                <span>${escapeHtml(groupBy === "bank" ? deal.manager : deal.bank)} · ${escapeHtml(deal.stageLabel)}</span>
+                <span>${escapeHtml(groupBy === "bank" ? `${deal.manager} · ${deal.program || deal.bank}` : applicationProgramTitle(deal))} · ${escapeHtml(deal.stageLabel)}</span>
               </div>
               <div>
                 <span>Дата заявки</span>
@@ -905,13 +1245,14 @@ function renderBoardSummaryGroups(groups) {
             <details class="board-group-card">
               <summary>
                 <div>
-                  <p class="eyebrow">${state.board.groupBy === "bank" ? "Банк" : "Менеджер"}</p>
+                  <p class="eyebrow">${state.board.groupBy === "bank" ? "Банк" : "Аналитик"}</p>
                   <h3>${escapeHtml(group.name)}</h3>
                 </div>
                 <div class="manager-metrics">
-                  <span>${group.count} сделок</span>
-                  <strong>${money(group.amountRequested)}</strong>
-                  ${state.board.status === "completed" ? `<span>Одобрено ${money(group.amountApproved)}</span>` : ""}
+                  <span>${group.count} заявок</span>
+                  <strong>Всего ${money(group.totalAmountRequested || group.amountRequested)} (${group.approvalConversionRate || 0}%)</strong>
+                  ${renderSummaryAmountBadges(group)}
+                  <span>В выбранном отчете ${money(group.amountRequested)}</span>
                 </div>
               </summary>
               ${renderBoardApplicationRows(group.applications || [], state.board.groupBy)}
@@ -925,17 +1266,17 @@ function renderBoardSummaryGroups(groups) {
 
 function renderSummary() {
   const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
-  const totalCount = groups.reduce((total, group) => total + group.count, 0);
-  const totalAmount = groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0);
+  const totals = renderReportTotals(groups);
 
   return `
     ${renderKpis()}
     <section class="panel">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Правление</p>
-          <h2>${BOARD_STATUS_LABELS[state.board.status]} сделки · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}</h2>
-          <p class="muted">${totalCount} сделок · ${money(totalAmount)} общая сумма заявок</p>
+          <p class="eyebrow">Сводный отчет</p>
+          <h2>${BOARD_STATUS_LABELS[state.board.status]} заявки · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}</h2>
+          <p class="muted">${totals.count} заявок · ${money(totals.amountRequested)} в выбранном отчете · всего ${money(totals.totalAmountRequested)} (${totals.approvalConversionRate}%)</p>
+          ${renderSummaryAmountBadges(totals)}
         </div>
         ${renderBoardControls()}
       </div>
@@ -950,7 +1291,6 @@ function render() {
     return;
   }
 
-  modeTabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.mode === state.mode));
   renderViewTabs();
   updateActionVisibility();
 
@@ -1014,11 +1354,89 @@ function bindDynamicControls() {
     });
   });
 
+  document.querySelectorAll("[data-knowledge-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.knowledgeSection = button.dataset.knowledgeSection;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-add-application]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openApplicationDialog(button.dataset.manager, button.dataset.client);
+    });
+  });
+
+  document.querySelectorAll("[data-delete-manager]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!button.dataset.deleteManager) {
+        return;
+      }
+      const confirmed = window.confirm(`Удалить аналитика "${button.dataset.managerName}"?`);
+      if (!confirmed) {
+        return;
+      }
+      await requestJson(`/api/managers/${encodeURIComponent(button.dataset.deleteManager)}`, { method: "DELETE" });
+      await loadData();
+    });
+  });
+
+  document.querySelectorAll("[data-add-deal-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openDealActionDialog(button.dataset.addDealAction);
+    });
+  });
+
+  document.querySelectorAll("[data-edit-knowledge]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const entry = findKnowledgeProgram(button.dataset.editKnowledge);
+      if (entry) {
+        openKnowledgeDialog(entry);
+      }
+    });
+  });
+
   document.querySelectorAll("[data-stage-select]").forEach((select) => {
     select.addEventListener("change", async (event) => {
+      const currentStage = event.target.dataset.currentStage || "";
+      const requirements = getStageDateRequirements(event.target.value, currentStage);
+      const card = event.target.closest(".client-application-card");
+      const payload = { stage: event.target.value };
+
+      for (const requirement of requirements) {
+        const dateInput = card?.querySelector(`[data-date-field="${requirement.field}"]`);
+        if (!dateInput?.value) {
+          event.target.value = currentStage;
+          dateInput?.focus();
+          dateInput?.setCustomValidity(`${requirement.label} обязательна для выбранного статуса`);
+          dateInput?.reportValidity();
+          dateInput?.addEventListener("input", () => dateInput.setCustomValidity(""), { once: true });
+          return;
+        }
+        payload[requirement.field] = dateInput.value;
+      }
+
       await requestJson(`/api/deals/${encodeURIComponent(event.target.dataset.stageSelect)}`, {
         method: "PATCH",
-        body: JSON.stringify({ stage: event.target.value })
+        body: JSON.stringify(payload)
+      });
+      await loadData();
+    });
+  });
+
+  document.querySelectorAll("[data-application-date]").forEach((input) => {
+    input.addEventListener("change", async (event) => {
+      await requestJson(`/api/deals/${encodeURIComponent(event.target.dataset.applicationDate)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ [event.target.dataset.dateField]: event.target.value })
       });
       await loadData();
     });
@@ -1026,15 +1444,14 @@ function bindDynamicControls() {
 }
 
 function fillDealFormOptions() {
-  const bankSelect = form.elements.bank;
+  const programSelect = form.elements.knowledgeProgramId;
   const stageSelect = form.elements.stage;
-  const managerOptions = document.querySelector("#managerOptions");
   const clientOptions = document.querySelector("#clientOptions");
   const bankOptions = document.querySelector("#bankOptions");
 
-  const managerNames = [...new Set([...state.dashboard.deals.map((deal) => deal.manager), ...state.clients.map((client) => client.manager)])]
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, "ru"));
+  const managerOptions = state.managers
+    .map((manager) => `<option value="${escapeHtml(manager.name)}">${escapeHtml(manager.name)}</option>`)
+    .join("");
   const clientNames = [...new Set([...state.clients.map((client) => client.name), ...state.dashboard.deals.map((deal) => deal.client)])]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "ru"));
@@ -1045,31 +1462,97 @@ function fillDealFormOptions() {
       ...state.knowledge.map((entry) => entry.bank)
     ])
   ].sort((a, b) => a.localeCompare(b, "ru"));
-  managerOptions.innerHTML = managerNames.map((manager) => `<option value="${escapeHtml(manager)}"></option>`).join("");
+  [form.elements.manager, clientForm.elements.manager].forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = `<option value="">Выберите аналитика</option>${managerOptions || `<option value="" disabled>Сначала добавьте аналитика</option>`}`;
+    if (selected && state.managers.some((manager) => manager.name === selected)) {
+      select.value = selected;
+    }
+  });
   clientOptions.innerHTML = clientNames.map((client) => `<option value="${escapeHtml(client)}"></option>`).join("");
   bankOptions.innerHTML = bankNames.map((bank) => `<option value="${escapeHtml(bank)}"></option>`).join("");
-  bankSelect.innerHTML = bankNames.map((bank) => `<option value="${escapeHtml(bank)}">${escapeHtml(bank)}</option>`).join("");
-  stageSelect.innerHTML = state.dashboard.stages.current
+  programSelect.innerHTML = renderApplicationProgramOptions();
+  stageSelect.innerHTML = state.dashboard.stages.all
     .map((stage) => `<option value="${stage.id}">${stage.label}</option>`)
     .join("");
+  syncApplicationProgramFields();
+  updateApplicationDateRequirements();
 }
 
-modeTabs.forEach((tab) => {
-  tab.addEventListener("click", () => {
-    state.mode = tab.dataset.mode;
-    state.view = VIEWS_BY_MODE[state.mode][0].id;
-    resetFilters();
-    render();
+function findKnowledgeProgram(programId) {
+  for (const bank of state.knowledge) {
+    const program = (bank.programs || []).find((item) => item.id === programId);
+    if (program) {
+      return { bank, program };
+    }
+  }
+  return null;
+}
+
+function openKnowledgeDialog(entry = null) {
+  fillDealFormOptions();
+  knowledgeForm.reset();
+  knowledgeForm.elements.programId.value = entry?.program?.id || "";
+  knowledgeForm.elements.bank.value = entry?.bank?.bank || "";
+  knowledgeForm.elements.program.value = entry?.program?.program || "";
+  knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
+  knowledgeForm.elements.programType.value = PROGRAM_TYPES.includes(entry?.program?.programType) ? entry.program.programType : "Стандарт";
+
+  const requirements = entry?.program?.requirements || {};
+  Object.keys(REQUIREMENT_LABELS).forEach((key) => {
+    knowledgeForm.elements[key].value = requirements[key] || "";
   });
-});
+  knowledgeForm.elements.notes.value = entry?.program?.notes || "";
+  if (knowledgeDialogTitle) {
+    knowledgeDialogTitle.textContent = entry ? "Редактировать программу" : "Новая запись";
+  }
+  knowledgeDialog.showModal();
+}
+
+function openApplicationDialog(manager, client) {
+  fillDealFormOptions();
+  form.reset();
+  form.elements.manager.value = manager || "";
+  form.elements.client.value = client || "";
+  form.elements.managerLocked.value = manager || "";
+  form.elements.manager.disabled = true;
+  form.elements.client.readOnly = true;
+  form.elements.stage.value = "planned";
+  syncApplicationProgramFields();
+  updateApplicationDateRequirements();
+  dialog.showModal();
+}
+
+function openDealActionDialog(dealId) {
+  dealActionForm.reset();
+  dealActionForm.elements.dealId.value = dealId;
+  dealActionForm.elements.actionAt.value = formatDateTimeInput(new Date().toISOString());
+  dealActionDialog.showModal();
+}
 
 refreshButton.addEventListener("click", loadData);
 
-newDealButton.addEventListener("click", () => {
-  fillDealFormOptions();
-  form.reset();
-  dialog.showModal();
+newManagerButton.addEventListener("click", () => {
+  managerForm.reset();
+  managerDialog.showModal();
 });
+
+form.elements.stage.addEventListener("change", updateApplicationDateRequirements);
+form.elements.knowledgeProgramId.addEventListener("change", syncApplicationProgramFields);
+
+if (newDealButton) {
+  newDealButton.addEventListener("click", () => {
+    fillDealFormOptions();
+    form.reset();
+    form.elements.manager.disabled = false;
+    form.elements.managerLocked.value = "";
+    form.elements.client.readOnly = false;
+    form.elements.stage.value = "planned";
+    syncApplicationProgramFields();
+    updateApplicationDateRequirements();
+    dialog.showModal();
+  });
+}
 
 newClientButton.addEventListener("click", () => {
   fillDealFormOptions();
@@ -1077,10 +1560,23 @@ newClientButton.addEventListener("click", () => {
   clientDialog.showModal();
 });
 
+managerForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value === "cancel") {
+    return;
+  }
+
+  event.preventDefault();
+  const formData = new FormData(managerForm);
+  await requestJson("/api/managers", {
+    method: "POST",
+    body: JSON.stringify(Object.fromEntries(formData.entries()))
+  });
+  managerDialog.close();
+  await loadData();
+});
+
 newKnowledgeButton.addEventListener("click", () => {
-  fillDealFormOptions();
-  knowledgeForm.reset();
-  knowledgeDialog.showModal();
+  openKnowledgeDialog();
 });
 
 form.addEventListener("submit", async (event) => {
@@ -1089,7 +1585,17 @@ form.addEventListener("submit", async (event) => {
   }
 
   event.preventDefault();
+  syncApplicationProgramFields();
+  updateApplicationDateRequirements();
+  if (!form.reportValidity()) {
+    return;
+  }
+
   const formData = new FormData(form);
+  if (form.elements.manager.disabled) {
+    formData.set("manager", form.elements.managerLocked.value);
+  }
+  formData.delete("managerLocked");
   await requestJson("/api/deals", {
     method: "POST",
     body: JSON.stringify(Object.fromEntries(formData.entries()))
@@ -1113,6 +1619,22 @@ clientForm.addEventListener("submit", async (event) => {
   await loadData();
 });
 
+dealActionForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value === "cancel") {
+    return;
+  }
+
+  event.preventDefault();
+  const formData = new FormData(dealActionForm);
+  const dealId = formData.get("dealId");
+  await requestJson(`/api/deals/${encodeURIComponent(dealId)}/actions`, {
+    method: "POST",
+    body: JSON.stringify(Object.fromEntries(formData.entries()))
+  });
+  dealActionDialog.close();
+  await loadData();
+});
+
 knowledgeForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") {
     return;
@@ -1120,9 +1642,12 @@ knowledgeForm.addEventListener("submit", async (event) => {
 
   event.preventDefault();
   const formData = new FormData(knowledgeForm);
-  await requestJson("/api/knowledge", {
-    method: "POST",
-    body: JSON.stringify(Object.fromEntries(formData.entries()))
+  const payload = Object.fromEntries(formData.entries());
+  const programId = payload.programId;
+  delete payload.programId;
+  await requestJson(programId ? `/api/knowledge/programs/${encodeURIComponent(programId)}` : "/api/knowledge", {
+    method: programId ? "PATCH" : "POST",
+    body: JSON.stringify(payload)
   });
   knowledgeDialog.close();
   state.view = "knowledge";
