@@ -321,20 +321,34 @@ function createBank(payload) {
 
 function getClients() {
   if (postgresStore.isEnabled()) {
-    return initStore().then(() => postgresStore.listRows("clients"));
+    return initStore().then(() => postgresStore.listRows("clients")).then((clients) => clients.map(normalizeClient));
   }
-  return readJson(CLIENTS_FILE, []);
+  return readJson(CLIENTS_FILE, []).map(normalizeClient);
+}
+
+function normalizeClient(raw = {}) {
+  const createdAt = toIsoDate(raw.createdAt);
+  const updatedAt = toIsoDate(raw.updatedAt);
+  return {
+    id: cleanText(raw.id) || `client-${Date.now()}`,
+    name: cleanText(raw.name || raw.client),
+    manager: cleanText(raw.manager) || "Без аналитика",
+    contact: cleanText(raw.contact),
+    phone: cleanText(raw.phone),
+    comment: cleanText(raw.comment),
+    createdAt,
+    updatedAt: updatedAt || createdAt
+  };
 }
 
 function createClient(payload) {
-  const client = {
+  const now = new Date().toISOString();
+  const client = normalizeClient({
+    ...payload,
     id: payload.id || `client-${Date.now()}`,
-    name: String(payload.name || payload.client || "").trim(),
-    manager: String(payload.manager || "").trim() || "Без аналитика",
-    contact: String(payload.contact || "").trim(),
-    phone: String(payload.phone || "").trim(),
-    comment: String(payload.comment || "").trim()
-  };
+    createdAt: payload.createdAt || now,
+    updatedAt: now
+  });
 
   if (!client.name) {
     throw new Error("Client name is required");
@@ -578,6 +592,7 @@ module.exports = {
   getKnowledge,
   getManagers,
   initStore,
+  normalizeClient,
   normalizeManager,
   normalizeKnowledgeProgram,
   validateDealDates,

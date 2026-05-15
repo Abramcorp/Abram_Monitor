@@ -195,8 +195,15 @@ async function seedKnowledge(knowledge) {
 
 async function listRows(collection) {
   const { table } = getCollection(collection);
-  const result = await getPool().query(`SELECT data FROM ${table} ORDER BY created_at, id`);
-  return result.rows.map((row) => row.data);
+  const result = await getPool().query(`SELECT data, created_at, updated_at FROM ${table} ORDER BY created_at, id`);
+  return result.rows.map((row) => {
+    const data = row.data || {};
+    return {
+      ...data,
+      createdAt: data.createdAt || row.created_at?.toISOString?.() || "",
+      updatedAt: data.updatedAt || row.updated_at?.toISOString?.() || ""
+    };
+  });
 }
 
 async function insertRow(collection, item) {

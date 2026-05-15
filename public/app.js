@@ -16,6 +16,9 @@ const state = {
     status: "current",
     groupBy: "manager"
   },
+  archive: {
+    groupBy: "manager"
+  },
   knowledgeSection: "banks",
   view: "funnels"
 };
@@ -42,6 +45,7 @@ const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
 const VIEWS = [
   { id: "funnels", label: "Аналитики" },
   { id: "summary", label: "Сводный отчет" },
+  { id: "archive", label: "Архив клиентов" },
   { id: "knowledge", label: "База знаний" }
 ];
 
@@ -62,6 +66,11 @@ const BOARD_STATUS_LABELS = {
 const BOARD_GROUP_LABELS = {
   manager: "По аналитикам",
   bank: "По банкам"
+};
+
+const ARCHIVE_GROUP_LABELS = {
+  manager: "По аналитикам",
+  date: "По дате добавления"
 };
 
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
@@ -343,6 +352,8 @@ function filteredDeals(group) {
 function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) {
   const managerGroups = new Map();
   const managerMeta = new Map();
+  const clientMeta = new Map();
+  const clientKey = (manager, client) => `${manager || ""}\u0000${client || ""}`;
 
   managerRecords.forEach((manager) => {
     managerMeta.set(manager.name, manager);
@@ -360,6 +371,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
     if (!managerClients.has(client.name)) {
       managerClients.set(client.name, []);
     }
+    clientMeta.set(clientKey(managerName, client.name), client);
   });
 
   deals.forEach((deal) => {
@@ -381,6 +393,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
       const clientGroups = [...clients.entries()]
         .map(([client, applications]) => {
           const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+          const meta = clientMeta.get(clientKey(manager, client)) || {};
           const plannedApplications = sortedApplications.filter((deal) => deal.stage === "planned");
           const currentApplications = sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
           const successfulApplications = sortedApplications.filter((deal) => deal.stage === "approved");
@@ -390,9 +403,15 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
           const sumRequested = (items) => items.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0);
           const sumApproved = (items) => items.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0);
           const startedAt = earliestDate(sortedApplications.flatMap((deal) => [deal.inquiryAt, deal.signedAt]));
+          const addedAt = meta.createdAt || earliestDate(sortedApplications.map((deal) => deal.createdAt));
           return {
+            clientId: meta.id || "",
             manager,
             client,
+            contact: meta.contact || "",
+            phone: meta.phone || "",
+            comment: meta.comment || "",
+            createdAt: addedAt,
             count: sortedApplications.length,
             activeCount: activeApplications.length,
             completedCount: completedApplications.length,
@@ -420,6 +439,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
 
       const currentClients = clientGroups.filter((client) => client.activeCount > 0 || client.count === 0);
       const completedClients = clientGroups.filter((client) => client.completedCount > 0);
+      const archivedClients = clientGroups.filter((client) => client.activeCount === 0 && client.completedCount > 0);
 
       return {
         managerId: managerRecord.id,
@@ -440,6 +460,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
         lastActionAt: clientGroups[0]?.lastActionAt || "",
         currentClients,
         completedClients,
+        archivedClients,
         clients: clientGroups
       };
     })
@@ -659,7 +680,8 @@ function renderAddApplicationButton(manager, client) {
   `;
 }
 
-function renderClientSummary(client) {
+function renderClientSummary(client, options = {}) {
+  const settings = typeof options === "object" ? options : {};
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
   return `
     <div class="client-summary-main">
@@ -671,6 +693,7 @@ function renderClientSummary(client) {
         <span>Завершенные подачи <strong>${completedLabel}</strong></span>
       </div>
       <div class="client-summary-dates">
+        ${settings.showAddedAt ? `<span>Дата добавления: ${formatDateWithAge(client.createdAt, "назад")}</span>` : ""}
         <span>Дата начала: ${formatDateWithAge(client.startedAt, "в работе")}</span>
         <span>Последнее изменение: ${formatDateWithAge(client.lastActionAt, "назад")}</span>
       </div>
@@ -727,7 +750,8 @@ function renderManagerGroups(deals) {
   `;
 }
 
-function renderClientCards(clients, emptyText) {
+function renderClientCards(clients, emptyText, options = {}) {
+  const settings = { allowAddApplication: true, showAddedAt: false, ...options };
   if (!clients.length) {
     return `<div class="empty compact-empty">${emptyText}</div>`;
   }
@@ -739,10 +763,10 @@ function renderClientCards(clients, emptyText) {
           (client) => `
             <details class="client-card">
               <summary>
-                ${renderClientSummary(client)}
+                ${renderClientSummary(client, { showAddedAt: settings.showAddedAt })}
               </summary>
               <div class="client-drilldown">
-                ${renderAddApplicationButton(client.manager || "", client.client)}
+                ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
                 ${renderClientApplicationSections(client)}
               </div>
             </details>
@@ -750,6 +774,161 @@ function renderClientCards(clients, emptyText) {
         )
         .join("")}
     </div>
+  `;
+}
+
+function getArchivedManagers() {
+  return groupDealsByManagerAndClient(state.dashboard.deals, state.clients, state.managers)
+    .map((manager) => ({
+      ...manager,
+      clients: manager.archivedClients
+    }))
+    .filter((manager) => manager.clients.length > 0);
+}
+
+function flattenArchivedClients(managers) {
+  return managers.flatMap((manager) => manager.clients.map((client) => ({ ...client, manager: manager.manager })));
+}
+
+function archiveDateGroupLabel(value) {
+  const date = localDay(value);
+  return date ? actionDate.format(date) : "Дата не указана";
+}
+
+function archiveDateGroupKey(value) {
+  const date = localDay(value);
+  if (!date) {
+    return "undated";
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function groupArchivedClientsByDate(clients) {
+  const groups = new Map();
+
+  clients.forEach((client) => {
+    const key = archiveDateGroupKey(client.createdAt);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: archiveDateGroupLabel(client.createdAt),
+        sortAt: localDay(client.createdAt)?.getTime?.() || 0,
+        clients: []
+      });
+    }
+    groups.get(key).clients.push(client);
+  });
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      clients: group.clients.sort((a, b) => a.client.localeCompare(b.client, "ru"))
+    }))
+    .sort((a, b) => b.sortAt - a.sortAt || a.label.localeCompare(b.label, "ru"));
+}
+
+function renderArchiveControls() {
+  return `
+    <div class="board-controls">
+      <div class="segmented" role="group" aria-label="Группировка архива">
+        ${Object.entries(ARCHIVE_GROUP_LABELS)
+          .map(
+            ([value, label]) => `
+              <button class="${state.archive.groupBy === value ? "is-active" : ""}" data-archive-group="${value}" type="button">${label}</button>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderArchiveMetrics(clients) {
+  return `
+    <div class="summary-amounts">
+      <span>Клиентов <strong>${clients.length}</strong></span>
+      <span>Одобрено <strong>${clients.reduce((total, client) => total + client.successfulCount, 0)} · ${money(clients.reduce((total, client) => total + client.approvedAmount, 0))}</strong></span>
+      <span>Отказы / непринятые <strong>${clients.reduce((total, client) => total + client.refusedCount, 0)}</strong></span>
+    </div>
+  `;
+}
+
+function renderArchiveByManager(groups) {
+  if (!groups.length) {
+    return `<div class="empty">В архиве пока нет клиентов.</div>`;
+  }
+
+  return `
+    <div class="manager-stack">
+      ${groups
+        .map(
+          (manager) => `
+            <details class="manager-section manager-accordion">
+              <summary class="manager-head">
+                <div>
+                  <p class="eyebrow">Аналитик</p>
+                  <h3>${escapeHtml(manager.manager)}</h3>
+                </div>
+                <div class="manager-metrics">
+                  ${renderArchiveMetrics(manager.clients)}
+                </div>
+              </summary>
+              ${renderClientCards(manager.clients, "Архивных клиентов нет.", { allowAddApplication: false, showAddedAt: true })}
+            </details>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderArchiveByDate(clients) {
+  const groups = groupArchivedClientsByDate(clients);
+  if (!groups.length) {
+    return `<div class="empty">В архиве пока нет клиентов.</div>`;
+  }
+
+  return `
+    <div class="manager-stack">
+      ${groups
+        .map(
+          (group) => `
+            <details class="manager-section manager-accordion">
+              <summary class="manager-head">
+                <div>
+                  <p class="eyebrow">Дата добавления</p>
+                  <h3>${escapeHtml(group.label)}</h3>
+                </div>
+                <div class="manager-metrics">
+                  ${renderArchiveMetrics(group.clients)}
+                </div>
+              </summary>
+              ${renderClientCards(group.clients, "Архивных клиентов нет.", { allowAddApplication: false, showAddedAt: true })}
+            </details>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderArchiveView() {
+  const archiveManagers = getArchivedManagers();
+  const archiveClients = flattenArchivedClients(archiveManagers);
+
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Архив клиентов</p>
+          <h2>Завершенные клиенты</h2>
+          <p class="muted">В архив попадают клиенты без плановых и текущих заявок, у которых есть одобрения, отказы или непринятые заявки.</p>
+          ${renderArchiveMetrics(archiveClients)}
+        </div>
+        ${renderArchiveControls()}
+      </div>
+      ${state.archive.groupBy === "date" ? renderArchiveByDate(archiveClients) : renderArchiveByManager(archiveManagers)}
+    </section>
   `;
 }
 
@@ -1298,6 +1477,7 @@ function render() {
     funnels: renderManagerClientView,
     current: renderCurrent,
     completed: renderCompleted,
+    archive: renderArchiveView,
     knowledge: renderKnowledgeView,
     summary: renderSummary
   };
@@ -1350,6 +1530,13 @@ function bindDynamicControls() {
   document.querySelectorAll("[data-board-group]").forEach((button) => {
     button.addEventListener("click", () => {
       state.board.groupBy = button.dataset.boardGroup;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-archive-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.archive.groupBy = button.dataset.archiveGroup;
       render();
     });
   });

@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildStatusChangeAction, normalizeKnowledgeProgram, normalizeManager, validateDealDates } = require("../src/store");
+const { buildStatusChangeAction, normalizeClient, normalizeKnowledgeProgram, normalizeManager, validateDealDates } = require("../src/store");
 
 test("validateDealDates requires inquiry date for lead applications", () => {
   assert.throws(
@@ -72,4 +72,21 @@ test("normalizeManager keeps the account card name", () => {
   assert.equal(manager.name, "Анна Орлова");
   assert.equal(manager.createdAt, "2026-05-15T10:00:00.000Z");
   assert.equal(manager.updatedAt, "2026-05-15T10:30:00.000Z");
+});
+
+test("normalizeClient keeps client card dates when present", () => {
+  const client = normalizeClient({
+    id: "client-1",
+    name: "ООО Архив",
+    manager: "Анна Орлова",
+    contact: "Иван",
+    createdAt: "2026-05-10T10:00:00+03:00",
+    updatedAt: "2026-05-11T12:30:00+03:00"
+  });
+
+  assert.equal(client.name, "ООО Архив");
+  assert.equal(client.manager, "Анна Орлова");
+  assert.equal(client.contact, "Иван");
+  assert.equal(client.createdAt, "2026-05-10T07:00:00.000Z");
+  assert.equal(client.updatedAt, "2026-05-11T09:30:00.000Z");
 });
