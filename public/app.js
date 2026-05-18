@@ -1247,15 +1247,15 @@ function renderKnowledgePrograms(banks) {
         .filter(([, entries]) => entries.length)
         .map(([type, entries]) => {
           return `
-            <section class="knowledge-program-group">
-              <div class="knowledge-program-group-head">
+            <details class="knowledge-program-group" open>
+              <summary class="knowledge-program-group-head">
                 <h4>${escapeHtml(type)}</h4>
                 <span>${entries.length}</span>
-              </div>
+              </summary>
               <div class="knowledge-grid">
                 ${entries.map(({ bank, program }) => renderKnowledgeProgramCard(program, bank, true)).join("")}
               </div>
-            </section>
+            </details>
           `;
         })
         .join("")}

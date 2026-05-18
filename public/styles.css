@@ -739,8 +739,14 @@ button {
 .knowledge-program-group-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.knowledge-program-group-head::-webkit-details-marker {
+  display: none;
 }
 
 .knowledge-program-group-head h4 {
@@ -758,6 +764,24 @@ button {
   background: #edf2f7;
   font-size: 13px;
   font-weight: 700;
+}
+
+.knowledge-program-group-head::after {
+  content: "+";
+  display: grid;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.knowledge-program-group[open] .knowledge-program-group-head::after {
+  content: "-";
 }
 
 .knowledge-card {
