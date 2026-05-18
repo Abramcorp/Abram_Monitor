@@ -47,10 +47,6 @@ function toIsoDate(value) {
 }
 
 function initStore() {
-  if (!postgresStore.isEnabled()) {
-    return undefined;
-  }
-
   return postgresStore.ensureReady({ normalizeDeal, normalizeKnowledgeEntries });
 }
 

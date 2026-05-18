@@ -2,12 +2,92 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildStatusChangeAction, normalizeClient, normalizeKnowledgeProgram, normalizeManager, validateDealDates } = require("../src/store");
+const postgresStore = require("../src/postgresStore");
+const { buildStatusChangeAction, initStore, normalizeClient, normalizeKnowledgeProgram, normalizeManager, validateDealDates } = require("../src/store");
+
+function restoreEnv(name, value) {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
 
 test("validateDealDates requires inquiry date for lead applications", () => {
   assert.throws(
     () => validateDealDates({ stage: "lead" }),
     /Дата обращения обязательна/
+  );
+});
+
+test("postgres store accepts Railway public database url", (context) => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  const previousPublicUrl = process.env.DATABASE_PUBLIC_URL;
+  const previousPrivateUrl = process.env.DATABASE_PRIVATE_URL;
+  const previousPostgresUrl = process.env.POSTGRES_URL;
+
+  context.after(() => {
+    restoreEnv("DATABASE_URL", previousDatabaseUrl);
+    restoreEnv("DATABASE_PUBLIC_URL", previousPublicUrl);
+    restoreEnv("DATABASE_PRIVATE_URL", previousPrivateUrl);
+    restoreEnv("POSTGRES_URL", previousPostgresUrl);
+  });
+
+  delete process.env.DATABASE_URL;
+  delete process.env.DATABASE_PRIVATE_URL;
+  delete process.env.POSTGRES_URL;
+  process.env.DATABASE_PUBLIC_URL = "postgresql://user:pass@localhost:5432/app";
+
+  assert.equal(postgresStore.getDatabaseUrl(), "postgresql://user:pass@localhost:5432/app");
+  assert.equal(postgresStore.isEnabled(), true);
+});
+
+test("postgres store requires persistence on Railway unless explicitly allowed", (context) => {
+  const previousRailwayEnvironment = process.env.RAILWAY_ENVIRONMENT;
+  const previousAllowEphemeralStore = process.env.ALLOW_EPHEMERAL_STORE;
+
+  context.after(() => {
+    restoreEnv("RAILWAY_ENVIRONMENT", previousRailwayEnvironment);
+    restoreEnv("ALLOW_EPHEMERAL_STORE", previousAllowEphemeralStore);
+  });
+
+  process.env.RAILWAY_ENVIRONMENT = "production";
+  delete process.env.ALLOW_EPHEMERAL_STORE;
+  assert.equal(postgresStore.isPersistentStoreRequired(), true);
+
+  process.env.ALLOW_EPHEMERAL_STORE = "true";
+  assert.equal(postgresStore.isPersistentStoreRequired(), false);
+});
+
+test("store refuses Railway startup without PostgreSQL variables", async (context) => {
+  const names = [
+    "DATABASE_URL",
+    "DATABASE_PUBLIC_URL",
+    "DATABASE_PRIVATE_URL",
+    "POSTGRES_URL",
+    "PGHOST",
+    "PGDATABASE",
+    "PGUSER",
+    "PGPASSWORD",
+    "RAILWAY_ENVIRONMENT",
+    "ALLOW_EPHEMERAL_STORE"
+  ];
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+
+  context.after(() => {
+    for (const [name, value] of Object.entries(previous)) {
+      restoreEnv(name, value);
+    }
+  });
+
+  for (const name of names) {
+    delete process.env[name];
+  }
+  process.env.RAILWAY_ENVIRONMENT = "production";
+
+  await assert.rejects(
+    () => initStore(),
+    /Persistent PostgreSQL storage is required on Railway/
   );
 });
 

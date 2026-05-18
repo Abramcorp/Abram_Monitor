@@ -28,8 +28,33 @@ const KNOWLEDGE_TABLE = "app_knowledge_programs";
 let pool = null;
 let readyPromise = null;
 
+function firstEnv(...names) {
+  for (const name of names) {
+    const value = String(process.env[name] || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function getDatabaseUrl() {
+  return firstEnv("DATABASE_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL", "POSTGRES_URL");
+}
+
+function hasPgVariableConfig() {
+  return Boolean(process.env.PGHOST && process.env.PGDATABASE && process.env.PGUSER && process.env.PGPASSWORD);
+}
+
+function isPersistentStoreRequired() {
+  if (String(process.env.ALLOW_EPHEMERAL_STORE || "").toLowerCase() === "true") {
+    return false;
+  }
+  return Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID);
+}
+
 function isEnabled() {
-  return Boolean(process.env.DATABASE_URL);
+  return Boolean(getConnectionConfig());
 }
 
 function readJson(filePath, fallback) {
@@ -54,9 +79,31 @@ function getSslConfig() {
   return undefined;
 }
 
+function getConnectionConfig() {
+  const connectionString = getDatabaseUrl();
+  if (connectionString) {
+    return {
+      connectionString,
+      ssl: getSslConfig()
+    };
+  }
+  if (!hasPgVariableConfig()) {
+    return null;
+  }
+  return {
+    host: process.env.PGHOST,
+    port: Number(process.env.PGPORT || 5432),
+    database: process.env.PGDATABASE,
+    user: process.env.PGUSER,
+    password: process.env.PGPASSWORD,
+    ssl: getSslConfig()
+  };
+}
+
 function getPool() {
-  if (!isEnabled()) {
-    throw new Error("DATABASE_URL is not configured");
+  const config = getConnectionConfig();
+  if (!config) {
+    throw new Error("PostgreSQL is not configured");
   }
   if (!pool) {
     let Pool;
@@ -64,20 +111,22 @@ function getPool() {
       ({ Pool } = require("pg"));
     } catch (error) {
       if (error.code === "MODULE_NOT_FOUND") {
-        throw new Error("PostgreSQL mode requires the \"pg\" package. Run npm install before starting with DATABASE_URL.");
+        throw new Error("PostgreSQL mode requires the \"pg\" package. Run npm install before starting with database variables.");
       }
       throw error;
     }
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: getSslConfig()
-    });
+    pool = new Pool(config);
   }
   return pool;
 }
 
 async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
   if (!isEnabled()) {
+    if (isPersistentStoreRequired()) {
+      throw new Error(
+        "Persistent PostgreSQL storage is required on Railway. Configure DATABASE_URL=${{Postgres.DATABASE_URL}} on the web service, or provide PGHOST/PGDATABASE/PGUSER/PGPASSWORD. Refusing to use ephemeral JSON storage."
+      );
+    }
     return;
   }
   if (!readyPromise) {
@@ -339,6 +388,8 @@ async function updateKnowledgeProgram(programId, buildNext) {
 
 module.exports = {
   ensureReady,
+  getDatabaseUrl,
+  isPersistentStoreRequired,
   insertKnowledgeProgram,
   insertRow,
   isEnabled,
