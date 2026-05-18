@@ -329,6 +329,7 @@ function getClients() {
 function normalizeClient(raw = {}) {
   const createdAt = toIsoDate(raw.createdAt);
   const updatedAt = toIsoDate(raw.updatedAt);
+  const archivedAt = toIsoDate(raw.archivedAt);
   return {
     id: cleanText(raw.id) || `client-${Date.now()}`,
     name: cleanText(raw.name || raw.client),
@@ -339,6 +340,7 @@ function normalizeClient(raw = {}) {
     driveUrl: cleanText(raw.driveUrl || raw.diskUrl || raw.driveLink),
     instructionUrl: cleanText(raw.instructionUrl || raw.instructionLink),
     comment: cleanText(raw.comment),
+    archivedAt,
     createdAt,
     updatedAt: updatedAt || createdAt
   };
@@ -365,6 +367,38 @@ function createClient(payload) {
   clients.push(client);
   writeJson(CLIENTS_FILE, clients);
   return client;
+}
+
+function archiveClient(id) {
+  if (postgresStore.isEnabled()) {
+    return archiveClientPostgres(id);
+  }
+
+  const clients = getClients();
+  const index = clients.findIndex((client) => client.id === id);
+  if (index === -1) {
+    return null;
+  }
+
+  const archivedAt = new Date().toISOString();
+  clients[index] = normalizeClient({
+    ...clients[index],
+    archivedAt,
+    updatedAt: archivedAt
+  });
+  writeJson(CLIENTS_FILE, clients);
+  return clients[index];
+}
+
+async function archiveClientPostgres(id) {
+  await initStore();
+  const archivedAt = new Date().toISOString();
+  const updated = await postgresStore.updateRow("clients", id, (rawClient) => normalizeClient({
+    ...normalizeClient(rawClient),
+    archivedAt,
+    updatedAt: archivedAt
+  }));
+  return updated ? normalizeClient(updated) : null;
 }
 
 function getKnowledge() {
@@ -582,6 +616,7 @@ function normalizeKnowledgeEntries(entries) {
 
 module.exports = {
   addDealAction,
+  archiveClient,
   buildStatusChangeAction,
   createBank,
   createClient,

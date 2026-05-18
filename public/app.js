@@ -440,6 +440,8 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
             driveUrl: meta.driveUrl || "",
             instructionUrl: meta.instructionUrl || "",
             comment: meta.comment || "",
+            archivedAt: meta.archivedAt || "",
+            isArchived: Boolean(meta.archivedAt),
             createdAt: addedAt,
             count: sortedApplications.length,
             activeCount: activeApplications.length,
@@ -466,31 +468,32 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
         })
         .sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0) || b.count - a.count);
 
-      const currentClients = clientGroups.filter((client) => client.activeCount > 0 || client.count === 0);
-      const completedClients = clientGroups.filter((client) => client.completedCount > 0);
-      const archivedClients = clientGroups.filter((client) => client.activeCount === 0 && client.completedCount > 0);
+      const archivedClients = clientGroups.filter((client) => client.isArchived || (client.activeCount === 0 && client.completedCount > 0));
+      const activeClients = clientGroups.filter((client) => !archivedClients.includes(client));
+      const currentClients = activeClients.filter((client) => client.activeCount > 0 || client.count === 0);
+      const completedClients = activeClients.filter((client) => client.completedCount > 0);
 
       return {
         managerId: managerRecord.id,
         manager,
-        clientCount: clientGroups.length,
-        count: clientGroups.reduce((total, client) => total + client.count, 0),
-        activeCount: clientGroups.reduce((total, client) => total + client.activeCount, 0),
-        completedCount: clientGroups.reduce((total, client) => total + client.completedCount, 0),
-        currentCount: clientGroups.reduce((total, client) => total + client.currentCount, 0),
-        plannedCount: clientGroups.reduce((total, client) => total + client.plannedCount, 0),
-        successfulCount: clientGroups.reduce((total, client) => total + client.successfulCount, 0),
-        refusedCount: clientGroups.reduce((total, client) => total + client.refusedCount, 0),
-        amountRequested: clientGroups.reduce((total, client) => total + client.amountRequested, 0),
-        amountApproved: clientGroups.reduce((total, client) => total + client.amountApproved, 0),
-        plannedAmountRequested: clientGroups.reduce((total, client) => total + client.plannedAmountRequested, 0),
-        currentAmountRequested: clientGroups.reduce((total, client) => total + client.currentAmountRequested, 0),
-        approvedAmount: clientGroups.reduce((total, client) => total + client.approvedAmount, 0),
-        lastActionAt: clientGroups[0]?.lastActionAt || "",
+        clientCount: activeClients.length,
+        count: activeClients.reduce((total, client) => total + client.count, 0),
+        activeCount: activeClients.reduce((total, client) => total + client.activeCount, 0),
+        completedCount: activeClients.reduce((total, client) => total + client.completedCount, 0),
+        currentCount: activeClients.reduce((total, client) => total + client.currentCount, 0),
+        plannedCount: activeClients.reduce((total, client) => total + client.plannedCount, 0),
+        successfulCount: activeClients.reduce((total, client) => total + client.successfulCount, 0),
+        refusedCount: activeClients.reduce((total, client) => total + client.refusedCount, 0),
+        amountRequested: activeClients.reduce((total, client) => total + client.amountRequested, 0),
+        amountApproved: activeClients.reduce((total, client) => total + client.amountApproved, 0),
+        plannedAmountRequested: activeClients.reduce((total, client) => total + client.plannedAmountRequested, 0),
+        currentAmountRequested: activeClients.reduce((total, client) => total + client.currentAmountRequested, 0),
+        approvedAmount: activeClients.reduce((total, client) => total + client.approvedAmount, 0),
+        lastActionAt: activeClients[0]?.lastActionAt || "",
         currentClients,
         completedClients,
         archivedClients,
-        clients: clientGroups
+        clients: activeClients
       };
     })
     .sort((a, b) => b.count - a.count || a.manager.localeCompare(b.manager, "ru"));
@@ -703,16 +706,31 @@ function renderReportTotals(groups) {
 
 function renderAddApplicationButton(manager, client) {
   return `
+    <button
+      class="ghost-button small-button"
+      data-add-application
+      data-manager="${escapeHtml(manager)}"
+      data-client="${escapeHtml(client)}"
+      type="button"
+    >
+      + Заявка
+    </button>
+  `;
+}
+
+function renderClientActions(client, settings = {}) {
+  if (!settings.allowAddApplication && !settings.allowArchive) {
+    return "";
+  }
+
+  return `
     <div class="client-actions">
-      <button
-        class="ghost-button small-button"
-        data-add-application
-        data-manager="${escapeHtml(manager)}"
-        data-client="${escapeHtml(client)}"
-        type="button"
-      >
-        + Заявка
-      </button>
+      ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
+      ${
+        settings.allowArchive && client.clientId
+          ? `<button class="ghost-button small-button danger-button" data-archive-client="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">В архив</button>`
+          : ""
+      }
     </div>
   `;
 }
@@ -757,6 +775,7 @@ function renderClientSummary(client, options = {}) {
       </div>
       <div class="client-summary-dates">
         ${settings.showAddedAt ? `<span>Дата добавления: ${formatDateWithAge(client.createdAt, "назад")}</span>` : ""}
+        ${settings.showArchivedAt && client.archivedAt ? `<span>В архиве: ${formatDateWithAge(client.archivedAt, "назад")}</span>` : ""}
         <span>Дата начала: ${formatDateWithAge(client.startedAt, "в работе")}</span>
         <span>Последнее изменение: ${formatDateWithAge(client.lastActionAt, "назад")}</span>
       </div>
@@ -799,6 +818,7 @@ function renderManagerGroups(deals) {
                           ${renderClientSummary(client, "active")}
                         </summary>
                         <div class="client-drilldown">
+                          ${renderClientActions(client, { allowAddApplication: true, allowArchive: true })}
                           ${renderClientApplicationSections(client)}
                         </div>
                       </details>
@@ -815,7 +835,7 @@ function renderManagerGroups(deals) {
 }
 
 function renderClientCards(clients, emptyText, options = {}) {
-  const settings = { allowAddApplication: true, showAddedAt: false, ...options };
+  const settings = { allowAddApplication: true, allowArchive: true, showAddedAt: false, showArchivedAt: false, ...options };
   if (!clients.length) {
     return `<div class="empty compact-empty">${emptyText}</div>`;
   }
@@ -827,10 +847,10 @@ function renderClientCards(clients, emptyText, options = {}) {
           (client) => `
             <details class="client-card">
               <summary>
-                ${renderClientSummary(client, { showAddedAt: settings.showAddedAt })}
+                ${renderClientSummary(client, { showAddedAt: settings.showAddedAt, showArchivedAt: settings.showArchivedAt })}
               </summary>
               <div class="client-drilldown">
-                ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
+                ${renderClientActions(client, settings)}
                 ${renderClientApplicationSections(client)}
               </div>
             </details>
@@ -937,7 +957,7 @@ function renderArchiveByManager(groups) {
                   ${renderArchiveMetrics(manager.clients)}
                 </div>
               </summary>
-              ${renderClientCards(manager.clients, "Архивных клиентов нет.", { allowAddApplication: false, showAddedAt: true })}
+              ${renderClientCards(manager.clients, "Архивных клиентов нет.", { allowAddApplication: false, allowArchive: false, showAddedAt: true, showArchivedAt: true })}
             </details>
           `
         )
@@ -967,7 +987,7 @@ function renderArchiveByDate(clients) {
                   ${renderArchiveMetrics(group.clients)}
                 </div>
               </summary>
-              ${renderClientCards(group.clients, "Архивных клиентов нет.", { allowAddApplication: false, showAddedAt: true })}
+              ${renderClientCards(group.clients, "Архивных клиентов нет.", { allowAddApplication: false, allowArchive: false, showAddedAt: true, showArchivedAt: true })}
             </details>
           `
         )
@@ -986,7 +1006,7 @@ function renderArchiveView() {
         <div>
           <p class="eyebrow">Архив клиентов</p>
           <h2>Завершенные клиенты</h2>
-          <p class="muted">В архив попадают клиенты без плановых и текущих заявок, у которых есть одобрения, отказы или непринятые заявки.</p>
+          <p class="muted">В архив попадают клиенты, отправленные вручную, а также клиенты без плановых и текущих заявок.</p>
           ${renderArchiveMetrics(archiveClients)}
         </div>
         ${renderArchiveControls()}
@@ -1639,6 +1659,22 @@ function bindDynamicControls() {
         return;
       }
       await requestJson(`/api/managers/${encodeURIComponent(button.dataset.deleteManager)}`, { method: "DELETE" });
+      await loadData();
+    });
+  });
+
+  document.querySelectorAll("[data-archive-client]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!button.dataset.archiveClient) {
+        return;
+      }
+      const confirmed = window.confirm(`Отправить клиента "${button.dataset.clientName}" в архив?`);
+      if (!confirmed) {
+        return;
+      }
+      await requestJson(`/api/clients/${encodeURIComponent(button.dataset.archiveClient)}/archive`, { method: "PATCH" });
       await loadData();
     });
   });

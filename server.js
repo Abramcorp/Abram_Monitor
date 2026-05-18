@@ -6,6 +6,7 @@ const path = require("node:path");
 const { calculateDashboard } = require("./src/analytics");
 const {
   addDealAction,
+  archiveClient,
   createBank,
   createClient,
   createDeal,
@@ -153,6 +154,17 @@ async function handleApi(request, response) {
   if (request.method === "POST" && pathname === "/api/clients") {
     const payload = await readBody(request);
     sendJson(response, 201, { client: await createClient(payload) });
+    return;
+  }
+
+  const clientArchiveMatch = pathname.match(/^\/api\/clients\/([^/]+)\/archive$/);
+  if (request.method === "PATCH" && clientArchiveMatch) {
+    const client = await archiveClient(decodeURIComponent(clientArchiveMatch[1]));
+    if (!client) {
+      sendJson(response, 404, { error: "Client not found" });
+      return;
+    }
+    sendJson(response, 200, { client });
     return;
   }
 
