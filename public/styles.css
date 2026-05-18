@@ -763,8 +763,8 @@ button {
 .knowledge-card {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
   background: #fbfcfd;
+  overflow: hidden;
 }
 
 .knowledge-card-head {
@@ -772,7 +772,48 @@ button {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.knowledge-card-head::-webkit-details-marker {
+  display: none;
+}
+
+.knowledge-card-head::after {
+  content: "+";
+  display: grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.knowledge-card[open] .knowledge-card-head::after {
+  content: "-";
+}
+
+.knowledge-card[open] .knowledge-card-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledge-card-head span {
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.knowledge-card-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
 }
 
 .knowledge-card-head h3,
@@ -789,11 +830,13 @@ button {
 .knowledge-card-head h4 span {
   color: var(--green);
   font-size: 14px;
+  white-space: normal;
 }
 
 .knowledge-card-actions {
-  display: grid;
-  justify-items: end;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 

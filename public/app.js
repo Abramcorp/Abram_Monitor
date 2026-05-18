@@ -188,6 +188,18 @@ function formatDateTimeInput(value) {
   return localDate.toISOString().slice(0, 16);
 }
 
+function formatDateInput(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
+
 function formatActionEntry(action) {
   const date = new Date(action.actionAt);
   if (Number.isNaN(date.getTime())) {
@@ -593,6 +605,14 @@ function renderClientApplicationCards(applications, emptyText, type) {
               <label class="application-field">
                 <span>Дата подписания</span>
                 <input data-application-date="${escapeHtml(deal.id)}" data-date-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
+              </label>
+              <label class="application-field">
+                <span>Дата запроса КИ</span>
+                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
+              </label>
+              <label class="application-field">
+                <span>Дата звонка андеррайтера</span>
+                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
               </label>
               <div class="application-field">
                 <span>Последнее действие</span>
@@ -1161,20 +1181,23 @@ function renderRequirementGrid(requirements = {}) {
 
 function renderKnowledgeProgramCard(program, bank, showBank = false) {
   return `
-    <article class="knowledge-card">
-      <div class="knowledge-card-head">
+    <details class="knowledge-card">
+      <summary class="knowledge-card-head">
         <div>
           <p class="eyebrow">${showBank ? escapeHtml(bank.bank) : "Программа"}</p>
           <h4>${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}</h4>
         </div>
+        <span>${escapeHtml(program.programType || "Стандарт")}</span>
+      </summary>
+      <div class="knowledge-card-body">
         <div class="knowledge-card-actions">
           <time>${formatDate(program.updatedAt || bank.updatedAt)}</time>
           <button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button>
         </div>
+        ${renderRequirementGrid(program.requirements)}
+        <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
       </div>
-      ${renderRequirementGrid(program.requirements)}
-      <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
-    </article>
+    </details>
   `;
 }
 
@@ -1244,6 +1267,10 @@ function updateApplicationDateRequirements() {
   const requiredFields = new Set(getStageDateRequirements(form.elements.stage.value).map((requirement) => requirement.field));
   const inquiryInput = form.elements.inquiryAt;
   const signedInput = form.elements.signedAt;
+
+  if (!inquiryInput || !signedInput) {
+    return;
+  }
 
   inquiryInput.required = requiredFields.has("inquiryAt");
   signedInput.required = requiredFields.has("signedAt");
@@ -1703,9 +1730,7 @@ function fillDealFormOptions() {
   clientOptions.innerHTML = clientNames.map((client) => `<option value="${escapeHtml(client)}"></option>`).join("");
   bankOptions.innerHTML = bankNames.map((bank) => `<option value="${escapeHtml(bank)}"></option>`).join("");
   programSelect.innerHTML = renderApplicationProgramOptions();
-  stageSelect.innerHTML = state.dashboard.stages.all
-    .map((stage) => `<option value="${stage.id}">${stage.label}</option>`)
-    .join("");
+  stageSelect.value = "planned";
   syncApplicationProgramFields();
   updateApplicationDateRequirements();
 }

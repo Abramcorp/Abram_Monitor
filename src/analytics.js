@@ -222,6 +222,8 @@ function toApplicationSummary(deal) {
     inquiryAt: deal.inquiryAt,
     submittedAt: deal.submittedAt,
     signedAt: deal.signedAt,
+    kiRequestedAt: deal.kiRequestedAt,
+    analystCallAt: deal.analystCallAt,
     applicationDate: deal.signedAt || deal.submittedAt || deal.inquiryAt || deal.createdAt,
     amountRequested: deal.amountRequested,
     amountApproved: deal.amountApproved,

@@ -60,21 +60,7 @@
         <input name="programType" type="hidden">
         <input name="programAmountRange" type="hidden">
 
-        <label>
-          Статус заявки
-          <select name="stage" required></select>
-        </label>
-
-        <div class="form-grid">
-          <label>
-            Дата обращения
-            <input name="inquiryAt" type="datetime-local">
-          </label>
-          <label>
-            Дата подписания
-            <input name="signedAt" type="datetime-local">
-          </label>
-        </div>
+        <input name="stage" type="hidden" value="planned">
 
         <div class="form-grid">
           <label>
@@ -84,17 +70,6 @@
           <label>
             Одобрено
             <input name="amountApproved" inputmode="decimal" placeholder="0">
-          </label>
-        </div>
-
-        <div class="form-grid">
-          <label>
-            Бюро
-            <input name="bureau" autocomplete="off">
-          </label>
-          <label>
-            Следующее действие
-            <input name="nextActionAt" type="datetime-local">
           </label>
         </div>
 

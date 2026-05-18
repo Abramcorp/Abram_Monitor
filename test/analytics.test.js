@@ -83,6 +83,17 @@ test("normalizeDeal derives completed group from stage", () => {
   assert.equal(deal.lastActionAt, "2026-05-10T07:00:00.000Z");
 });
 
+test("normalizeDeal keeps KI request and underwriter call as date-only inputs", () => {
+  const deal = normalizeDeal({
+    client: "ООО Даты",
+    kiRequestedAt: "2026-05-14",
+    analystCallAt: "2026-05-15"
+  });
+
+  assert.equal(deal.kiRequestedAt, "2026-05-14T00:00:00.000Z");
+  assert.equal(deal.analystCallAt, "2026-05-15T00:00:00.000Z");
+});
+
 test("dashboard calculates funnel and completed conversion", () => {
   const dashboard = calculateDashboard(
     [
