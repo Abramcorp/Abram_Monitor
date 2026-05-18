@@ -379,7 +379,10 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
   const managerGroups = new Map();
   const managerMeta = new Map();
   const clientMeta = new Map();
+  const clientMetaByName = new Map();
+  const archivedClientNames = new Set();
   const clientKey = (manager, client) => `${manager || ""}\u0000${client || ""}`;
+  const clientNameKey = (client) => String(client || "").trim().toLowerCase();
 
   managerRecords.forEach((manager) => {
     managerMeta.set(manager.name, manager);
@@ -398,6 +401,10 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
       managerClients.set(client.name, []);
     }
     clientMeta.set(clientKey(managerName, client.name), client);
+    clientMetaByName.set(clientNameKey(client.name), client);
+    if (client.archivedAt) {
+      archivedClientNames.add(clientNameKey(client.name));
+    }
   });
 
   deals.forEach((deal) => {
@@ -419,7 +426,9 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
       const clientGroups = [...clients.entries()]
         .map(([client, applications]) => {
           const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
-          const meta = clientMeta.get(clientKey(manager, client)) || {};
+          const exactMeta = clientMeta.get(clientKey(manager, client));
+          const nameMeta = clientMetaByName.get(clientNameKey(client));
+          const meta = exactMeta || (nameMeta?.archivedAt ? nameMeta : {}) || {};
           const plannedApplications = sortedApplications.filter((deal) => deal.stage === "planned");
           const currentApplications = sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
           const successfulApplications = sortedApplications.filter((deal) => deal.stage === "approved");
@@ -430,6 +439,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
           const sumApproved = (items) => items.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0);
           const startedAt = earliestDate(sortedApplications.flatMap((deal) => [deal.inquiryAt, deal.signedAt]));
           const addedAt = meta.createdAt || earliestDate(sortedApplications.map((deal) => deal.createdAt));
+          const isArchived = Boolean(meta.archivedAt || archivedClientNames.has(clientNameKey(client)));
           return {
             clientId: meta.id || "",
             manager,
@@ -441,7 +451,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
             instructionUrl: meta.instructionUrl || "",
             comment: meta.comment || "",
             archivedAt: meta.archivedAt || "",
-            isArchived: Boolean(meta.archivedAt),
+            isArchived,
             createdAt: addedAt,
             count: sortedApplications.length,
             activeCount: activeApplications.length,
