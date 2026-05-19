@@ -36,7 +36,11 @@ const MIME_TYPES = {
 };
 
 function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  response.writeHead(statusCode, {
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json; charset=utf-8",
+    "Pragma": "no-cache"
+  });
   response.end(JSON.stringify(payload));
 }
 
@@ -242,7 +246,15 @@ async function start() {
   });
 }
 
-start().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  sendJson,
+  server,
+  start
+};
