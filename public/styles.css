@@ -573,10 +573,19 @@ button {
 
 .application-card-head {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 3px;
+  align-items: start;
+  cursor: pointer;
+  list-style: none;
+}
+
+.application-card-head::-webkit-details-marker {
+  display: none;
 }
 
 .application-card-head strong {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
@@ -584,12 +593,28 @@ button {
   color: var(--ink);
   font-size: 14px;
   font-weight: 700;
+  justify-self: start;
 }
 
 .application-card-head em {
   color: var(--muted);
   font-size: 12px;
   font-style: normal;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.application-card-head small {
+  color: var(--muted);
+  font-size: 12px;
+  justify-self: start;
+  overflow-wrap: anywhere;
+}
+
+.application-card-body {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
 }
 
 .application-stage-lead {

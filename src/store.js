@@ -85,13 +85,30 @@ function buildStatusChangeAction(previousDeal, nextDeal, actionAt) {
   };
 }
 
+function buildInitialCommentAction(payload, actionAt) {
+  const action = cleanText(payload.comment);
+  const normalizedActionAt = toIsoDate(actionAt) || new Date().toISOString();
+  if (!action) {
+    return null;
+  }
+
+  return {
+    id: `action-comment-${Date.now()}`,
+    action,
+    actionAt: normalizedActionAt
+  };
+}
+
 function createDeal(payload) {
   const now = new Date().toISOString();
+  const createdAt = toIsoDate(payload.createdAt) || now;
+  const initialCommentAction = buildInitialCommentAction(payload, createdAt);
   const deal = normalizeDeal({
     ...payload,
     id: payload.id || `deal-${Date.now()}`,
-    createdAt: payload.createdAt || now,
-    updatedAt: now
+    createdAt,
+    updatedAt: now,
+    actions: initialCommentAction ? [...(Array.isArray(payload.actions) ? payload.actions : []), initialCommentAction] : payload.actions
   });
   validateDealDates(deal);
   if (postgresStore.isEnabled()) {
@@ -613,6 +630,7 @@ function normalizeKnowledgeEntries(entries) {
 module.exports = {
   addDealAction,
   archiveClient,
+  buildInitialCommentAction,
   buildStatusChangeAction,
   createBank,
   createClient,

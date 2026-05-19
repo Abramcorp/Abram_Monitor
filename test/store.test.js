@@ -3,7 +3,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const postgresStore = require("../src/postgresStore");
-const { buildStatusChangeAction, initStore, normalizeClient, normalizeKnowledgeProgram, normalizeManager, validateDealDates } = require("../src/store");
+const {
+  buildInitialCommentAction,
+  buildStatusChangeAction,
+  initStore,
+  normalizeClient,
+  normalizeKnowledgeProgram,
+  normalizeManager,
+  validateDealDates
+} = require("../src/store");
 
 function restoreEnv(name, value) {
   if (value === undefined) {
@@ -125,6 +133,20 @@ test("buildStatusChangeAction skips unchanged status", () => {
     ),
     null
   );
+});
+
+test("buildInitialCommentAction records application creation comment", () => {
+  const action = buildInitialCommentAction(
+    { comment: "Клиент просит ускорить подачу" },
+    "2026-05-16T12:00:00+03:00"
+  );
+
+  assert.equal(action.action, "Клиент просит ускорить подачу");
+  assert.equal(action.actionAt, "2026-05-16T09:00:00.000Z");
+});
+
+test("buildInitialCommentAction skips empty application comments", () => {
+  assert.equal(buildInitialCommentAction({ comment: "   " }, "2026-05-16T12:00:00+03:00"), null);
 });
 
 test("normalizeKnowledgeProgram keeps program type and amount range", () => {

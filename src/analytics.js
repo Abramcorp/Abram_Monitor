@@ -74,6 +74,17 @@ function earliestIsoDate(values) {
   return timestamps.length ? new Date(timestamps[0]).toISOString() : "";
 }
 
+function firstEarliestIsoDate(...groups) {
+  for (const group of groups) {
+    const value = earliestIsoDate(group);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 function normalizeDealAction(raw = {}, index = 0) {
   const action = cleanText(raw.action || raw.comment || raw.text);
   const actionAt = toIsoDate(raw.actionAt || raw.date || raw.createdAt);
@@ -219,6 +230,7 @@ function toApplicationSummary(deal) {
     status: deal.stageLabel,
     statusGroup: deal.statusGroup,
     createdAt: deal.createdAt,
+    updatedAt: deal.updatedAt,
     inquiryAt: deal.inquiryAt,
     submittedAt: deal.submittedAt,
     signedAt: deal.signedAt,
@@ -241,12 +253,79 @@ function sortByLastAction(items) {
   return items.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
 }
 
+function statusChangeAt(deal, stageLabels) {
+  return earliestIsoDate(
+    (deal.actions || [])
+      .filter((action) => {
+        const text = cleanText(action.action);
+        return text.startsWith("Смена статуса:") && stageLabels.some((label) => text.endsWith(`→ ${label}`));
+      })
+      .map((action) => action.actionAt)
+  );
+}
+
+function applicationBucketEnteredAt(deal, bucket) {
+  if (bucket === "planned") {
+    return firstEarliestIsoDate(
+      [statusChangeAt(deal, [STAGE_LABELS.planned]), deal.createdAt],
+      [deal.updatedAt, deal.lastActionAt]
+    );
+  }
+
+  if (bucket === "current") {
+    return firstEarliestIsoDate(
+      [
+        statusChangeAt(deal, [STAGE_LABELS.lead, STAGE_LABELS.submitted]),
+        deal.inquiryAt,
+        deal.signedAt,
+        deal.submittedAt
+      ],
+      [deal.updatedAt, deal.lastActionAt, deal.createdAt]
+    );
+  }
+
+  if (bucket === "approved") {
+    return firstEarliestIsoDate(
+      [statusChangeAt(deal, [STAGE_LABELS.approved]), deal.completedAt],
+      [deal.updatedAt, deal.lastActionAt, deal.createdAt]
+    );
+  }
+
+  if (bucket === "refused") {
+    return firstEarliestIsoDate(
+      [statusChangeAt(deal, [STAGE_LABELS.rejected, STAGE_LABELS.blocked]), deal.completedAt],
+      [deal.updatedAt, deal.lastActionAt, deal.createdAt]
+    );
+  }
+
+  return firstEarliestIsoDate([deal.updatedAt, deal.lastActionAt, deal.createdAt]);
+}
+
+function sortableTime(value) {
+  const timestamp = new Date(value || "").getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+}
+
+function sortByBucketEntry(items, bucket) {
+  return [...items].sort((left, right) => {
+    const leftEntry = sortableTime(applicationBucketEnteredAt(left, bucket));
+    const rightEntry = sortableTime(applicationBucketEnteredAt(right, bucket));
+    return leftEntry - rightEntry || sortableTime(left.lastActionAt) - sortableTime(right.lastActionAt) || left.id.localeCompare(right.id, "ru");
+  });
+}
+
 function buildClientGroup(client, clientDeals) {
   const applications = sortByLastAction(clientDeals.map(toApplicationSummary));
-  const plannedApplications = applications.filter((deal) => deal.stage === "planned");
-  const currentApplications = applications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
-  const successfulApplications = applications.filter((deal) => deal.stage === "approved");
-  const refusedApplications = applications.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked");
+  const plannedApplications = sortByBucketEntry(applications.filter((deal) => deal.stage === "planned"), "planned");
+  const currentApplications = sortByBucketEntry(
+    applications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned"),
+    "current"
+  );
+  const successfulApplications = sortByBucketEntry(applications.filter((deal) => deal.stage === "approved"), "approved");
+  const refusedApplications = sortByBucketEntry(
+    applications.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked"),
+    "refused"
+  );
   const activeApplications = [...currentApplications, ...plannedApplications];
   const completedApplications = [...successfulApplications, ...refusedApplications];
   const plannedDeals = clientDeals.filter((deal) => deal.stage === "planned");

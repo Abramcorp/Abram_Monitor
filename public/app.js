@@ -73,6 +73,15 @@ const ARCHIVE_GROUP_LABELS = {
   date: "По дате добавления"
 };
 
+const APPLICATION_STAGE_LABELS = {
+  planned: "Плановая",
+  lead: "Закинули лид",
+  submitted: "Подписали заявку ждем решение",
+  approved: "Одобрено",
+  rejected: "Отклонено",
+  blocked: "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)"
+};
+
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
 const KNOWLEDGE_SECTIONS = {
   banks: "Банки",
@@ -168,6 +177,22 @@ function earliestDate(values) {
   return timestamps.length ? new Date(timestamps[0]).toISOString() : "";
 }
 
+function firstEarliestDate(...groups) {
+  for (const group of groups) {
+    const value = earliestDate(group);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function sortableTime(value) {
+  const timestamp = new Date(value || "").getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+}
+
 function formatDateWithAge(value, ageText) {
   const days = daysSince(value);
   if (!value || days === null) {
@@ -224,6 +249,62 @@ function safeExternalUrl(value) {
 
 function applicationStageClass(stage) {
   return `application-stage-${String(stage || "planned").replace(/[^a-z0-9-]/gi, "")}`;
+}
+
+function statusChangeAt(deal, stageLabels) {
+  return earliestDate(
+    (deal.actions || [])
+      .filter((action) => {
+        const text = String(action.action || "").trim();
+        return text.startsWith("Смена статуса:") && stageLabels.some((label) => text.endsWith(`→ ${label}`));
+      })
+      .map((action) => action.actionAt)
+  );
+}
+
+function applicationBucketEnteredAt(deal, bucket) {
+  if (bucket === "planned") {
+    return firstEarliestDate(
+      [statusChangeAt(deal, [APPLICATION_STAGE_LABELS.planned]), deal.createdAt],
+      [deal.updatedAt, deal.lastActionAt]
+    );
+  }
+
+  if (bucket === "current") {
+    return firstEarliestDate(
+      [
+        statusChangeAt(deal, [APPLICATION_STAGE_LABELS.lead, APPLICATION_STAGE_LABELS.submitted]),
+        deal.inquiryAt,
+        deal.signedAt,
+        deal.submittedAt
+      ],
+      [deal.updatedAt, deal.lastActionAt, deal.createdAt]
+    );
+  }
+
+  if (bucket === "approved") {
+    return firstEarliestDate(
+      [statusChangeAt(deal, [APPLICATION_STAGE_LABELS.approved]), deal.completedAt],
+      [deal.updatedAt, deal.lastActionAt, deal.createdAt]
+    );
+  }
+
+  if (bucket === "refused") {
+    return firstEarliestDate(
+      [statusChangeAt(deal, [APPLICATION_STAGE_LABELS.rejected, APPLICATION_STAGE_LABELS.blocked]), deal.completedAt],
+      [deal.updatedAt, deal.lastActionAt, deal.createdAt]
+    );
+  }
+
+  return firstEarliestDate([deal.updatedAt, deal.lastActionAt, deal.createdAt]);
+}
+
+function sortByBucketEntry(applications, bucket) {
+  return [...applications].sort((left, right) => {
+    const leftEntry = sortableTime(applicationBucketEnteredAt(left, bucket));
+    const rightEntry = sortableTime(applicationBucketEnteredAt(right, bucket));
+    return leftEntry - rightEntry || sortableTime(left.lastActionAt) - sortableTime(right.lastActionAt) || left.id.localeCompare(right.id, "ru");
+  });
 }
 
 function uiStateKey(...parts) {
@@ -455,14 +536,20 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
       const managerRecord = managerMeta.get(manager) || { id: "", name: manager };
       const clientGroups = [...clients.entries()]
         .map(([client, applications]) => {
-          const sortedApplications = applications.sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+          const sortedApplications = [...applications].sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
           const exactMeta = clientMeta.get(clientKey(manager, client));
           const nameMeta = clientMetaByName.get(clientNameKey(client));
           const meta = exactMeta || (nameMeta?.archivedAt ? nameMeta : {}) || {};
-          const plannedApplications = sortedApplications.filter((deal) => deal.stage === "planned");
-          const currentApplications = sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
-          const successfulApplications = sortedApplications.filter((deal) => deal.stage === "approved");
-          const refusedApplications = sortedApplications.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked");
+          const plannedApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "planned"), "planned");
+          const currentApplications = sortByBucketEntry(
+            sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned"),
+            "current"
+          );
+          const successfulApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "approved"), "approved");
+          const refusedApplications = sortByBucketEntry(
+            sortedApplications.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked"),
+            "refused"
+          );
           const activeApplications = [...currentApplications, ...plannedApplications];
           const completedApplications = [...successfulApplications, ...refusedApplications];
           const sumRequested = (items) => items.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0);
@@ -624,58 +711,57 @@ function renderClientApplicationCards(applications, emptyText, type) {
       ${applications
         .map(
           (deal) => `
-            <article class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}">
-              <div class="application-card-head">
+            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}">
+              <summary class="application-card-head">
                 <strong>${escapeHtml(applicationProgramTitle(deal))}</strong>
                 <span>${money(deal.amountRequested)}</span>
                 <em>${escapeHtml(deal.stageLabel)}</em>
+                <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
+              </summary>
+              <div class="application-card-body">
+                <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
+                  + Действие
+                </button>
+                <label class="application-field">
+                  <span>Статус</span>
+                  <select data-stage-select="${escapeHtml(deal.id)}" data-current-stage="${escapeHtml(deal.stage)}">
+                    ${stageOptions
+                      .map((stage) => `<option value="${stage.id}" ${stage.id === deal.stage ? "selected" : ""}>${stage.label}</option>`)
+                      .join("")}
+                  </select>
+                </label>
+                <label class="application-field">
+                  <span>Дата обращения</span>
+                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="inquiryAt" type="datetime-local" value="${formatDateTimeInput(deal.inquiryAt)}">
+                </label>
+                <label class="application-field">
+                  <span>Дата подписания</span>
+                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
+                </label>
+                <label class="application-field">
+                  <span>Дата запроса КИ</span>
+                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
+                </label>
+                <label class="application-field">
+                  <span>Дата звонка андеррайтера</span>
+                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
+                </label>
+                ${
+                  type === "approved"
+                    ? `<div class="application-field"><span>Одобрено</span><strong>${money(deal.amountApproved)}</strong></div>`
+                    : ""
+                }
+                ${
+                  type === "refused"
+                    ? `<div class="application-field application-comment"><span>Причина</span><strong>${escapeHtml(deal.comment || deal.timeline || "—")}</strong></div>`
+                    : ""
+                }
+                <div class="application-field application-history-field">
+                  <span>Хронология</span>
+                  ${renderApplicationActions(deal.actions)}
+                </div>
               </div>
-              <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
-                + Действие
-              </button>
-              <label class="application-field">
-                <span>Статус</span>
-                <select data-stage-select="${escapeHtml(deal.id)}" data-current-stage="${escapeHtml(deal.stage)}">
-                  ${stageOptions
-                    .map((stage) => `<option value="${stage.id}" ${stage.id === deal.stage ? "selected" : ""}>${stage.label}</option>`)
-                    .join("")}
-                </select>
-              </label>
-              <label class="application-field">
-                <span>Дата обращения</span>
-                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="inquiryAt" type="datetime-local" value="${formatDateTimeInput(deal.inquiryAt)}">
-              </label>
-              <label class="application-field">
-                <span>Дата подписания</span>
-                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
-              </label>
-              <label class="application-field">
-                <span>Дата запроса КИ</span>
-                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
-              </label>
-              <label class="application-field">
-                <span>Дата звонка андеррайтера</span>
-                <input data-application-date="${escapeHtml(deal.id)}" data-date-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
-              </label>
-              <div class="application-field">
-                <span>Последнее действие</span>
-                <strong>${formatDate(deal.lastActionAt)}</strong>
-              </div>
-              ${
-                type === "approved"
-                  ? `<div class="application-field"><span>Одобрено</span><strong>${money(deal.amountApproved)}</strong></div>`
-                  : ""
-              }
-              ${
-                type === "refused"
-                  ? `<div class="application-field application-comment"><span>Причина</span><strong>${escapeHtml(deal.comment || deal.timeline || "—")}</strong></div>`
-                  : ""
-              }
-              <div class="application-field application-history-field">
-                <span>Хронология</span>
-                ${renderApplicationActions(deal.actions)}
-              </div>
-            </article>
+            </details>
           `
         )
         .join("")}

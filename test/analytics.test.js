@@ -151,8 +151,9 @@ test("dashboard groups current clients by manager with application status and la
   assert.equal(manager.clientCount, 1);
   assert.equal(manager.count, 2);
   assert.equal(manager.clients[0].client, "ООО Клиент");
-  assert.equal(manager.clients[0].currentApplications[0].status, "Подписали заявку ждем решение");
-  assert.equal(manager.clients[0].currentApplications[0].lastActionAt, "2026-05-12T08:30:00.000Z");
+  const submittedApplication = manager.clients[0].currentApplications.find((application) => application.id === "2");
+  assert.equal(submittedApplication.status, "Подписали заявку ждем решение");
+  assert.equal(submittedApplication.lastActionAt, "2026-05-12T08:30:00.000Z");
 });
 
 test("manager client groups split client applications by workflow bucket", () => {
@@ -226,6 +227,95 @@ test("manager client groups split client applications by workflow bucket", () =>
   assert.equal(client.refusedApplications[0].id, "refused");
   assert.equal(manager.currentClients[0].client, "ООО Смешанный клиент");
   assert.equal(manager.completedClients[0].client, "ООО Смешанный клиент");
+});
+
+test("manager client groups sort applications by bucket entry from old to new", () => {
+  const deals = [
+    normalizeDeal({
+      id: "planned-new",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "planned",
+      createdAt: "2026-05-05T10:00:00+03:00",
+      updatedAt: "2026-05-06T10:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "planned-old",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "planned",
+      createdAt: "2026-05-01T10:00:00+03:00",
+      updatedAt: "2026-05-20T10:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "current-new",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "lead",
+      inquiryAt: "2026-05-05T10:00:00+03:00",
+      updatedAt: "2026-05-06T10:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "current-old",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "submitted",
+      signedAt: "2026-05-09T10:00:00+03:00",
+      updatedAt: "2026-05-12T10:00:00+03:00",
+      actions: [
+        { action: "Смена статуса: Плановая → Закинули лид", actionAt: "2026-05-02T10:00:00+03:00" },
+        { action: "Смена статуса: Закинули лид → Подписали заявку ждем решение", actionAt: "2026-05-09T10:00:00+03:00" }
+      ]
+    }),
+    normalizeDeal({
+      id: "approved-new",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "approved",
+      completedAt: "2026-05-10T10:00:00+03:00",
+      updatedAt: "2026-05-10T10:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "approved-old",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "approved",
+      completedAt: "2026-05-03T10:00:00+03:00",
+      updatedAt: "2026-05-15T10:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "refused-new",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "blocked",
+      completedAt: "2026-05-11T10:00:00+03:00",
+      updatedAt: "2026-05-11T10:00:00+03:00"
+    }),
+    normalizeDeal({
+      id: "refused-old",
+      client: "ООО Очередность",
+      manager: "Елена Иванова",
+      bank: "Банк",
+      stage: "rejected",
+      completedAt: "2026-05-04T10:00:00+03:00",
+      updatedAt: "2026-05-12T10:00:00+03:00"
+    })
+  ];
+
+  const [manager] = buildManagerClientGroups(deals);
+  const [client] = manager.clients;
+
+  assert.deepEqual(client.plannedApplications.map((deal) => deal.id), ["planned-old", "planned-new"]);
+  assert.deepEqual(client.currentApplications.map((deal) => deal.id), ["current-old", "current-new"]);
+  assert.deepEqual(client.successfulApplications.map((deal) => deal.id), ["approved-old", "approved-new"]);
+  assert.deepEqual(client.refusedApplications.map((deal) => deal.id), ["refused-old", "refused-new"]);
 });
 
 test("dashboard builds board summaries by manager and bank with requested amount", () => {
