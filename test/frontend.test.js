@@ -10,7 +10,9 @@ const appSource = fs.readFileSync(path.join(__dirname, "..", "public", "app.js")
 test("application save refreshes dashboard while preserving the current client card", () => {
   assert.match(appSource, /async function refreshDashboard/);
   assert.match(appSource, /function preserveClientOpenState/);
+  assert.match(appSource, /function closeApplicationCard/);
   assert.match(appSource, /const \{ deal \} = await requestJson\(`\/api\/deals\/\$\{encodeURIComponent\(dealId\)\}`/);
+  assert.match(appSource, /closeApplicationCard\(card\)/);
   assert.match(appSource, /await refreshDashboard\(\{ restoreUi: preserveClientOpenState\(uiSnapshot, deal\) \}\)/);
 });
 

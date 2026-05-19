@@ -440,6 +440,12 @@ function preserveClientOpenState(snapshot, deal) {
   };
 }
 
+function closeApplicationCard(card) {
+  if (card) {
+    card.open = false;
+  }
+}
+
 function resetFilters() {
   state.filters = { query: "", manager: "all", bank: "all", stage: "all" };
 }
@@ -2036,6 +2042,7 @@ function bindDynamicControls() {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
+      closeApplicationCard(card);
       await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
     });
   });
