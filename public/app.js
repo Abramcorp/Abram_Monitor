@@ -413,6 +413,33 @@ async function loadData(options = {}) {
   restoreUiState(options.restoreUi);
 }
 
+async function refreshDashboard(options = {}) {
+  state.dashboard = await requestJson("/api/dashboard");
+  render();
+  restoreUiState(options.restoreUi);
+}
+
+function clientUiStateKeys(deal) {
+  if (!deal?.manager || !deal?.client) {
+    return [];
+  }
+
+  return [
+    uiStateKey("manager", deal.manager),
+    uiStateKey("client", deal.manager, deal.client, "active"),
+    uiStateKey("current-manager", deal.manager),
+    uiStateKey("current-client", deal.manager, deal.client)
+  ];
+}
+
+function preserveClientOpenState(snapshot, deal) {
+  return {
+    ...snapshot,
+    openDetails: [...new Set([...(snapshot?.openDetails || []), ...clientUiStateKeys(deal)])],
+    view: state.view
+  };
+}
+
 function resetFilters() {
   state.filters = { query: "", manager: "all", bank: "all", stage: "all" };
 }
@@ -637,7 +664,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
         })
         .sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0) || b.count - a.count);
 
-      const archivedClients = clientGroups.filter((client) => client.isArchived || (client.activeCount === 0 && client.completedCount > 0));
+      const archivedClients = clientGroups.filter((client) => client.isArchived);
       const activeClients = clientGroups.filter((client) => !archivedClients.includes(client));
       const currentClients = activeClients.filter((client) => client.activeCount > 0 || client.count === 0);
       const completedClients = activeClients.filter((client) => client.completedCount > 0);
@@ -2005,11 +2032,11 @@ function bindDynamicControls() {
       });
 
       const uiSnapshot = captureUiState();
-      await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
+      const { deal } = await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
-      await loadData({ restoreUi: uiSnapshot });
+      await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
     });
   });
 }
