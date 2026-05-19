@@ -226,6 +226,35 @@ function applicationStageClass(stage) {
   return `application-stage-${String(stage || "planned").replace(/[^a-z0-9-]/gi, "")}`;
 }
 
+function uiStateKey(...parts) {
+  return parts.map((part) => encodeURIComponent(String(part ?? "").trim())).join("|");
+}
+
+function captureUiState() {
+  return {
+    openDetails: [...document.querySelectorAll("details[data-ui-state-key][open]")]
+      .map((detail) => detail.dataset.uiStateKey)
+      .filter(Boolean),
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    view: state.view
+  };
+}
+
+function restoreUiState(snapshot) {
+  if (!snapshot || snapshot.view !== state.view) {
+    return;
+  }
+
+  const openDetails = new Set(snapshot.openDetails || []);
+  document.querySelectorAll("details[data-ui-state-key]").forEach((detail) => {
+    detail.open = openDetails.has(detail.dataset.uiStateKey);
+  });
+  requestAnimationFrame(() => {
+    window.scrollTo(snapshot.scrollX || 0, snapshot.scrollY || 0);
+  });
+}
+
 function getStageDateRequirements(stage, currentStage = "") {
   const requirements = [];
   if (stage === "lead") {
@@ -253,7 +282,7 @@ async function requestJson(url, options) {
   return payload;
 }
 
-async function loadData() {
+async function loadData(options = {}) {
   const [dashboard, bankPayload, clientPayload, managerPayload, knowledgePayload] = await Promise.all([
     requestJson("/api/dashboard"),
     requestJson("/api/banks"),
@@ -267,6 +296,7 @@ async function loadData() {
   state.managers = managerPayload.managers;
   state.knowledge = knowledgePayload.knowledge;
   render();
+  restoreUiState(options.restoreUi);
 }
 
 function resetFilters() {
@@ -807,7 +837,7 @@ function renderManagerGroups(deals) {
       ${managers
         .map(
           (manager) => `
-            <details class="manager-section manager-accordion">
+            <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("current-manager", manager.manager))}">
               <summary class="manager-head">
                 <div>
                   <p class="eyebrow">Аналитик</p>
@@ -823,7 +853,7 @@ function renderManagerGroups(deals) {
                 ${manager.clients
                   .map(
                     (client) => `
-                      <details class="client-card">
+                      <details class="client-card" data-ui-state-key="${escapeHtml(uiStateKey("current-client", manager.manager, client.client))}">
                         <summary>
                           ${renderClientSummary(client, "active")}
                         </summary>
@@ -855,7 +885,7 @@ function renderClientCards(clients, emptyText, options = {}) {
       ${clients
         .map(
           (client) => `
-            <details class="client-card">
+            <details class="client-card" data-ui-state-key="${escapeHtml(uiStateKey("client", client.manager || "", client.client, settings.showArchivedAt ? "archive" : "active"))}">
               <summary>
                 ${renderClientSummary(client, { showAddedAt: settings.showAddedAt, showArchivedAt: settings.showArchivedAt })}
               </summary>
@@ -957,7 +987,7 @@ function renderArchiveByManager(groups) {
       ${groups
         .map(
           (manager) => `
-            <details class="manager-section manager-accordion">
+            <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("archive-manager", manager.manager))}">
               <summary class="manager-head">
                 <div>
                   <p class="eyebrow">Аналитик</p>
@@ -987,7 +1017,7 @@ function renderArchiveByDate(clients) {
       ${groups
         .map(
           (group) => `
-            <details class="manager-section manager-accordion">
+            <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("archive-date", group.key))}">
               <summary class="manager-head">
                 <div>
                   <p class="eyebrow">Дата добавления</p>
@@ -1043,7 +1073,7 @@ function renderManagerClientView() {
               ${managers
                 .map(
                   (manager) => `
-                    <details class="manager-section manager-accordion">
+                    <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
                       <summary class="manager-head">
                         <div>
                           <p class="eyebrow">Аналитик</p>
@@ -1898,12 +1928,13 @@ form.addEventListener("submit", async (event) => {
     formData.set("manager", form.elements.managerLocked.value);
   }
   formData.delete("managerLocked");
+  const uiSnapshot = captureUiState();
   await requestJson("/api/deals", {
     method: "POST",
     body: JSON.stringify(Object.fromEntries(formData.entries()))
   });
   dialog.close();
-  await loadData();
+  await loadData({ restoreUi: uiSnapshot });
 });
 
 clientForm.addEventListener("submit", async (event) => {
