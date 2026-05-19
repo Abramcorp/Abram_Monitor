@@ -12,6 +12,16 @@ const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
+const PROGRAM_CATEGORIES = [
+  "1 КАТЕГОРИЯ",
+  "2 КАТЕГОРИЯ",
+  "3 КАТЕГОРИЯ",
+  "РЕГИОНАЛЬНЫЕ",
+  "СВОЯ ВЫРУЧКА",
+  "НАЛОГОВАЯ ДЕКЛАРАЦИЯ",
+  "ФИЗАВТО",
+  "ТЕСТОВЫЕ БАНКИ"
+];
 
 function readJson(filePath, fallback) {
   try {
@@ -575,6 +585,16 @@ function normalizeProgramType(value) {
   return PROGRAM_TYPES.includes(text) ? text : "Стандарт";
 }
 
+function normalizeProgramCategory(value) {
+  const text = cleanText(value);
+  if (!text) {
+    return "";
+  }
+  const upper = text.toUpperCase();
+  const match = PROGRAM_CATEGORIES.find((category) => category.toUpperCase() === upper);
+  return match || "";
+}
+
 function normalizeKnowledgeProgram(raw = {}) {
   const requirements = raw.requirements && !Array.isArray(raw.requirements) ? raw.requirements : raw;
   const legacyRequirements = Array.isArray(raw.requirements) ? normalizeList(raw.requirements).join("\n") : "";
@@ -583,7 +603,8 @@ function normalizeKnowledgeProgram(raw = {}) {
   return {
     id: cleanText(raw.id) || `kb-${Date.now()}`,
     program: cleanText(raw.program || raw.topic || raw.name),
-    programType: normalizeProgramType(raw.programType || raw.type || raw.category),
+    programType: normalizeProgramType(raw.programType || raw.type),
+    category: normalizeProgramCategory(raw.category || raw.section),
     amountRange: cleanText(raw.amountRange || raw.amount || raw.limit || raw.sum),
     requirements: normalizeRequirements({
       ...requirements,

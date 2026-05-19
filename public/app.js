@@ -10,6 +10,7 @@ const state = {
     query: "",
     manager: "all",
     bank: "all",
+    category: "all",
     stage: "all"
   },
   board: {
@@ -83,9 +84,21 @@ const APPLICATION_STAGE_LABELS = {
 };
 
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
+const PROGRAM_CATEGORIES = [
+  "1 КАТЕГОРИЯ",
+  "2 КАТЕГОРИЯ",
+  "3 КАТЕГОРИЯ",
+  "РЕГИОНАЛЬНЫЕ",
+  "СВОЯ ВЫРУЧКА",
+  "НАЛОГОВАЯ ДЕКЛАРАЦИЯ",
+  "ФИЗАВТО",
+  "ТЕСТОВЫЕ БАНКИ"
+];
+const CATEGORY_FALLBACK_LABEL = "Без категории";
 const KNOWLEDGE_SECTIONS = {
-  banks: "Банки",
-  programs: "Программы"
+  banks: "По банкам",
+  programs: "По типам",
+  categories: "По категориям"
 };
 
 const currency = new Intl.NumberFormat("ru-RU", {
@@ -1195,20 +1208,31 @@ function renderManagerClientView() {
 
 function filteredKnowledge() {
   const query = state.filters.query.toLowerCase();
+  const categoryFilter = state.filters.category;
   return state.knowledge
     .filter((bank) => state.filters.bank === "all" || bank.bank === state.filters.bank)
     .map((bank) => ({
       ...bank,
       programs: (bank.programs || []).filter((program) => {
+        if (categoryFilter && categoryFilter !== "all") {
+          const programCategory = program.category || "";
+          if (categoryFilter === "__none__") {
+            if (programCategory) {
+              return false;
+            }
+          } else if (programCategory !== categoryFilter) {
+            return false;
+          }
+        }
         if (!query) {
           return true;
         }
         const requirementText = Object.values(program.requirements || {}).join(" ");
-        return [bank.bank, program.program, program.programType, program.amountRange, program.notes, requirementText].join(" ").toLowerCase().includes(query);
+        return [bank.bank, program.program, program.programType, program.category, program.amountRange, program.notes, requirementText].join(" ").toLowerCase().includes(query);
       })
     }))
     .filter((bank) => {
-      if (!query) {
+      if (!query && (!categoryFilter || categoryFilter === "all")) {
         return true;
       }
       return bank.programs.length > 0;
@@ -1282,13 +1306,22 @@ function renderKnowledgeFilters() {
     .sort((a, b) => a.localeCompare(b, "ru"))
     .map((bank) => `<option value="${escapeHtml(bank)}" ${state.filters.bank === bank ? "selected" : ""}>${escapeHtml(bank)}</option>`)
     .join("");
+  const categoryFilter = state.filters.category || "all";
+  const categoryOptions = PROGRAM_CATEGORIES
+    .map((category) => `<option value="${escapeHtml(category)}" ${categoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`)
+    .join("");
 
   return `
     <div class="filters">
-      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, требование">
+      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, категория, требование">
       <select id="bankFilter">
         <option value="all">Все банки</option>
         ${bankOptions}
+      </select>
+      <select id="categoryFilter">
+        <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Все категории</option>
+        <option value="__none__" ${categoryFilter === "__none__" ? "selected" : ""}>${escapeHtml(CATEGORY_FALLBACK_LABEL)}</option>
+        ${categoryOptions}
       </select>
     </div>
   `;
@@ -1326,14 +1359,19 @@ function renderRequirementGrid(requirements = {}) {
 }
 
 function renderKnowledgeProgramCard(program, bank, showBank = false) {
+  const categoryLabel = program.category || "";
+  const categoryClass = categoryLabel ? ` is-${categorySlug(categoryLabel)}` : " is-none";
   return `
     <details class="knowledge-card">
       <summary class="knowledge-card-head">
         <div>
           <p class="eyebrow">${showBank ? escapeHtml(bank.bank) : "Программа"}</p>
           <h4>${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}</h4>
+          <div class="knowledge-card-badges">
+            <span class="badge badge-type">${escapeHtml(program.programType || "Стандарт")}</span>
+            <span class="badge badge-category${categoryClass}">${escapeHtml(categoryLabel || CATEGORY_FALLBACK_LABEL)}</span>
+          </div>
         </div>
-        <span>${escapeHtml(program.programType || "Стандарт")}</span>
       </summary>
       <div class="knowledge-card-body">
         <div class="knowledge-card-actions">
@@ -1345,6 +1383,11 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
       </div>
     </details>
   `;
+}
+
+function categorySlug(category) {
+  const index = PROGRAM_CATEGORIES.indexOf(category);
+  return index >= 0 ? `cat-${index + 1}` : "cat-other";
 }
 
 function renderKnowledgeBanks(banks) {
@@ -1409,6 +1452,43 @@ function renderKnowledgePrograms(banks) {
   `;
 }
 
+function renderKnowledgeCategories(banks) {
+  const programs = banks.flatMap((bank) => (bank.programs || []).map((program) => ({ bank, program })));
+  if (!programs.length) {
+    return `<div class="empty">В базе знаний пока нет программ под выбранные фильтры.</div>`;
+  }
+
+  const groups = new Map(PROGRAM_CATEGORIES.map((category) => [category, []]));
+  groups.set("", []);
+  programs.forEach((entry) => {
+    const category = entry.program.category && PROGRAM_CATEGORIES.includes(entry.program.category) ? entry.program.category : "";
+    groups.get(category).push(entry);
+  });
+
+  return `
+    <div class="knowledge-program-groups">
+      ${[...groups.entries()]
+        .filter(([, entries]) => entries.length)
+        .map(([category, entries]) => {
+          const label = category || CATEGORY_FALLBACK_LABEL;
+          const slug = category ? categorySlug(category) : "cat-none";
+          return `
+            <details class="knowledge-program-group is-${slug}" open>
+              <summary class="knowledge-program-group-head">
+                <h4>${escapeHtml(label)}</h4>
+                <span>${entries.length}</span>
+              </summary>
+              <div class="knowledge-grid">
+                ${entries.map(({ bank, program }) => renderKnowledgeProgramCard(program, bank, true)).join("")}
+              </div>
+            </details>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
 function updateApplicationDateRequirements() {
   const requiredFields = new Set(getStageDateRequirements(form.elements.stage.value).map((requirement) => requirement.field));
   const inquiryInput = form.elements.inquiryAt;
@@ -1424,6 +1504,16 @@ function updateApplicationDateRequirements() {
   signedInput.setCustomValidity("");
 }
 
+function renderKnowledgeSectionContent(items) {
+  if (state.knowledgeSection === "banks") {
+    return renderKnowledgeBanks(items);
+  }
+  if (state.knowledgeSection === "categories") {
+    return renderKnowledgeCategories(items);
+  }
+  return renderKnowledgePrograms(items);
+}
+
 function renderKnowledgeView() {
   const items = filteredKnowledge();
   return `
@@ -1436,7 +1526,7 @@ function renderKnowledgeView() {
         ${renderKnowledgeFilters()}
       </div>
       ${renderKnowledgeSectionControls()}
-      ${state.knowledgeSection === "banks" ? renderKnowledgeBanks(items) : renderKnowledgePrograms(items)}
+      ${renderKnowledgeSectionContent(items)}
     </section>
   `;
 }
@@ -1707,6 +1797,7 @@ function bindDynamicControls() {
   const queryFilter = document.querySelector("#queryFilter");
   const managerFilter = document.querySelector("#managerFilter");
   const bankFilter = document.querySelector("#bankFilter");
+  const categoryFilter = document.querySelector("#categoryFilter");
   const stageFilter = document.querySelector("#stageFilter");
 
   if (queryFilter) {
@@ -1726,6 +1817,13 @@ function bindDynamicControls() {
   if (bankFilter) {
     bankFilter.addEventListener("change", (event) => {
       state.filters.bank = event.target.value;
+      render();
+    });
+  }
+
+  if (categoryFilter) {
+    categoryFilter.addEventListener("change", (event) => {
+      state.filters.category = event.target.value;
       render();
     });
   }
@@ -1915,6 +2013,7 @@ function openKnowledgeDialog(entry = null) {
   knowledgeForm.elements.program.value = entry?.program?.program || "";
   knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
   knowledgeForm.elements.programType.value = PROGRAM_TYPES.includes(entry?.program?.programType) ? entry.program.programType : "Стандарт";
+  knowledgeForm.elements.category.value = PROGRAM_CATEGORIES.includes(entry?.program?.category) ? entry.program.category : "";
 
   const requirements = entry?.program?.requirements || {};
   Object.keys(REQUIREMENT_LABELS).forEach((key) => {
