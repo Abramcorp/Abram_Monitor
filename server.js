@@ -4,6 +4,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const { calculateDashboard } = require("./src/analytics");
+const { getMoscowNow } = require("./src/time");
 const {
   addDealAction,
   archiveClient,
@@ -96,7 +97,13 @@ async function handleApi(request, response) {
   const pathname = url.pathname;
 
   if (request.method === "GET" && pathname === "/api/dashboard") {
-    sendJson(response, 200, calculateDashboard(await getDeals()));
+    const time = await getMoscowNow();
+    sendJson(response, 200, calculateDashboard(await getDeals(), new Date(time.iso), time));
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/time") {
+    sendJson(response, 200, { time: await getMoscowNow() });
     return;
   }
 

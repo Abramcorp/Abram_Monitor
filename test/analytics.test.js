@@ -108,8 +108,15 @@ test("dashboard calculates funnel and completed conversion", () => {
   assert.equal(dashboard.totals.current, 2);
   assert.equal(dashboard.totals.completed, 2);
   assert.equal(dashboard.totals.completedConversionRate, 50);
+  assert.equal(dashboard.totals.leads, 1);
+  assert.equal(dashboard.totals.working, 1);
   assert.equal(dashboard.totals.amountRequestedCurrent, 3000);
+  assert.equal(dashboard.totals.amountRequestedLeads, 1000);
+  assert.equal(dashboard.totals.amountRequestedWorking, 2000);
   assert.equal(dashboard.totals.amountApprovedCompleted, 2500);
+  assert.equal(dashboard.totals.leadToWorkingConversionRate, 50);
+  assert.equal(dashboard.totals.signedToCompletedConversionRate, 67);
+  assert.equal(dashboard.totals.completedToSuccessConversionRate, 50);
   assert.equal(dashboard.currentFunnel.find((stage) => stage.id === "lead").count, 1);
 });
 
@@ -218,9 +225,13 @@ test("manager client groups split client applications by workflow bucket", () =>
   assert.equal(client.currentAmountRequested, 1000);
   assert.equal(client.approvedAmount, 1800);
   assert.equal(client.currentCount, 1);
+  assert.equal(client.leadCount, 0);
+  assert.equal(client.workingCount, 1);
+  assert.equal(client.workingAmountRequested, 1000);
   assert.equal(client.plannedCount, 1);
   assert.equal(client.successfulCount, 1);
   assert.equal(client.refusedCount, 1);
+  assert.equal(client.workingApplications[0].id, "active");
   assert.equal(client.activeApplications[0].id, "active");
   assert.equal(client.plannedApplications[0].id, "planned");
   assert.equal(client.successfulApplications[0].id, "completed");
@@ -357,19 +368,29 @@ test("dashboard builds board summaries by manager and bank with requested amount
   );
 
   const currentBank = dashboard.boardSummaries.current.bank.find((group) => group.name === "Банк 1");
+  const currentClient = dashboard.boardSummaries.current.client.find((group) => group.name === "ООО Альфа");
   const completedManager = dashboard.boardSummaries.completed.manager.find((group) => group.name === "Елена Иванова");
 
   assert.equal(currentBank.count, 2);
   assert.equal(currentBank.amountRequested, 4000);
   assert.equal(currentBank.currentAmountRequested, 4000);
+  assert.equal(currentBank.leadCount, 0);
+  assert.equal(currentBank.workingCount, 2);
+  assert.equal(currentBank.workingAmountRequested, 4000);
   assert.equal(currentBank.plannedAmountRequested, 0);
   assert.equal(currentBank.approvedAmount, 0);
   assert.equal(currentBank.totalAmountRequested, 4000);
+  assert.equal(currentBank.leadToWorkingConversionRate, 100);
   assert.equal(currentBank.applications[0].applicationDate, "2026-05-12T07:00:00.000Z");
+  assert.equal(currentClient.count, 1);
+  assert.equal(currentClient.workingCount, 1);
+  assert.equal(currentClient.totalAmountRequested, 1000);
   assert.equal(completedManager.count, 1);
   assert.equal(completedManager.amountRequested, 2000);
   assert.equal(completedManager.amountApproved, 1800);
   assert.equal(completedManager.currentAmountRequested, 1000);
+  assert.equal(completedManager.workingCount, 1);
+  assert.equal(completedManager.signedToCompletedConversionRate, 50);
   assert.equal(completedManager.approvedAmount, 1800);
   assert.equal(completedManager.totalAmountRequested, 3000);
   assert.equal(completedManager.approvalConversionRate, 60);

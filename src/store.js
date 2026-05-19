@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { normalizeDeal } = require("./analytics");
 const postgresStore = require("./postgresStore");
+const { getMoscowNowIso, toIsoDate } = require("./time");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DEALS_FILE = path.join(DATA_DIR, "deals.json");
@@ -34,16 +35,6 @@ function writeJson(filePath, value) {
 
 function cleanText(value) {
   return String(value || "").trim();
-}
-
-function toIsoDate(value) {
-  const text = cleanText(value);
-  if (!text) {
-    return "";
-  }
-
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 function initStore() {
@@ -79,7 +70,7 @@ function buildStatusChangeAction(previousDeal, nextDeal, actionAt) {
   }
 
   return {
-    id: `action-status-${Date.now()}`,
+    id: `action-status-${new Date(actionAt).getTime()}`,
     action: `Смена статуса: ${previousDeal.stageLabel} → ${nextDeal.stageLabel}`,
     actionAt
   };
@@ -93,19 +84,19 @@ function buildInitialCommentAction(payload, actionAt) {
   }
 
   return {
-    id: `action-comment-${Date.now()}`,
+    id: `action-comment-${new Date(normalizedActionAt).getTime()}`,
     action,
     actionAt: normalizedActionAt
   };
 }
 
-function createDeal(payload) {
-  const now = new Date().toISOString();
+async function createDeal(payload) {
+  const now = await getMoscowNowIso();
   const createdAt = toIsoDate(payload.createdAt) || now;
   const initialCommentAction = buildInitialCommentAction(payload, createdAt);
   const deal = normalizeDeal({
     ...payload,
-    id: payload.id || `deal-${Date.now()}`,
+    id: payload.id || `deal-${new Date(now).getTime()}`,
     createdAt,
     updatedAt: now,
     actions: initialCommentAction ? [...(Array.isArray(payload.actions) ? payload.actions : []), initialCommentAction] : payload.actions
@@ -121,18 +112,18 @@ function createDeal(payload) {
   return deal;
 }
 
-function updateDeal(id, patch) {
+async function updateDeal(id, patch) {
   if (postgresStore.isEnabled()) {
     return updateDealPostgres(id, patch);
   }
 
+  const updatedAt = await getMoscowNowIso();
   const deals = getDeals();
   const index = deals.findIndex((deal) => deal.id === id);
   if (index === -1) {
     return null;
   }
 
-  const updatedAt = new Date().toISOString();
   const next = normalizeDeal({
     ...deals[index],
     ...patch,
@@ -155,9 +146,9 @@ function updateDeal(id, patch) {
 
 async function updateDealPostgres(id, patch) {
   await initStore();
+  const updatedAt = await getMoscowNowIso();
   const updated = await postgresStore.updateRow("deals", id, (rawDeal) => {
     const previous = normalizeDeal(rawDeal);
-    const updatedAt = new Date().toISOString();
     const next = normalizeDeal({
       ...previous,
       ...patch,
@@ -178,11 +169,12 @@ async function updateDealPostgres(id, patch) {
   return updated ? normalizeDeal(updated) : null;
 }
 
-function addDealAction(id, payload) {
+async function addDealAction(id, payload) {
   if (postgresStore.isEnabled()) {
     return addDealActionPostgres(id, payload);
   }
 
+  const now = await getMoscowNowIso();
   const deals = getDeals();
   const index = deals.findIndex((deal) => deal.id === id);
   if (index === -1) {
@@ -194,9 +186,9 @@ function addDealAction(id, payload) {
     throw new Error("Действие или комментарий обязательны");
   }
 
-  const actionAt = toIsoDate(payload.actionAt) || new Date().toISOString();
+  const actionAt = toIsoDate(payload.actionAt) || now;
   const actionEntry = {
-    id: payload.id || `action-${Date.now()}`,
+    id: payload.id || `action-${new Date(actionAt).getTime()}`,
     action,
     actionAt
   };
@@ -218,9 +210,10 @@ async function addDealActionPostgres(id, payload) {
     throw new Error("Действие или комментарий обязательны");
   }
 
-  const actionAt = toIsoDate(payload.actionAt) || new Date().toISOString();
+  const now = await getMoscowNowIso();
+  const actionAt = toIsoDate(payload.actionAt) || now;
   const actionEntry = {
-    id: payload.id || `action-${Date.now()}`,
+    id: payload.id || `action-${new Date(actionAt).getTime()}`,
     action,
     actionAt
   };

@@ -20,7 +20,7 @@ const state = {
     groupBy: "manager"
   },
   knowledgeSection: "banks",
-  view: "funnels"
+  view: "summary"
 };
 
 const app = document.querySelector("#app");
@@ -43,8 +43,8 @@ const knowledgeForm = document.querySelector("#knowledgeForm");
 const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
 
 const VIEWS = [
-  { id: "funnels", label: "Аналитики" },
   { id: "summary", label: "Сводный отчет" },
+  { id: "funnels", label: "Аналитики" },
   { id: "archive", label: "Архив клиентов" },
   { id: "knowledge", label: "База знаний" }
 ];
@@ -65,7 +65,14 @@ const BOARD_STATUS_LABELS = {
 
 const BOARD_GROUP_LABELS = {
   manager: "По аналитикам",
+  client: "По клиентам",
   bank: "По банкам"
+};
+
+const BOARD_GROUP_EYEBROWS = {
+  manager: "Аналитик",
+  client: "Клиент",
+  bank: "Банк"
 };
 
 const ARCHIVE_GROUP_LABELS = {
@@ -87,6 +94,7 @@ const KNOWLEDGE_SECTIONS = {
   banks: "Банки",
   programs: "Программы"
 };
+const MOSCOW_TIME_ZONE = "Europe/Moscow";
 
 const currency = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
@@ -96,6 +104,7 @@ const currency = new Intl.NumberFormat("ru-RU", {
 
 const dateTime = new Intl.DateTimeFormat("ru-RU", {
   day: "2-digit",
+  timeZone: MOSCOW_TIME_ZONE,
   month: "2-digit",
   hour: "2-digit",
   minute: "2-digit"
@@ -104,12 +113,14 @@ const dateTime = new Intl.DateTimeFormat("ru-RU", {
 const actionDate = new Intl.DateTimeFormat("ru-RU", {
   day: "2-digit",
   month: "2-digit",
-  year: "numeric"
+  year: "numeric",
+  timeZone: MOSCOW_TIME_ZONE
 });
 
 const actionTime = new Intl.DateTimeFormat("ru-RU", {
   hour: "2-digit",
-  minute: "2-digit"
+  minute: "2-digit",
+  timeZone: MOSCOW_TIME_ZONE
 });
 
 const DAY_MS = 86400000;
@@ -209,8 +220,20 @@ function formatDateTimeInput(value) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0, 16);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("sv-SE", {
+      timeZone: MOSCOW_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function formatDateInput(value) {
@@ -221,8 +244,17 @@ function formatDateInput(value) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0, 10);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("sv-SE", {
+      timeZone: MOSCOW_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function formatActionEntry(action) {
@@ -410,11 +442,12 @@ function updateActionVisibility() {
 function renderKpis() {
   const totals = state.dashboard.totals;
   const kpis = [
-    ["Текущие заявки", totals.current],
+    ["Лиды", totals.leads],
+    ["Заявки в работе", totals.working],
     ["Завершенные", totals.completed],
     ["Одобрено", totals.issued],
-    ["Просрочено действий", totals.overdue],
-    ["Конверсия завершенных", `${totals.completedConversionRate}%`]
+    ["Конверсия лидов", `${totals.leadToWorkingConversionRate}%`],
+    ["Успех завершенных", `${totals.completedToSuccessConversionRate}%`]
   ];
 
   return `
@@ -541,6 +574,8 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
           const nameMeta = clientMetaByName.get(clientNameKey(client));
           const meta = exactMeta || (nameMeta?.archivedAt ? nameMeta : {}) || {};
           const plannedApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "planned"), "planned");
+          const leadApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "lead"), "current");
+          const workingApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "submitted"), "current");
           const currentApplications = sortByBucketEntry(
             sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned"),
             "current"
@@ -574,18 +609,24 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
             activeCount: activeApplications.length,
             completedCount: completedApplications.length,
             currentCount: currentApplications.length,
+            leadCount: leadApplications.length,
+            workingCount: workingApplications.length,
             plannedCount: plannedApplications.length,
             successfulCount: successfulApplications.length,
             refusedCount: refusedApplications.length,
             amountRequested: sumRequested(sortedApplications),
             amountApproved: sumApproved(sortedApplications),
             plannedAmountRequested: sumRequested(plannedApplications),
+            leadAmountRequested: sumRequested(leadApplications),
+            workingAmountRequested: sumRequested(workingApplications),
             currentAmountRequested: sumRequested(currentApplications),
             approvedAmount: sumApproved(successfulApplications),
             startedAt,
             lastActionAt: sortedApplications[0]?.lastActionAt || "",
             activeApplications,
             currentApplications,
+            leadApplications,
+            workingApplications,
             plannedApplications,
             completedApplications,
             successfulApplications,
@@ -608,12 +649,16 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
         activeCount: activeClients.reduce((total, client) => total + client.activeCount, 0),
         completedCount: activeClients.reduce((total, client) => total + client.completedCount, 0),
         currentCount: activeClients.reduce((total, client) => total + client.currentCount, 0),
+        leadCount: activeClients.reduce((total, client) => total + client.leadCount, 0),
+        workingCount: activeClients.reduce((total, client) => total + client.workingCount, 0),
         plannedCount: activeClients.reduce((total, client) => total + client.plannedCount, 0),
         successfulCount: activeClients.reduce((total, client) => total + client.successfulCount, 0),
         refusedCount: activeClients.reduce((total, client) => total + client.refusedCount, 0),
         amountRequested: activeClients.reduce((total, client) => total + client.amountRequested, 0),
         amountApproved: activeClients.reduce((total, client) => total + client.amountApproved, 0),
         plannedAmountRequested: activeClients.reduce((total, client) => total + client.plannedAmountRequested, 0),
+        leadAmountRequested: activeClients.reduce((total, client) => total + client.leadAmountRequested, 0),
+        workingAmountRequested: activeClients.reduce((total, client) => total + client.workingAmountRequested, 0),
         currentAmountRequested: activeClients.reduce((total, client) => total + client.currentAmountRequested, 0),
         approvedAmount: activeClients.reduce((total, client) => total + client.approvedAmount, 0),
         lastActionAt: activeClients[0]?.lastActionAt || "",
@@ -722,6 +767,17 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
                   + Действие
                 </button>
+                <button class="primary-button small-button application-save-button" data-save-application="${escapeHtml(deal.id)}" type="button">
+                  Сохранить
+                </button>
+                <label class="application-field">
+                  <span>Сумма заявки</span>
+                  <input data-application-field="${escapeHtml(deal.id)}" data-field="amountRequested" inputmode="decimal" value="${escapeHtml(deal.amountRequested || "")}">
+                </label>
+                <label class="application-field">
+                  <span>Одобрено</span>
+                  <input data-application-field="${escapeHtml(deal.id)}" data-field="amountApproved" inputmode="decimal" value="${escapeHtml(deal.amountApproved || "")}">
+                </label>
                 <label class="application-field">
                   <span>Статус</span>
                   <select data-stage-select="${escapeHtml(deal.id)}" data-current-stage="${escapeHtml(deal.stage)}">
@@ -732,19 +788,19 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 </label>
                 <label class="application-field">
                   <span>Дата обращения</span>
-                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="inquiryAt" type="datetime-local" value="${formatDateTimeInput(deal.inquiryAt)}">
+                  <input data-application-field="${escapeHtml(deal.id)}" data-field="inquiryAt" type="datetime-local" value="${formatDateTimeInput(deal.inquiryAt)}">
                 </label>
                 <label class="application-field">
                   <span>Дата подписания</span>
-                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
+                  <input data-application-field="${escapeHtml(deal.id)}" data-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
                 </label>
                 <label class="application-field">
                   <span>Дата запроса КИ</span>
-                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
+                  <input data-application-field="${escapeHtml(deal.id)}" data-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
                 </label>
                 <label class="application-field">
                   <span>Дата звонка андеррайтера</span>
-                  <input data-application-date="${escapeHtml(deal.id)}" data-date-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
+                  <input data-application-field="${escapeHtml(deal.id)}" data-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
                 </label>
                 ${
                   type === "approved"
@@ -790,14 +846,16 @@ function renderClientApplicationSections(client) {
     `;
 
   const plannedSection = ["План подач", client.plannedApplications || [], client.plannedCount || 0, "Плановых заявок нет.", "planned", false];
-  const currentSection = ["Текущие", client.currentApplications || [], client.currentCount || 0, "Текущих заявок нет.", "current", false];
+  const leadSection = ["Лиды", client.leadApplications || [], client.leadCount || 0, "Лидов нет.", "current", false];
+  const workingSection = ["Заявки в работе", client.workingApplications || [], client.workingCount || 0, "Заявок в работе нет.", "current", false];
   const approvedSection = ["Одобрено", client.successfulApplications || [], client.successfulCount || 0, "Одобренных заявок нет.", "approved", false];
   const refusedSection = ["Отказ / непринятые", client.refusedApplications || [], client.refusedCount || 0, "Отказов и непринятых заявок нет.", "refused", true];
 
   return `
     <div class="application-split">
       ${renderSection(plannedSection)}
-      ${renderSection(currentSection)}
+      ${renderSection(leadSection)}
+      ${renderSection(workingSection)}
       <div class="application-completed-rail">
         ${renderSection(approvedSection)}
         ${renderSection(refusedSection)}
@@ -810,8 +868,19 @@ function renderSummaryAmountBadges(source) {
   return `
     <div class="summary-amounts">
       <span>План подач <strong>${money(source.plannedAmountRequested)}</strong></span>
-      <span>Текущие <strong>${money(source.currentAmountRequested)}</strong></span>
+      <span>Лиды <strong>${source.leadCount || 0} · ${money(source.leadAmountRequested)}</strong></span>
+      <span>В работе <strong>${source.workingCount || 0} · ${money(source.workingAmountRequested)}</strong></span>
       <span>Одобрено <strong>${money(source.approvedAmount)}</strong></span>
+    </div>
+  `;
+}
+
+function renderConversionBadges(source) {
+  return `
+    <div class="conversion-grid">
+      <span>Лиды → в работе <strong>${source.leadToWorkingConversionRate || 0}%</strong></span>
+      <span>Подписанные → завершенные <strong>${source.signedToCompletedConversionRate || 0}%</strong></span>
+      <span>Завершенные → успешные <strong>${source.completedToSuccessConversionRate || source.completedConversionRate || 0}%</strong></span>
     </div>
   `;
 }
@@ -819,14 +888,25 @@ function renderSummaryAmountBadges(source) {
 function renderReportTotals(groups) {
   const totalRequested = groups.reduce((total, group) => total + Number(group.totalAmountRequested || group.amountRequested || 0), 0);
   const approvedAmount = groups.reduce((total, group) => total + Number(group.approvedAmount || 0), 0);
+  const leadCount = groups.reduce((total, group) => total + Number(group.leadCount || 0), 0);
+  const workingCount = groups.reduce((total, group) => total + Number(group.workingCount || 0), 0);
+  const completedCount = groups.reduce((total, group) => total + Number(group.completedCount || 0), 0);
+  const successfulCount = groups.reduce((total, group) => total + Number(group.successfulCount || 0), 0);
   return {
     count: groups.reduce((total, group) => total + group.count, 0),
     amountRequested: groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0),
     totalAmountRequested: totalRequested,
     plannedAmountRequested: groups.reduce((total, group) => total + Number(group.plannedAmountRequested || 0), 0),
+    leadCount,
+    workingCount,
+    leadAmountRequested: groups.reduce((total, group) => total + Number(group.leadAmountRequested || 0), 0),
+    workingAmountRequested: groups.reduce((total, group) => total + Number(group.workingAmountRequested || 0), 0),
     currentAmountRequested: groups.reduce((total, group) => total + Number(group.currentAmountRequested || 0), 0),
     approvedAmount,
-    approvalConversionRate: percent(approvedAmount, totalRequested)
+    approvalConversionRate: percent(approvedAmount, totalRequested),
+    leadToWorkingConversionRate: percent(workingCount, leadCount + workingCount),
+    signedToCompletedConversionRate: percent(completedCount, workingCount + completedCount),
+    completedToSuccessConversionRate: percent(successfulCount, completedCount)
   };
 }
 
@@ -895,7 +975,8 @@ function renderClientSummary(client, options = {}) {
       <strong class="client-title">${escapeHtml(client.client)}</strong>
       <div class="client-summary-amounts">
         <span>План подач <strong>${client.plannedCount || 0} · ${money(client.plannedAmountRequested)}</strong></span>
-        <span>Текущие заявки <strong>${client.currentCount || 0} · ${money(client.currentAmountRequested)}</strong></span>
+        <span>Лиды <strong>${client.leadCount || 0} · ${money(client.leadAmountRequested)}</strong></span>
+        <span>Заявки в работе <strong>${client.workingCount || 0} · ${money(client.workingAmountRequested)}</strong></span>
         <span>Одобрения <strong>${client.successfulCount || 0} · ${money(client.approvedAmount)}</strong></span>
         <span>Завершенные подачи <strong>${completedLabel}</strong></span>
       </div>
@@ -931,8 +1012,8 @@ function renderManagerGroups(deals) {
                 </div>
                 <div class="manager-metrics">
                   <span>${manager.clientCount} клиентов</span>
-                  <strong>${manager.count} заявок</strong>
-                  <span>${money(manager.amountRequested)}</span>
+                  <strong>Лиды ${manager.leadCount || 0} · В работе ${manager.workingCount || 0}</strong>
+                  <span>${money(manager.leadAmountRequested || 0)} · ${money(manager.workingAmountRequested || 0)}</span>
                 </div>
               </summary>
               <div class="client-stack">
@@ -1169,7 +1250,8 @@ function renderManagerClientView() {
                           <strong>${manager.clientCount} клиентов</strong>
                           <div class="summary-amounts">
                             <span>План подач <strong>${manager.plannedCount} · ${money(manager.plannedAmountRequested)}</strong></span>
-                            <span>Текущие заявки <strong>${manager.currentCount} · ${money(manager.currentAmountRequested)}</strong></span>
+                            <span>Лиды <strong>${manager.leadCount} · ${money(manager.leadAmountRequested)}</strong></span>
+                            <span>Заявки в работе <strong>${manager.workingCount} · ${money(manager.workingAmountRequested)}</strong></span>
                           </div>
                           <button
                             class="ghost-button small-button danger-button"
@@ -1506,18 +1588,73 @@ function renderBarRows(items, labelKey, valueKey, classKey) {
     <div class="chart-list">
       ${items
         .map((item) => {
-          const width = Math.max(4, Math.round((Number(item[valueKey] || 0) / max) * 100));
+          const value = Number(item[valueKey] || 0);
+          const width = Math.max(4, Math.round((value / max) * 100));
           const label = item[labelKey] || item.label;
+          const displayValue = valueKey.includes("Rate") ? `${value}%` : valueKey.includes("Amount") ? money(value) : item.count ?? value;
           return `
             <div class="bar-row">
               <strong>${escapeHtml(label)}</strong>
               <div class="bar-track"><div class="bar ${escapeHtml(item[classKey] || "")}" style="width: ${width}%"></div></div>
-              <span>${item.count ?? money(item[valueKey])}</span>
+              <span>${displayValue}</span>
             </div>
           `;
         })
         .join("")}
     </div>
+  `;
+}
+
+function renderSummaryCharts(groups) {
+  const topByAmount = [...groups]
+    .sort((left, right) => Number(right.totalAmountRequested || 0) - Number(left.totalAmountRequested || 0))
+    .slice(0, 8);
+  const topBySuccess = [...groups]
+    .filter((group) => Number(group.completedCount || 0) > 0)
+    .sort((left, right) => Number(right.completedToSuccessConversionRate || 0) - Number(left.completedToSuccessConversionRate || 0))
+    .slice(0, 8);
+  const pipeline = [...groups]
+    .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
+    .slice(0, 8);
+
+  return `
+    <section class="summary-dashboard-grid">
+      <article class="summary-chart-card">
+        <p class="eyebrow">Объем</p>
+        <h3>Топ по сумме заявок</h3>
+        ${renderBarRows(topByAmount, "name", "totalAmountRequested", "groupBy")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Качество</p>
+        <h3>Конверсия завершенных в успешные</h3>
+        ${renderBarRows(topBySuccess.length ? topBySuccess : groups.slice(0, 8), "name", "completedToSuccessConversionRate", "groupBy")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Структура</p>
+        <h3>План · лиды · работа · завершено</h3>
+        <div class="pipeline-list">
+          ${
+            pipeline
+              .map((group) => {
+                const total = Math.max(1, Number(group.planCount || 0) + Number(group.leadCount || 0) + Number(group.workingCount || 0) + Number(group.completedCount || 0));
+                const width = (value) => Math.round((Number(value || 0) / total) * 100);
+                return `
+                  <div class="pipeline-row">
+                    <strong>${escapeHtml(group.name)}</strong>
+                    <div class="pipeline-track">
+                      <span class="pipeline-plan" style="width:${width(group.planCount)}%"></span>
+                      <span class="pipeline-lead" style="width:${width(group.leadCount)}%"></span>
+                      <span class="pipeline-work" style="width:${width(group.workingCount)}%"></span>
+                      <span class="pipeline-done" style="width:${width(group.completedCount)}%"></span>
+                    </div>
+                  </div>
+                `;
+              })
+              .join("") || `<div class="empty compact-empty">Нет данных для графика.</div>`
+          }
+        </div>
+      </article>
+    </section>
   `;
 }
 
@@ -1602,11 +1739,17 @@ function renderBoardApplicationRows(applications, groupBy) {
     <div class="board-deal-list">
       ${applications
         .map(
-          (deal) => `
+          (deal) => {
+            const contextLabel = groupBy === "bank"
+              ? `${deal.client} · ${deal.manager} · ${deal.program || deal.bank}`
+              : groupBy === "client"
+                ? `${deal.manager} · ${applicationProgramTitle(deal)}`
+                : applicationProgramTitle(deal);
+            return `
             <article class="board-deal-row">
               <div>
                 <strong>${escapeHtml(deal.client)}</strong>
-                <span>${escapeHtml(groupBy === "bank" ? `${deal.manager} · ${deal.program || deal.bank}` : applicationProgramTitle(deal))} · ${escapeHtml(deal.stageLabel)}</span>
+                <span>${escapeHtml(contextLabel)} · ${escapeHtml(deal.stageLabel)}</span>
               </div>
               <div>
                 <span>Дата заявки</span>
@@ -1621,7 +1764,8 @@ function renderBoardApplicationRows(applications, groupBy) {
                 <strong>${money(deal.amountRequested)}</strong>
               </div>
             </article>
-          `
+          `;
+          }
         )
         .join("")}
     </div>
@@ -1641,13 +1785,14 @@ function renderBoardSummaryGroups(groups) {
             <details class="board-group-card">
               <summary>
                 <div>
-                  <p class="eyebrow">${state.board.groupBy === "bank" ? "Банк" : "Аналитик"}</p>
+                  <p class="eyebrow">${BOARD_GROUP_EYEBROWS[state.board.groupBy] || "Группа"}</p>
                   <h3>${escapeHtml(group.name)}</h3>
                 </div>
                 <div class="manager-metrics">
                   <span>${group.count} заявок</span>
                   <strong>Всего ${money(group.totalAmountRequested || group.amountRequested)} (${group.approvalConversionRate || 0}%)</strong>
                   ${renderSummaryAmountBadges(group)}
+                  ${renderConversionBadges(group)}
                   <span>В выбранном отчете ${money(group.amountRequested)}</span>
                 </div>
               </summary>
@@ -1663,6 +1808,7 @@ function renderBoardSummaryGroups(groups) {
 function renderSummary() {
   const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
   const totals = renderReportTotals(groups);
+  const reportTime = state.dashboard.time || { iso: state.dashboard.generatedAt, source: "server" };
 
   return `
     ${renderKpis()}
@@ -1673,9 +1819,12 @@ function renderSummary() {
           <h2>${BOARD_STATUS_LABELS[state.board.status]} заявки · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}</h2>
           <p class="muted">${totals.count} заявок · ${money(totals.amountRequested)} в выбранном отчете · всего ${money(totals.totalAmountRequested)} (${totals.approvalConversionRate}%)</p>
           ${renderSummaryAmountBadges(totals)}
+          ${renderConversionBadges(totals)}
+          <p class="muted">Время отчета: ${formatDate(reportTime.iso)} MSK · источник: ${escapeHtml(reportTime.source || "server")}</p>
         </div>
         ${renderBoardControls()}
       </div>
+      ${renderSummaryCharts(groups)}
       ${renderBoardSummaryGroups(groups)}
     </section>
   `;
@@ -1824,17 +1973,21 @@ function bindDynamicControls() {
     });
   });
 
-  document.querySelectorAll("[data-stage-select]").forEach((select) => {
-    select.addEventListener("change", async (event) => {
-      const currentStage = event.target.dataset.currentStage || "";
-      const requirements = getStageDateRequirements(event.target.value, currentStage);
+  document.querySelectorAll("[data-save-application]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       const card = event.target.closest(".client-application-card");
-      const payload = { stage: event.target.value };
+      const stageSelect = card?.querySelector("[data-stage-select]");
+      const dealId = event.target.dataset.saveApplication;
+      const currentStage = stageSelect?.dataset.currentStage || "";
+      const nextStage = stageSelect?.value || currentStage;
+      const requirements = getStageDateRequirements(nextStage, currentStage);
+      const payload = { stage: nextStage };
 
       for (const requirement of requirements) {
-        const dateInput = card?.querySelector(`[data-date-field="${requirement.field}"]`);
+        const dateInput = card?.querySelector(`[data-field="${requirement.field}"]`);
         if (!dateInput?.value) {
-          event.target.value = currentStage;
           dateInput?.focus();
           dateInput?.setCustomValidity(`${requirement.label} обязательна для выбранного статуса`);
           dateInput?.reportValidity();
@@ -1844,21 +1997,18 @@ function bindDynamicControls() {
         payload[requirement.field] = dateInput.value;
       }
 
-      await requestJson(`/api/deals/${encodeURIComponent(event.target.dataset.stageSelect)}`, {
+      card?.querySelectorAll("[data-application-field]").forEach((input) => {
+        if (input.dataset.field) {
+          payload[input.dataset.field] = input.value;
+        }
+      });
+
+      const uiSnapshot = captureUiState();
+      await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
-      await loadData();
-    });
-  });
-
-  document.querySelectorAll("[data-application-date]").forEach((input) => {
-    input.addEventListener("change", async (event) => {
-      await requestJson(`/api/deals/${encodeURIComponent(event.target.dataset.applicationDate)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ [event.target.dataset.dateField]: event.target.value })
-      });
-      await loadData();
+      await loadData({ restoreUi: uiSnapshot });
     });
   });
 }
@@ -1944,7 +2094,7 @@ function openApplicationDialog(manager, client) {
 function openDealActionDialog(dealId) {
   dealActionForm.reset();
   dealActionForm.elements.dealId.value = dealId;
-  dealActionForm.elements.actionAt.value = formatDateTimeInput(new Date().toISOString());
+  dealActionForm.elements.actionAt.value = formatDateTimeInput(state.dashboard?.time?.iso || new Date().toISOString());
   dealActionDialog.showModal();
 }
 
