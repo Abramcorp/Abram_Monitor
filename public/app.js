@@ -446,6 +446,31 @@ function closeApplicationCard(card) {
   }
 }
 
+function setClientRefreshState(card, button, isLoading) {
+  const clientCard = card?.closest(".client-card");
+  const indicator = clientCard?.querySelector(".client-refresh-indicator");
+
+  if (button) {
+    button.disabled = isLoading;
+    button.textContent = isLoading ? "Сохраняем..." : "Сохранить";
+  }
+
+  if (!clientCard) {
+    return;
+  }
+
+  clientCard.classList.toggle("is-refreshing", isLoading);
+  if (isLoading && !indicator) {
+    const nextIndicator = document.createElement("div");
+    nextIndicator.className = "client-refresh-indicator";
+    nextIndicator.setAttribute("role", "status");
+    nextIndicator.textContent = "Обновляем заявки";
+    clientCard.querySelector(".client-drilldown")?.prepend(nextIndicator);
+  } else if (!isLoading) {
+    indicator?.remove();
+  }
+}
+
 function resetFilters() {
   state.filters = { query: "", manager: "all", bank: "all", stage: "all" };
 }
@@ -898,13 +923,27 @@ function renderClientApplicationSections(client) {
   `;
 }
 
+function summaryCount(source, ...fields) {
+  for (const field of fields) {
+    const value = Number(source?.[field] ?? 0);
+    if (value) {
+      return value;
+    }
+  }
+
+  return 0;
+}
+
 function renderSummaryAmountBadges(source) {
+  const plannedCount = summaryCount(source, "plannedCount", "planCount");
+  const approvedCount = summaryCount(source, "successfulCount", "approvedCount", "issuedCount");
+
   return `
     <div class="summary-amounts">
-      <span>План подач <strong>${money(source.plannedAmountRequested)}</strong></span>
+      <span>План подач <strong>${plannedCount} · ${money(source.plannedAmountRequested)}</strong></span>
       <span>Лиды <strong>${source.leadCount || 0} · ${money(source.leadAmountRequested)}</strong></span>
       <span>В работе <strong>${source.workingCount || 0} · ${money(source.workingAmountRequested)}</strong></span>
-      <span>Одобрено <strong>${money(source.approvedAmount)}</strong></span>
+      <span>Одобрено <strong>${approvedCount} · ${money(source.approvedAmount)}</strong></span>
     </div>
   `;
 }
@@ -922,6 +961,7 @@ function renderConversionBadges(source) {
 function renderReportTotals(groups) {
   const totalRequested = groups.reduce((total, group) => total + Number(group.totalAmountRequested || group.amountRequested || 0), 0);
   const approvedAmount = groups.reduce((total, group) => total + Number(group.approvedAmount || 0), 0);
+  const planCount = groups.reduce((total, group) => total + summaryCount(group, "plannedCount", "planCount"), 0);
   const leadCount = groups.reduce((total, group) => total + Number(group.leadCount || 0), 0);
   const workingCount = groups.reduce((total, group) => total + Number(group.workingCount || 0), 0);
   const completedCount = groups.reduce((total, group) => total + Number(group.completedCount || 0), 0);
@@ -931,8 +971,10 @@ function renderReportTotals(groups) {
     amountRequested: groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0),
     totalAmountRequested: totalRequested,
     plannedAmountRequested: groups.reduce((total, group) => total + Number(group.plannedAmountRequested || 0), 0),
+    planCount,
     leadCount,
     workingCount,
+    successfulCount,
     leadAmountRequested: groups.reduce((total, group) => total + Number(group.leadAmountRequested || 0), 0),
     workingAmountRequested: groups.reduce((total, group) => total + Number(group.workingAmountRequested || 0), 0),
     currentAmountRequested: groups.reduce((total, group) => total + Number(group.currentAmountRequested || 0), 0),
@@ -1247,7 +1289,7 @@ function renderArchiveView() {
         <div>
           <p class="eyebrow">Архив клиентов</p>
           <h2>Завершенные клиенты</h2>
-          <p class="muted">В архив попадают клиенты, отправленные вручную, а также клиенты без плановых и текущих заявок.</p>
+          <p class="muted">В архив попадают клиенты, отправленные вручную.</p>
           ${renderArchiveMetrics(archiveClients)}
         </div>
         ${renderArchiveControls()}
@@ -2011,9 +2053,10 @@ function bindDynamicControls() {
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const card = event.target.closest(".client-application-card");
+      const saveButton = event.currentTarget;
+      const card = saveButton.closest(".client-application-card");
       const stageSelect = card?.querySelector("[data-stage-select]");
-      const dealId = event.target.dataset.saveApplication;
+      const dealId = saveButton.dataset.saveApplication;
       const currentStage = stageSelect?.dataset.currentStage || "";
       const nextStage = stageSelect?.value || currentStage;
       const requirements = getStageDateRequirements(nextStage, currentStage);
@@ -2038,12 +2081,18 @@ function bindDynamicControls() {
       });
 
       const uiSnapshot = captureUiState();
-      const { deal } = await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload)
-      });
-      closeApplicationCard(card);
-      await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
+      setClientRefreshState(card, saveButton, true);
+      try {
+        const { deal } = await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload)
+        });
+        closeApplicationCard(card);
+        await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
+      } catch (error) {
+        setClientRefreshState(card, saveButton, false);
+        window.alert(error.message);
+      }
     });
   });
 }

@@ -3,6 +3,10 @@
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
 const MOSCOW_UTC_OFFSET = "+03:00";
 const WORLD_TIME_API_URL = "https://worldtimeapi.org/api/timezone/Europe/Moscow";
+const MOSCOW_TIME_CACHE_TTL_MS = 60_000;
+
+let cachedMoscowTime = null;
+let pendingMoscowTimeCheck = null;
 
 function cleanText(value) {
   return String(value ?? "").trim();
@@ -32,7 +36,40 @@ function parseWorldTimePayload(payload) {
   return toIsoDate(value);
 }
 
-async function getMoscowNow(options = {}) {
+function shouldUseSharedCache(options) {
+  return !("fetcher" in options) && !("fallbackDate" in options) && !("timeoutMs" in options);
+}
+
+function cachedTimeIsFresh(entry, nowMs) {
+  return entry && nowMs - entry.checkedAtMs < MOSCOW_TIME_CACHE_TTL_MS;
+}
+
+function materializeCachedTime(entry, nowMs) {
+  const elapsedMs = Math.max(0, nowMs - entry.checkedAtMs);
+  return {
+    iso: new Date(entry.baseMs + elapsedMs).toISOString(),
+    source: entry.source,
+    timeZone: entry.timeZone,
+    checkedAt: new Date(entry.checkedAtMs).toISOString()
+  };
+}
+
+function cacheMoscowTime(result, nowMs) {
+  const checkedAtMs = new Date(result.checkedAt).getTime();
+  cachedMoscowTime = {
+    baseMs: new Date(result.iso).getTime(),
+    checkedAtMs: Number.isFinite(checkedAtMs) ? checkedAtMs : nowMs,
+    source: result.source,
+    timeZone: result.timeZone
+  };
+}
+
+function clearMoscowTimeCache() {
+  cachedMoscowTime = null;
+  pendingMoscowTimeCheck = null;
+}
+
+async function checkMoscowNow(options = {}) {
   const fetcher = options.fetcher || globalThis.fetch;
   const fallbackDate = options.fallbackDate || new Date();
   const timeoutMs = options.timeoutMs ?? 1500;
@@ -73,6 +110,30 @@ async function getMoscowNow(options = {}) {
   };
 }
 
+async function getMoscowNow(options = {}) {
+  if (!shouldUseSharedCache(options)) {
+    return checkMoscowNow(options);
+  }
+
+  const nowMs = Date.now();
+  if (cachedTimeIsFresh(cachedMoscowTime, nowMs)) {
+    return materializeCachedTime(cachedMoscowTime, nowMs);
+  }
+
+  if (!pendingMoscowTimeCheck) {
+    pendingMoscowTimeCheck = checkMoscowNow(options)
+      .then((result) => {
+        cacheMoscowTime(result, Date.now());
+        return result;
+      })
+      .finally(() => {
+        pendingMoscowTimeCheck = null;
+      });
+  }
+
+  return pendingMoscowTimeCheck;
+}
+
 async function getMoscowNowIso(options = {}) {
   return (await getMoscowNow(options)).iso;
 }
@@ -80,7 +141,9 @@ async function getMoscowNowIso(options = {}) {
 module.exports = {
   MOSCOW_TIME_ZONE,
   MOSCOW_UTC_OFFSET,
+  MOSCOW_TIME_CACHE_TTL_MS,
   WORLD_TIME_API_URL,
+  clearMoscowTimeCache,
   getMoscowNow,
   getMoscowNowIso,
   parseWorldTimePayload,
