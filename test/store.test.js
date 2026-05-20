@@ -182,6 +182,42 @@ test("normalizeKnowledgeProgram moves legacy source notes into change history", 
   assert.equal(program.changeHistory, "Источник: лист Банкитребования, строка 7");
 });
 
+test("normalizeKnowledgeProgram keeps a valid program category", () => {
+  const program = normalizeKnowledgeProgram({
+    program: "Реальные обороты",
+    category: "1 КАТЕГОРИЯ"
+  });
+
+  assert.equal(program.category, "1 КАТЕГОРИЯ");
+});
+
+test("normalizeKnowledgeProgram normalizes category case-insensitively", () => {
+  const program = normalizeKnowledgeProgram({
+    program: "Авто",
+    category: "физавто"
+  });
+
+  assert.equal(program.category, "ФИЗАВТО");
+});
+
+test("normalizeKnowledgeProgram drops unknown categories to empty string", () => {
+  const program = normalizeKnowledgeProgram({
+    program: "Тест",
+    category: "Что-то непонятное"
+  });
+
+  assert.equal(program.category, "");
+});
+
+test("normalizeKnowledgeProgram accepts the section alias for category", () => {
+  const program = normalizeKnowledgeProgram({
+    program: "Региональная",
+    section: "РЕГИОНАЛЬНЫЕ"
+  });
+
+  assert.equal(program.category, "РЕГИОНАЛЬНЫЕ");
+});
+
 test("normalizeManager keeps the account card name", () => {
   const manager = normalizeManager({
     id: "manager-1",

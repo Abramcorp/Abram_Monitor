@@ -79,6 +79,16 @@ test("knowledge program documentation field is labelled as requests and document
   assert.match(indexSource, /Запросы и документы/);
 });
 
+test("knowledge programs expose category grouping and filters", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+
+  assert.match(appSource, /PROGRAM_CATEGORIES/);
+  assert.match(appSource, /categoryFilter/);
+  assert.match(appSource, /renderKnowledgeCategories/);
+  assert.match(appSource, /knowledge-card-badges/);
+  assert.match(indexSource, /<select name="category">/);
+});
+
 test("completed clients stay visible until explicitly archived", () => {
   assert.doesNotMatch(appSource, /activeCount === 0 && client\.completedCount > 0/);
   assert.match(appSource, /const archivedClients = clientGroups\.filter\(\(client\) => client\.isArchived\)/);

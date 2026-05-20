@@ -13,6 +13,16 @@ const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
+const PROGRAM_CATEGORIES = [
+  "1 КАТЕГОРИЯ",
+  "2 КАТЕГОРИЯ",
+  "3 КАТЕГОРИЯ",
+  "РЕГИОНАЛЬНЫЕ",
+  "СВОЯ ВЫРУЧКА",
+  "НАЛОГОВАЯ ДЕКЛАРАЦИЯ",
+  "ФИЗАВТО",
+  "ТЕСТОВЫЕ БАНКИ"
+];
 
 function readJson(filePath, fallback) {
   try {
@@ -423,6 +433,7 @@ function createKnowledgeEntry(payload) {
     program: payload.program || payload.topic,
     programUrl: payload.programUrl,
     programType: payload.programType,
+    category: payload.category,
     amountRange: payload.amountRange,
     termRange: payload.termRange,
     reviewTermDeclared: payload.reviewTermDeclared,
@@ -577,6 +588,16 @@ function isLegacySourceNote(value) {
   return /^Источник:/i.test(cleanText(value));
 }
 
+function normalizeProgramCategory(value) {
+  const text = cleanText(value);
+  if (!text) {
+    return "";
+  }
+  const upper = text.toUpperCase();
+  const match = PROGRAM_CATEGORIES.find((category) => category.toUpperCase() === upper);
+  return match || "";
+}
+
 function normalizeKnowledgeProgram(raw = {}) {
   const requirements = raw.requirements && !Array.isArray(raw.requirements) ? raw.requirements : raw;
   const legacyRequirements = Array.isArray(raw.requirements) ? normalizeList(raw.requirements).join("\n") : "";
@@ -589,7 +610,8 @@ function normalizeKnowledgeProgram(raw = {}) {
     bankPhone: cleanText(raw.bankPhone || raw.phone || raw.bank_phone),
     program: cleanText(raw.program || raw.topic || raw.name),
     programUrl: cleanText(raw.programUrl || raw.url || raw.link || raw.programLink),
-    programType: normalizeProgramType(raw.programType || raw.type || raw.category),
+    programType: normalizeProgramType(raw.programType || raw.type),
+    category: normalizeProgramCategory(raw.category || raw.section),
     amountRange: cleanText(raw.amountRange || raw.amount || raw.limit || raw.sum),
     termRange: cleanText(raw.termRange || raw.term || raw.period || raw.duration || raw.creditTerm),
     reviewTermDeclared: cleanText(raw.reviewTermDeclared || raw.reviewTerm || raw.declaredReviewTerm || raw.reviewPeriod),
