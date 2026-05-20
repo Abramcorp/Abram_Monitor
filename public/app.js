@@ -402,19 +402,23 @@ async function requestJson(url, options) {
   return payload;
 }
 
+const LOAD_DATA_TARGETS = {
+  dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; } },
+  banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; } },
+  clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; } },
+  managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; } },
+  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } }
+};
+const LOAD_DATA_ALL = Object.keys(LOAD_DATA_TARGETS);
+
 async function loadData(options = {}) {
-  const [dashboard, bankPayload, clientPayload, managerPayload, knowledgePayload] = await Promise.all([
-    requestJson("/api/dashboard"),
-    requestJson("/api/banks"),
-    requestJson("/api/clients"),
-    requestJson("/api/managers"),
-    requestJson("/api/knowledge")
-  ]);
-  state.dashboard = dashboard;
-  state.banks = bankPayload.banks;
-  state.clients = clientPayload.clients;
-  state.managers = managerPayload.managers;
-  state.knowledge = knowledgePayload.knowledge;
+  const requested = Array.isArray(options.targets) && options.targets.length
+    ? options.targets.filter((target) => target in LOAD_DATA_TARGETS)
+    : LOAD_DATA_ALL;
+  const responses = await Promise.all(requested.map((target) => requestJson(LOAD_DATA_TARGETS[target].url)));
+  responses.forEach((payload, index) => {
+    LOAD_DATA_TARGETS[requested[index]].apply(payload);
+  });
   render();
   restoreUiState(options.restoreUi);
 }
@@ -2207,7 +2211,7 @@ function bindDynamicControls() {
         return;
       }
       await requestJson(`/api/managers/${encodeURIComponent(button.dataset.deleteManager)}`, { method: "DELETE" });
-      await loadData();
+      await loadData({ targets: ["managers", "dashboard"] });
     });
   });
 
@@ -2223,7 +2227,7 @@ function bindDynamicControls() {
         return;
       }
       await requestJson(`/api/clients/${encodeURIComponent(button.dataset.archiveClient)}/archive`, { method: "PATCH" });
-      await loadData();
+      await loadData({ targets: ["clients", "dashboard"] });
     });
   });
 
@@ -2426,7 +2430,7 @@ managerForm.addEventListener("submit", async (event) => {
     body: JSON.stringify(Object.fromEntries(formData.entries()))
   });
   managerDialog.close();
-  await loadData();
+  await loadData({ targets: ["managers"] });
 });
 
 newKnowledgeButton.addEventListener("click", () => {
@@ -2482,7 +2486,7 @@ clientForm.addEventListener("submit", async (event) => {
     body: JSON.stringify(Object.fromEntries(formData.entries()))
   });
   clientDialog.close();
-  await loadData();
+  await loadData({ targets: ["clients"] });
 });
 
 dealActionForm.addEventListener("submit", async (event) => {
@@ -2498,7 +2502,7 @@ dealActionForm.addEventListener("submit", async (event) => {
     body: JSON.stringify(Object.fromEntries(formData.entries()))
   });
   dealActionDialog.close();
-  await loadData();
+  await refreshDashboard();
 });
 
 knowledgeForm.addEventListener("submit", async (event) => {
@@ -2517,7 +2521,7 @@ knowledgeForm.addEventListener("submit", async (event) => {
   });
   knowledgeDialog.close();
   state.view = "knowledge";
-  await loadData();
+  await loadData({ targets: ["knowledge"] });
 });
 
 loadData().catch((error) => {
