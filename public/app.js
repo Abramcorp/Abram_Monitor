@@ -110,6 +110,7 @@ const KNOWLEDGE_SECTIONS = {
   categories: "По категориям"
 };
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
+const DONUT_COLORS = ["#52bfc1", "#315f9c", "#80c58b", "#e3b91c", "#b66a13", "#b6414a", "#64748b"];
 
 const currency = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
@@ -2070,7 +2071,118 @@ function renderMonthlyActivityRows(items) {
   `;
 }
 
-function renderSummaryCharts(groups, status = state.board.status) {
+function donutSegments(items) {
+  const filtered = items
+    .map((item, index) => ({
+      ...item,
+      color: item.color || DONUT_COLORS[index % DONUT_COLORS.length],
+      value: Number(item.value || 0),
+      amount: Number(item.amount || 0)
+    }))
+    .filter((item) => item.value > 0);
+  const total = filtered.reduce((sum, item) => sum + item.value, 0);
+  let cursor = 0;
+
+  return {
+    total,
+    segments: filtered.map((item) => {
+      const share = percent(item.value, total);
+      const start = cursor;
+      cursor += total ? (item.value / total) * 100 : 0;
+      return {
+        ...item,
+        share,
+        start,
+        end: cursor
+      };
+    })
+  };
+}
+
+function renderDonutChart(items, centerLabel = "заявок") {
+  const { total, segments } = donutSegments(items);
+  if (!segments.length) {
+    return `<div class="empty compact-empty">Нет данных для диаграммы.</div>`;
+  }
+
+  const gradient = segments
+    .map((segment) => `${segment.color} ${segment.start.toFixed(2)}% ${segment.end.toFixed(2)}%`)
+    .join(", ");
+
+  return `
+    <div class="donut-chart">
+      <div class="donut-visual" style="background: conic-gradient(${gradient})">
+        <span class="donut-center">
+          <strong>${total}</strong>
+          <small>${escapeHtml(centerLabel)}</small>
+        </span>
+      </div>
+      <div class="donut-legend">
+        ${segments
+          .map(
+            (segment) => `
+              <div class="donut-legend-row">
+                <span class="donut-swatch" style="background:${segment.color}"></span>
+                <strong>${escapeHtml(segment.label)}</strong>
+                <span>${segment.share}% · ${segment.value}${segment.amount ? ` · ${money(segment.amount)}` : ""}</span>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function compactShareItems(items, valueKey, amountKey, limit = 5) {
+  const sorted = [...items]
+    .map((item) => ({
+      label: item.name,
+      value: Number(item[valueKey] || 0),
+      amount: Number(item[amountKey] || 0)
+    }))
+    .filter((item) => item.value > 0)
+    .sort((left, right) => right.value - left.value || right.amount - left.amount);
+  const head = sorted.slice(0, limit);
+  const tail = sorted.slice(limit);
+  if (!tail.length) {
+    return head;
+  }
+
+  return [
+    ...head,
+    {
+      label: "Остальные",
+      value: tail.reduce((sum, item) => sum + item.value, 0),
+      amount: tail.reduce((sum, item) => sum + item.amount, 0)
+    }
+  ];
+}
+
+function summaryStatusShareItems(totals, status) {
+  if (status === "completed") {
+    return [
+      { label: "Одобрено", value: totals.successfulCount, amount: totals.approvedAmount, color: "#80c58b" },
+      { label: "Отказ", value: totals.refusedCount, amount: totals.refusedAmountRequested, color: "#e88787" }
+    ];
+  }
+
+  return [
+    { label: "План подач", value: totals.planCount, amount: totals.plannedAmountRequested, color: "#cfd8e3" },
+    { label: "Лиды", value: totals.leadCount, amount: totals.leadAmountRequested, color: "#e3b91c" },
+    { label: "В работе", value: totals.workingCount, amount: totals.workingAmountRequested, color: "#52bfc1" }
+  ];
+}
+
+function summaryGroupShareItems(groups, status) {
+  if (status === "completed") {
+    return compactShareItems(groups, "successfulCount", "approvedAmount");
+  }
+
+  return compactShareItems(groups, "count", "amountRequested");
+}
+
+function renderSummaryCharts(groups, status = state.board.status, totals = renderReportTotals(groups)) {
   const topByAmount = [...groups]
     .sort((left, right) => Number(right.amountRequested || 0) - Number(left.amountRequested || 0))
     .slice(0, 8);
@@ -2083,9 +2195,22 @@ function renderSummaryCharts(groups, status = state.board.status) {
     .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
     .slice(0, 8);
   const monthlyActivity = buildMonthlyActivity(state.dashboard.deals || []);
+  const groupShareTitle = status === "completed"
+    ? `Доля одобрений · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`
+    : `Доля текущего портфеля · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`;
 
   return `
     <section class="summary-dashboard-grid">
+      <article class="summary-chart-card">
+        <p class="eyebrow">Доли</p>
+        <h3>${status === "completed" ? "Структура завершенных" : "Структура текущих"}</h3>
+        ${renderDonutChart(summaryStatusShareItems(totals, status))}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Распределение</p>
+        <h3>${groupShareTitle}</h3>
+        ${renderDonutChart(summaryGroupShareItems(groups, status), status === "completed" ? "одобрено" : "заявок")}
+      </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Динамика</p>
         <h3>Активность по месяцам</h3>
@@ -2313,7 +2438,7 @@ function renderSummary() {
         </div>
         ${renderBoardControls()}
       </div>
-      ${renderSummaryCharts(groups, state.board.status)}
+      ${renderSummaryCharts(groups, state.board.status, totals)}
       ${renderBoardSummaryGroups(groups)}
     </section>
   `;

@@ -52,6 +52,14 @@ test("summary report includes monthly activity chart", () => {
   assert.match(appSource, /Активность по месяцам/);
 });
 
+test("summary report includes donut share charts", () => {
+  assert.match(appSource, /function renderDonutChart/);
+  assert.match(appSource, /summaryStatusShareItems/);
+  assert.match(appSource, /summaryGroupShareItems/);
+  assert.match(appSource, /Доля одобрений/);
+  assert.match(appSource, /conic-gradient/);
+});
+
 test("knowledge programs expose links, bank phones, and change history", () => {
   assert.match(appSource, /application-program-link/);
   assert.match(appSource, /knowledge-program-link/);

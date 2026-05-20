@@ -1370,6 +1370,86 @@ td select {
   font-size: 15px;
 }
 
+.donut-chart {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.donut-visual {
+  position: relative;
+  display: grid;
+  width: 128px;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.donut-visual::after {
+  content: "";
+  position: absolute;
+  inset: 26px;
+  border-radius: inherit;
+  background: #fbfcfd;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.donut-center {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.donut-center strong {
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.donut-center small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.donut-legend {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.donut-legend-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.donut-legend-row strong {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut-legend-row span:last-child {
+  color: var(--muted);
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.donut-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
 .pipeline-list {
   display: grid;
   gap: 10px;
@@ -1695,5 +1775,13 @@ td select {
 
   .application-comment {
     grid-column: auto;
+  }
+
+  .donut-chart {
+    grid-template-columns: 1fr;
+  }
+
+  .donut-visual {
+    justify-self: center;
   }
 }
