@@ -3,6 +3,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const { calculateDashboard } = require("./src/analytics");
 const { getMoscowNow } = require("./src/time");
 const {
@@ -35,13 +36,55 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml"
 };
 
+const GZIP_MIN_BYTES = 1024;
+const COMPRESSIBLE_TYPE_PATTERN = /^(?:text\/|application\/(?:json|javascript|xml)|image\/svg)/i;
+
+function acceptsGzip(request) {
+  const header = request?.headers?.["accept-encoding"];
+  return typeof header === "string" && /\bgzip\b/i.test(header);
+}
+
+function byteLength(body) {
+  return Buffer.isBuffer(body) ? body.length : Buffer.byteLength(String(body));
+}
+
+function sendCompressed(request, response, statusCode, headers, body) {
+  const contentType = headers["Content-Type"] || "";
+  const compressible =
+    acceptsGzip(request) &&
+    byteLength(body) >= GZIP_MIN_BYTES &&
+    COMPRESSIBLE_TYPE_PATTERN.test(contentType);
+
+  if (!compressible) {
+    response.writeHead(statusCode, headers);
+    response.end(body);
+    return;
+  }
+
+  const source = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
+  zlib.gzip(source, (error, gzipped) => {
+    if (error) {
+      response.writeHead(statusCode, headers);
+      response.end(body);
+      return;
+    }
+    response.writeHead(statusCode, {
+      ...headers,
+      "Content-Encoding": "gzip",
+      "Vary": "Accept-Encoding"
+    });
+    response.end(gzipped);
+  });
+}
+
 function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, {
+  const body = JSON.stringify(payload);
+  const headers = {
     "Cache-Control": "no-store",
     "Content-Type": "application/json; charset=utf-8",
     "Pragma": "no-cache"
-  });
-  response.end(JSON.stringify(payload));
+  };
+  sendCompressed(response.req, response, statusCode, headers, body);
 }
 
 function readBody(request) {
@@ -69,6 +112,16 @@ function readBody(request) {
   });
 }
 
+function staticCacheControl(ext) {
+  if (ext === ".html") {
+    return "no-cache";
+  }
+  if (ext === ".css" || ext === ".js" || ext === ".svg") {
+    return "public, max-age=3600, must-revalidate";
+  }
+  return "public, max-age=300";
+}
+
 function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -81,18 +134,41 @@ function serveStatic(request, response) {
     return;
   }
 
-  fs.readFile(filePath, (error, content) => {
-    if (error) {
+  fs.stat(filePath, (statError, stat) => {
+    if (statError || !stat.isFile()) {
       response.writeHead(404);
       response.end("Not found");
       return;
     }
 
-    response.writeHead(200, {
-      "Cache-Control": "no-store",
-      "Content-Type": MIME_TYPES[path.extname(filePath)] || "application/octet-stream"
+    const ext = path.extname(filePath);
+    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+    const cacheControl = staticCacheControl(ext);
+    const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+
+    if (request.headers["if-none-match"] === etag) {
+      response.writeHead(304, {
+        "Cache-Control": cacheControl,
+        "ETag": etag
+      });
+      response.end();
+      return;
+    }
+
+    fs.readFile(filePath, (error, content) => {
+      if (error) {
+        response.writeHead(404);
+        response.end("Not found");
+        return;
+      }
+
+      sendCompressed(request, response, 200, {
+        "Cache-Control": cacheControl,
+        "Content-Type": contentType,
+        "ETag": etag,
+        "Last-Modified": new Date(stat.mtimeMs).toUTCString()
+      }, content);
     });
-    response.end(content);
   });
 }
 
@@ -254,7 +330,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  acceptsGzip,
+  sendCompressed,
   sendJson,
   server,
+  staticCacheControl,
   start
 };
