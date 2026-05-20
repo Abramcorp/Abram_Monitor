@@ -32,6 +32,7 @@ const newDealButton = document.querySelector("#newDealButton");
 const newKnowledgeButton = document.querySelector("#newKnowledgeButton");
 const dialog = document.querySelector("#dealDialog");
 const form = document.querySelector("#dealForm");
+const saveDealButton = document.querySelector("#saveDealButton");
 const clientDialog = document.querySelector("#clientDialog");
 const clientForm = document.querySelector("#clientForm");
 const managerDialog = document.querySelector("#managerDialog");
@@ -121,6 +122,12 @@ const actionTime = new Intl.DateTimeFormat("ru-RU", {
   hour: "2-digit",
   minute: "2-digit",
   timeZone: MOSCOW_TIME_ZONE
+});
+
+const monthLabelFormatter = new Intl.DateTimeFormat("ru-RU", {
+  month: "short",
+  timeZone: MOSCOW_TIME_ZONE,
+  year: "2-digit"
 });
 
 const DAY_MS = 86400000;
@@ -466,6 +473,25 @@ function setClientRefreshState(card, button, isLoading) {
     nextIndicator.setAttribute("role", "status");
     nextIndicator.textContent = "Обновляем заявки";
     clientCard.querySelector(".client-drilldown")?.prepend(nextIndicator);
+  } else if (!isLoading) {
+    indicator?.remove();
+  }
+}
+
+function setDealDialogLoading(isLoading) {
+  const indicator = dialog.querySelector(".dialog-refresh-indicator");
+
+  if (saveDealButton) {
+    saveDealButton.disabled = isLoading;
+    saveDealButton.textContent = isLoading ? "Сохраняем..." : "Сохранить заявку";
+  }
+
+  if (isLoading && !indicator) {
+    const nextIndicator = document.createElement("div");
+    nextIndicator.className = "dialog-refresh-indicator";
+    nextIndicator.setAttribute("role", "status");
+    nextIndicator.textContent = "Обновляем заявки";
+    form.querySelector(".dialog-actions")?.before(nextIndicator);
   } else if (!isLoading) {
     indicator?.remove();
   }
@@ -1681,6 +1707,76 @@ function renderBarRows(items, labelKey, valueKey, classKey) {
   `;
 }
 
+function monthKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("sv-SE", {
+      timeZone: MOSCOW_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit"
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}`;
+}
+
+function dealActivityDate(deal) {
+  return deal.signedAt || deal.submittedAt || deal.inquiryAt || deal.createdAt || deal.updatedAt || deal.lastActionAt;
+}
+
+function buildMonthlyActivity(deals, limit = 12) {
+  const groups = new Map();
+
+  deals.forEach((deal) => {
+    const activityAt = dealActivityDate(deal);
+    const key = monthKey(activityAt);
+    if (!key) {
+      return;
+    }
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: monthLabelFormatter.format(new Date(activityAt)),
+        count: 0,
+        amountRequested: 0
+      });
+    }
+    const group = groups.get(key);
+    group.count += 1;
+    group.amountRequested += Number(deal.amountRequested || 0);
+  });
+
+  return [...groups.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-limit);
+}
+
+function renderMonthlyActivityRows(items) {
+  if (!items.length) {
+    return `<div class="empty compact-empty">Нет данных для графика.</div>`;
+  }
+
+  const max = Math.max(...items.map((item) => item.count), 1);
+  return `
+    <div class="monthly-activity-list">
+      ${items
+        .map((item) => {
+          const width = Math.max(4, Math.round((item.count / max) * 100));
+          return `
+            <div class="monthly-activity-row">
+              <strong>${escapeHtml(item.label)}</strong>
+              <div class="bar-track"><div class="bar" style="width: ${width}%"></div></div>
+              <span>${item.count} · ${money(item.amountRequested)}</span>
+            </div>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
 function renderSummaryCharts(groups) {
   const topByAmount = [...groups]
     .sort((left, right) => Number(right.totalAmountRequested || 0) - Number(left.totalAmountRequested || 0))
@@ -1692,9 +1788,15 @@ function renderSummaryCharts(groups) {
   const pipeline = [...groups]
     .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
     .slice(0, 8);
+  const monthlyActivity = buildMonthlyActivity(state.dashboard.deals || []);
 
   return `
     <section class="summary-dashboard-grid">
+      <article class="summary-chart-card">
+        <p class="eyebrow">Динамика</p>
+        <h3>Активность по месяцам</h3>
+        ${renderMonthlyActivityRows(monthlyActivity)}
+      </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Объем</p>
         <h3>Топ по сумме заявок</h3>
@@ -2164,6 +2266,7 @@ function openKnowledgeDialog(entry = null) {
 function openApplicationDialog(manager, client) {
   fillDealFormOptions();
   form.reset();
+  setDealDialogLoading(false);
   form.elements.manager.value = manager || "";
   form.elements.client.value = client || "";
   form.elements.managerLocked.value = manager || "";
@@ -2196,6 +2299,7 @@ if (newDealButton) {
   newDealButton.addEventListener("click", () => {
     fillDealFormOptions();
     form.reset();
+    setDealDialogLoading(false);
     form.elements.manager.disabled = false;
     form.elements.managerLocked.value = "";
     form.elements.client.readOnly = false;
@@ -2249,12 +2353,23 @@ form.addEventListener("submit", async (event) => {
   }
   formData.delete("managerLocked");
   const uiSnapshot = captureUiState();
-  await requestJson("/api/deals", {
-    method: "POST",
-    body: JSON.stringify(Object.fromEntries(formData.entries()))
-  });
-  dialog.close();
-  await loadData({ restoreUi: uiSnapshot });
+  setDealDialogLoading(true);
+
+  try {
+    const { deal } = await requestJson("/api/deals", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(formData.entries()))
+    });
+    try {
+      await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
+    } finally {
+      dialog.close();
+    }
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    setDealDialogLoading(false);
+  }
 });
 
 clientForm.addEventListener("submit", async (event) => {

@@ -490,7 +490,8 @@ button {
   opacity: 0.78;
 }
 
-.client-refresh-indicator {
+.client-refresh-indicator,
+.dialog-refresh-indicator {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -505,7 +506,12 @@ button {
   font-weight: 700;
 }
 
-.client-refresh-indicator::before {
+.dialog-refresh-indicator {
+  margin-top: 2px;
+}
+
+.client-refresh-indicator::before,
+.dialog-refresh-indicator::before {
   content: "";
   width: 14px;
   height: 14px;
@@ -1146,7 +1152,7 @@ td select {
 
 .summary-dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -1207,6 +1213,28 @@ td select {
 
 .pipeline-done {
   background: #80c58b;
+}
+
+.monthly-activity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.monthly-activity-row {
+  display: grid;
+  grid-template-columns: minmax(76px, 96px) 1fr minmax(128px, auto);
+  gap: 10px;
+  align-items: center;
+}
+
+.monthly-activity-row strong,
+.monthly-activity-row span {
+  font-size: 13px;
+}
+
+.monthly-activity-row span {
+  color: var(--muted);
+  text-align: right;
 }
 
 .board-controls {

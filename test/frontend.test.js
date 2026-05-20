@@ -18,9 +18,18 @@ test("application save refreshes dashboard while preserving the current client c
   assert.match(appSource, /await refreshDashboard\(\{ restoreUi: preserveClientOpenState\(uiSnapshot, deal\) \}\)/);
 });
 
+test("new application save refreshes the same client before closing the dialog", () => {
+  assert.match(appSource, /const \{ deal \} = await requestJson\("\/api\/deals"/);
+  assert.match(appSource, /await refreshDashboard\(\{ restoreUi: preserveClientOpenState\(uiSnapshot, deal\) \}\)/);
+  assert.match(appSource, /dialog\.close\(\)/);
+});
+
 test("application save exposes a client-level loading indicator", () => {
   assert.match(appSource, /client-refresh-indicator/);
+  assert.match(appSource, /dialog-refresh-indicator/);
   assert.match(appSource, /Обновляем заявки/);
+  assert.match(appSource, /function setDealDialogLoading/);
+  assert.match(appSource, /setDealDialogLoading\(true\)/);
 });
 
 test("summary amount badges include counts next to requested amounts", () => {
@@ -28,6 +37,12 @@ test("summary amount badges include counts next to requested amounts", () => {
   assert.match(appSource, /Одобрено <strong>\$\{approvedCount\} · \$\{money\(source\.approvedAmount\)\}/);
   assert.match(appSource, /planCount,/);
   assert.match(appSource, /successfulCount,/);
+});
+
+test("summary report includes monthly activity chart", () => {
+  assert.match(appSource, /function buildMonthlyActivity/);
+  assert.match(appSource, /function renderMonthlyActivityRows/);
+  assert.match(appSource, /Активность по месяцам/);
 });
 
 test("completed clients stay visible until explicitly archived", () => {
