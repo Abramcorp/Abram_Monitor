@@ -1936,6 +1936,27 @@ function render() {
   bindDynamicControls();
 }
 
+let queryFilterDebounceTimer = null;
+
+function scheduleQueryFilterRender(input) {
+  const cursor = input.selectionStart;
+  clearTimeout(queryFilterDebounceTimer);
+  queryFilterDebounceTimer = setTimeout(() => {
+    render();
+    const next = document.querySelector("#queryFilter");
+    if (next) {
+      next.focus();
+      if (cursor != null) {
+        try {
+          next.setSelectionRange(cursor, cursor);
+        } catch {
+          // setSelectionRange unsupported on this input type — ignore
+        }
+      }
+    }
+  }, 200);
+}
+
 function bindDynamicControls() {
   const queryFilter = document.querySelector("#queryFilter");
   const managerFilter = document.querySelector("#managerFilter");
@@ -1945,7 +1966,7 @@ function bindDynamicControls() {
   if (queryFilter) {
     queryFilter.addEventListener("input", (event) => {
       state.filters.query = event.target.value;
-      render();
+      scheduleQueryFilterRender(event.target);
     });
   }
 
