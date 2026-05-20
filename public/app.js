@@ -2123,179 +2123,204 @@ function scheduleQueryFilterRender(input) {
   }, 200);
 }
 
-function bindDynamicControls() {
-  const queryFilter = document.querySelector("#queryFilter");
-  const managerFilter = document.querySelector("#managerFilter");
-  const bankFilter = document.querySelector("#bankFilter");
-  const stageFilter = document.querySelector("#stageFilter");
+async function handleSaveApplication(saveButton) {
+  const card = saveButton.closest(".client-application-card");
+  const stageSelect = card?.querySelector("[data-stage-select]");
+  const dealId = saveButton.dataset.saveApplication;
+  const currentStage = stageSelect?.dataset.currentStage || "";
+  const nextStage = stageSelect?.value || currentStage;
+  const requirements = getStageDateRequirements(nextStage, currentStage);
+  const payload = { stage: nextStage };
 
-  if (queryFilter) {
-    queryFilter.addEventListener("input", (event) => {
+  for (const requirement of requirements) {
+    const dateInput = card?.querySelector(`[data-field="${requirement.field}"]`);
+    if (!dateInput?.value) {
+      dateInput?.focus();
+      dateInput?.setCustomValidity(`${requirement.label} обязательна для выбранного статуса`);
+      dateInput?.reportValidity();
+      dateInput?.addEventListener("input", () => dateInput.setCustomValidity(""), { once: true });
+      return;
+    }
+    payload[requirement.field] = dateInput.value;
+  }
+
+  card?.querySelectorAll("[data-application-field]").forEach((input) => {
+    if (input.dataset.field) {
+      payload[input.dataset.field] = input.value;
+    }
+  });
+
+  const uiSnapshot = captureUiState();
+  setClientRefreshState(card, saveButton, true);
+  try {
+    const { deal } = await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    closeApplicationCard(card);
+    await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
+  } catch (error) {
+    setClientRefreshState(card, saveButton, false);
+    window.alert(error.message);
+  }
+}
+
+async function handleDeleteManager(button) {
+  if (!button.dataset.deleteManager) {
+    return;
+  }
+  const confirmed = window.confirm(`Удалить аналитика "${button.dataset.managerName}"?`);
+  if (!confirmed) {
+    return;
+  }
+  await requestJson(`/api/managers/${encodeURIComponent(button.dataset.deleteManager)}`, { method: "DELETE" });
+  await loadData({ targets: ["managers", "dashboard"] });
+}
+
+async function handleArchiveClient(button) {
+  if (!button.dataset.archiveClient) {
+    return;
+  }
+  const confirmed = window.confirm(`Отправить клиента "${button.dataset.clientName}" в архив?`);
+  if (!confirmed) {
+    return;
+  }
+  await requestJson(`/api/clients/${encodeURIComponent(button.dataset.archiveClient)}/archive`, { method: "PATCH" });
+  await loadData({ targets: ["clients", "dashboard"] });
+}
+
+let dynamicControlsInitialized = false;
+
+function initDynamicControls() {
+  if (dynamicControlsInitialized) {
+    return;
+  }
+  dynamicControlsInitialized = true;
+
+  app.addEventListener("input", (event) => {
+    if (event.target?.id === "queryFilter") {
       state.filters.query = event.target.value;
       scheduleQueryFilterRender(event.target);
-    });
-  }
-
-  if (managerFilter) {
-    managerFilter.addEventListener("change", (event) => {
-      state.filters.manager = event.target.value;
-      render();
-    });
-  }
-
-  if (bankFilter) {
-    bankFilter.addEventListener("change", (event) => {
-      state.filters.bank = event.target.value;
-      render();
-    });
-  }
-
-  if (stageFilter) {
-    stageFilter.addEventListener("change", (event) => {
-      state.filters.stage = event.target.value;
-      render();
-    });
-  }
-
-  document.querySelectorAll("[data-board-status]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.board.status = button.dataset.boardStatus;
-      render();
-    });
+    }
   });
 
-  document.querySelectorAll("[data-board-group]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.board.groupBy = button.dataset.boardGroup;
-      render();
-    });
+  app.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target?.id) {
+      return;
+    }
+    switch (target.id) {
+      case "managerFilter":
+        state.filters.manager = target.value;
+        render();
+        break;
+      case "bankFilter":
+        state.filters.bank = target.value;
+        render();
+        break;
+      case "stageFilter":
+        state.filters.stage = target.value;
+        render();
+        break;
+      default:
+        break;
+    }
   });
 
-  document.querySelectorAll("[data-archive-group]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.archive.groupBy = button.dataset.archiveGroup;
-      render();
-    });
-  });
+  app.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
 
-  document.querySelectorAll("[data-knowledge-section]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.knowledgeSection = button.dataset.knowledgeSection;
-      render();
-    });
-  });
-
-  document.querySelectorAll(".knowledge-program-link, .application-program-link").forEach((link) => {
-    link.addEventListener("click", (event) => {
+    const programLink = target.closest(".knowledge-program-link, .application-program-link");
+    if (programLink) {
       event.stopPropagation();
-    });
-  });
+      return;
+    }
 
-  document.querySelectorAll("[data-add-application]").forEach((button) => {
-    button.addEventListener("click", (event) => {
+    const boardStatus = target.closest("[data-board-status]");
+    if (boardStatus) {
+      state.board.status = boardStatus.dataset.boardStatus;
+      render();
+      return;
+    }
+
+    const boardGroup = target.closest("[data-board-group]");
+    if (boardGroup) {
+      state.board.groupBy = boardGroup.dataset.boardGroup;
+      render();
+      return;
+    }
+
+    const archiveGroup = target.closest("[data-archive-group]");
+    if (archiveGroup) {
+      state.archive.groupBy = archiveGroup.dataset.archiveGroup;
+      render();
+      return;
+    }
+
+    const knowledgeSection = target.closest("[data-knowledge-section]");
+    if (knowledgeSection) {
+      state.knowledgeSection = knowledgeSection.dataset.knowledgeSection;
+      render();
+      return;
+    }
+
+    const addApplication = target.closest("[data-add-application]");
+    if (addApplication) {
       event.preventDefault();
       event.stopPropagation();
-      openApplicationDialog(button.dataset.manager, button.dataset.client);
-    });
-  });
+      openApplicationDialog(addApplication.dataset.manager, addApplication.dataset.client);
+      return;
+    }
 
-  document.querySelectorAll("[data-delete-manager]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+    const deleteManager = target.closest("[data-delete-manager]");
+    if (deleteManager) {
       event.preventDefault();
       event.stopPropagation();
-      if (!button.dataset.deleteManager) {
-        return;
-      }
-      const confirmed = window.confirm(`Удалить аналитика "${button.dataset.managerName}"?`);
-      if (!confirmed) {
-        return;
-      }
-      await requestJson(`/api/managers/${encodeURIComponent(button.dataset.deleteManager)}`, { method: "DELETE" });
-      await loadData({ targets: ["managers", "dashboard"] });
-    });
-  });
+      await handleDeleteManager(deleteManager);
+      return;
+    }
 
-  document.querySelectorAll("[data-archive-client]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+    const archiveClient = target.closest("[data-archive-client]");
+    if (archiveClient) {
       event.preventDefault();
       event.stopPropagation();
-      if (!button.dataset.archiveClient) {
-        return;
-      }
-      const confirmed = window.confirm(`Отправить клиента "${button.dataset.clientName}" в архив?`);
-      if (!confirmed) {
-        return;
-      }
-      await requestJson(`/api/clients/${encodeURIComponent(button.dataset.archiveClient)}/archive`, { method: "PATCH" });
-      await loadData({ targets: ["clients", "dashboard"] });
-    });
-  });
+      await handleArchiveClient(archiveClient);
+      return;
+    }
 
-  document.querySelectorAll("[data-add-deal-action]").forEach((button) => {
-    button.addEventListener("click", (event) => {
+    const addDealAction = target.closest("[data-add-deal-action]");
+    if (addDealAction) {
       event.preventDefault();
       event.stopPropagation();
-      openDealActionDialog(button.dataset.addDealAction);
-    });
-  });
+      openDealActionDialog(addDealAction.dataset.addDealAction);
+      return;
+    }
 
-  document.querySelectorAll("[data-edit-knowledge]").forEach((button) => {
-    button.addEventListener("click", (event) => {
+    const editKnowledge = target.closest("[data-edit-knowledge]");
+    if (editKnowledge) {
       event.preventDefault();
       event.stopPropagation();
-      const entry = findKnowledgeProgram(button.dataset.editKnowledge);
+      const entry = findKnowledgeProgram(editKnowledge.dataset.editKnowledge);
       if (entry) {
         openKnowledgeDialog(entry);
       }
-    });
-  });
+      return;
+    }
 
-  document.querySelectorAll("[data-save-application]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+    const saveApplication = target.closest("[data-save-application]");
+    if (saveApplication) {
       event.preventDefault();
       event.stopPropagation();
-      const saveButton = event.currentTarget;
-      const card = saveButton.closest(".client-application-card");
-      const stageSelect = card?.querySelector("[data-stage-select]");
-      const dealId = saveButton.dataset.saveApplication;
-      const currentStage = stageSelect?.dataset.currentStage || "";
-      const nextStage = stageSelect?.value || currentStage;
-      const requirements = getStageDateRequirements(nextStage, currentStage);
-      const payload = { stage: nextStage };
-
-      for (const requirement of requirements) {
-        const dateInput = card?.querySelector(`[data-field="${requirement.field}"]`);
-        if (!dateInput?.value) {
-          dateInput?.focus();
-          dateInput?.setCustomValidity(`${requirement.label} обязательна для выбранного статуса`);
-          dateInput?.reportValidity();
-          dateInput?.addEventListener("input", () => dateInput.setCustomValidity(""), { once: true });
-          return;
-        }
-        payload[requirement.field] = dateInput.value;
-      }
-
-      card?.querySelectorAll("[data-application-field]").forEach((input) => {
-        if (input.dataset.field) {
-          payload[input.dataset.field] = input.value;
-        }
-      });
-
-      const uiSnapshot = captureUiState();
-      setClientRefreshState(card, saveButton, true);
-      try {
-        const { deal } = await requestJson(`/api/deals/${encodeURIComponent(dealId)}`, {
-          method: "PATCH",
-          body: JSON.stringify(payload)
-        });
-        closeApplicationCard(card);
-        await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
-      } catch (error) {
-        setClientRefreshState(card, saveButton, false);
-        window.alert(error.message);
-      }
-    });
+      await handleSaveApplication(saveApplication);
+    }
   });
+}
+
+function bindDynamicControls() {
+  initDynamicControls();
 }
 
 function fillDealFormOptions() {
