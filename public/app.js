@@ -55,7 +55,7 @@ const REQUIREMENT_LABELS = {
   businessRegion: "Регион ведения бизнеса",
   ipAge: "Возраст ИП",
   revenue: "Выручка",
-  documentation: "Документация",
+  documentation: "Запросы и документы",
   okved: "ОКВЭД",
   accountPresence: "Наличие счета"
 };

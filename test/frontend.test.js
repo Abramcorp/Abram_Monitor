@@ -72,6 +72,13 @@ test("knowledge programs expose links, bank phones, and change history", () => {
   assert.match(appSource, /program\.changeHistory/);
 });
 
+test("knowledge program documentation field is labelled as requests and documents", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+
+  assert.match(appSource, /documentation: "Запросы и документы"/);
+  assert.match(indexSource, /Запросы и документы/);
+});
+
 test("completed clients stay visible until explicitly archived", () => {
   assert.doesNotMatch(appSource, /activeCount === 0 && client\.completedCount > 0/);
   assert.match(appSource, /const archivedClients = clientGroups\.filter\(\(client\) => client\.isArchived\)/);
