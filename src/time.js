@@ -3,7 +3,8 @@
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
 const MOSCOW_UTC_OFFSET = "+03:00";
 const WORLD_TIME_API_URL = "https://worldtimeapi.org/api/timezone/Europe/Moscow";
-const MOSCOW_TIME_CACHE_TTL_MS = 60_000;
+const MOSCOW_TIME_CACHE_TTL_MS = 5 * 60_000;
+const MOSCOW_TIME_FETCH_TIMEOUT_MS = 500;
 
 let cachedMoscowTime = null;
 let pendingMoscowTimeCheck = null;
@@ -72,7 +73,7 @@ function clearMoscowTimeCache() {
 async function checkMoscowNow(options = {}) {
   const fetcher = options.fetcher || globalThis.fetch;
   const fallbackDate = options.fallbackDate || new Date();
-  const timeoutMs = options.timeoutMs ?? 1500;
+  const timeoutMs = options.timeoutMs ?? MOSCOW_TIME_FETCH_TIMEOUT_MS;
 
   if (typeof fetcher === "function") {
     const controller = typeof AbortController === "function" ? new AbortController() : null;
@@ -142,6 +143,7 @@ module.exports = {
   MOSCOW_TIME_ZONE,
   MOSCOW_UTC_OFFSET,
   MOSCOW_TIME_CACHE_TTL_MS,
+  MOSCOW_TIME_FETCH_TIMEOUT_MS,
   WORLD_TIME_API_URL,
   clearMoscowTimeCache,
   getMoscowNow,
