@@ -1908,6 +1908,14 @@ function renderBoardControls() {
   `;
 }
 
+function resolveBoardApplications(group) {
+  if (Array.isArray(group?.applicationIds) && group.applicationIds.length) {
+    const dealById = new Map((state.dashboard?.deals || []).map((deal) => [deal.id, deal]));
+    return group.applicationIds.map((id) => dealById.get(id)).filter(Boolean);
+  }
+  return Array.isArray(group?.applications) ? group.applications : [];
+}
+
 function renderBoardApplicationRows(applications, groupBy) {
   if (!applications.length) {
     return `<div class="empty compact-empty">Заявок нет.</div>`;
@@ -1974,7 +1982,7 @@ function renderBoardSummaryGroups(groups) {
                   <span>В выбранном отчете ${money(group.amountRequested)}</span>
                 </div>
               </summary>
-              ${renderBoardApplicationRows(group.applications || [], state.board.groupBy)}
+              ${renderBoardApplicationRows(resolveBoardApplications(group), state.board.groupBy)}
             </details>
           `
         )
@@ -2030,6 +2038,27 @@ function render() {
   bindDynamicControls();
 }
 
+let queryFilterDebounceTimer = null;
+
+function scheduleQueryFilterRender(input) {
+  const cursor = input.selectionStart;
+  clearTimeout(queryFilterDebounceTimer);
+  queryFilterDebounceTimer = setTimeout(() => {
+    render();
+    const next = document.querySelector("#queryFilter");
+    if (next) {
+      next.focus();
+      if (cursor != null) {
+        try {
+          next.setSelectionRange(cursor, cursor);
+        } catch {
+          // setSelectionRange unsupported on this input type — ignore
+        }
+      }
+    }
+  }, 200);
+}
+
 function bindDynamicControls() {
   const queryFilter = document.querySelector("#queryFilter");
   const managerFilter = document.querySelector("#managerFilter");
@@ -2039,7 +2068,7 @@ function bindDynamicControls() {
   if (queryFilter) {
     queryFilter.addEventListener("input", (event) => {
       state.filters.query = event.target.value;
-      render();
+      scheduleQueryFilterRender(event.target);
     });
   }
 
