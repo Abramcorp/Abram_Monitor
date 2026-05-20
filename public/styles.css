@@ -801,6 +801,13 @@ button {
   font-weight: 700;
 }
 
+.knowledge-card-phone {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .knowledge-bank-head span {
   color: var(--muted);
   font-size: 13px;

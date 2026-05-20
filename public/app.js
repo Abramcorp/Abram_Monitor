@@ -1729,12 +1729,14 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
   const reviewStats = programReviewStats(program, bank);
   const categoryLabel = program.category || "";
   const categoryClass = categoryLabel ? ` is-${categorySlug(categoryLabel)}` : " is-none";
+  const contactPhone = program.bankPhone || bank.phone;
   return `
     <details class="knowledge-card">
       <summary class="knowledge-card-head">
         <div>
           <p class="eyebrow">Банк</p>
           <h3>${escapeHtml(bank.bank)}</h3>
+          ${contactPhone ? `<p class="knowledge-card-phone">Телефон: ${escapeHtml(contactPhone)}</p>` : ""}
           <h4>
             ${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}
             ${program.termRange ? ` <span>${escapeHtml(`срок ${program.termRange}`)}</span>` : ""}
@@ -1789,7 +1791,7 @@ function renderKnowledgeBanks(banks) {
                 <div>
                   <p class="eyebrow">Банк</p>
                   <h3>${escapeHtml(bank.bank)}</h3>
-                  ${bank.phone ? `<p class="knowledge-bank-phone">${escapeHtml(bank.phone)}</p>` : ""}
+                  ${bank.phone ? `<p class="knowledge-bank-phone">Телефон: ${escapeHtml(bank.phone)}</p>` : ""}
                 </div>
                 <span>${(bank.programs || []).length} программ</span>
               </summary>
