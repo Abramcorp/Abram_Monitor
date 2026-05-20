@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { acceptsGzip, sendCompressed, sendJson, staticCacheControl } = require("../server");
+const { acceptsGzip, computeEtag, sendCompressed, sendJson, staticCacheControl } = require("../server");
 
 function makeResponse() {
   return {
@@ -20,16 +20,83 @@ function makeResponse() {
   };
 }
 
-test("sendJson disables API response caching", () => {
+test("sendJson sets revalidate-on-each-request cache headers", () => {
   const response = makeResponse();
 
   sendJson(response, 200, { ok: true });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.headers["Cache-Control"], "no-store");
+  assert.equal(response.headers["Cache-Control"], "no-cache");
   assert.equal(response.headers.Pragma, "no-cache");
   assert.equal(response.headers["Content-Type"], "application/json; charset=utf-8");
   assert.equal(response.body, "{\"ok\":true}");
+});
+
+test("sendJson attaches a weak ETag to substantial payloads", () => {
+  const response = makeResponse();
+  const payload = { items: new Array(20).fill("entry") };
+
+  sendJson(response, 200, payload);
+
+  assert.equal(response.statusCode, 200);
+  const etag = response.headers.ETag;
+  assert.ok(etag, "ETag header is present");
+  assert.match(etag, /^W\/"[A-Za-z0-9+/=]{20,32}"$/);
+  assert.equal(etag, computeEtag(JSON.stringify(payload)));
+});
+
+test("sendJson omits ETag for tiny bodies and non-200 responses", () => {
+  const tinyResponse = makeResponse();
+  sendJson(tinyResponse, 200, { ok: true });
+  assert.equal(tinyResponse.headers.ETag, undefined);
+
+  const errorResponse = makeResponse();
+  sendJson(errorResponse, 404, { error: "Not found, with enough text to exceed the ETag minimum size limit." });
+  assert.equal(errorResponse.headers.ETag, undefined);
+});
+
+test("sendCompressed returns 304 on matching If-None-Match", () => {
+  const body = JSON.stringify({ items: new Array(20).fill("entry") });
+  const etag = computeEtag(body);
+  const response = makeResponse();
+
+  sendCompressed(
+    { headers: { "if-none-match": etag } },
+    response,
+    200,
+    {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/json; charset=utf-8",
+      "ETag": etag
+    },
+    body
+  );
+
+  assert.equal(response.statusCode, 304);
+  assert.equal(response.headers.ETag, etag);
+  assert.equal(response.headers["Cache-Control"], "no-cache");
+  assert.equal(response.body, undefined);
+});
+
+test("sendCompressed sends full body when ETag does not match", () => {
+  const body = JSON.stringify({ items: new Array(20).fill("entry") });
+  const etag = computeEtag(body);
+  const response = makeResponse();
+
+  sendCompressed(
+    { headers: { "if-none-match": "W/\"stale\"" } },
+    response,
+    200,
+    {
+      "Cache-Control": "no-cache",
+      "Content-Type": "application/json; charset=utf-8",
+      "ETag": etag
+    },
+    body
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body, body);
 });
 
 test("acceptsGzip recognises gzip in Accept-Encoding header", () => {

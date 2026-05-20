@@ -4,6 +4,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const crypto = require("node:crypto");
 const { calculateDashboard } = require("./src/analytics");
 const { getMoscowNow } = require("./src/time");
 const {
@@ -38,6 +39,12 @@ const MIME_TYPES = {
 
 const GZIP_MIN_BYTES = 1024;
 const COMPRESSIBLE_TYPE_PATTERN = /^(?:text\/|application\/(?:json|javascript|xml)|image\/svg)/i;
+const API_ETAG_MIN_BYTES = 64;
+
+function computeEtag(body) {
+  const data = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
+  return `W/"${crypto.createHash("sha1").update(data).digest("base64").slice(0, 27)}"`;
+}
 
 function acceptsGzip(request) {
   const header = request?.headers?.["accept-encoding"];
@@ -49,6 +56,19 @@ function byteLength(body) {
 }
 
 function sendCompressed(request, response, statusCode, headers, body) {
+  if (statusCode === 200 && headers.ETag && request?.headers?.["if-none-match"] === headers.ETag) {
+    const conditional = {
+      "Cache-Control": headers["Cache-Control"],
+      "ETag": headers.ETag
+    };
+    if (headers.Vary) {
+      conditional.Vary = headers.Vary;
+    }
+    response.writeHead(304, conditional);
+    response.end();
+    return;
+  }
+
   const contentType = headers["Content-Type"] || "";
   const compressible =
     acceptsGzip(request) &&
@@ -80,10 +100,13 @@ function sendCompressed(request, response, statusCode, headers, body) {
 function sendJson(response, statusCode, payload) {
   const body = JSON.stringify(payload);
   const headers = {
-    "Cache-Control": "no-store",
+    "Cache-Control": "no-cache",
     "Content-Type": "application/json; charset=utf-8",
     "Pragma": "no-cache"
   };
+  if (statusCode === 200 && Buffer.byteLength(body) >= API_ETAG_MIN_BYTES) {
+    headers.ETag = computeEtag(body);
+  }
   sendCompressed(response.req, response, statusCode, headers, body);
 }
 
@@ -331,6 +354,7 @@ if (require.main === module) {
 
 module.exports = {
   acceptsGzip,
+  computeEtag,
   sendCompressed,
   sendJson,
   server,
