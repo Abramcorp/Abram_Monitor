@@ -963,16 +963,25 @@ function summaryCount(source, ...fields) {
   return 0;
 }
 
-function renderSummaryAmountBadges(source) {
+function renderSummaryAmountBadges(source, status = state.board.status) {
   const plannedCount = summaryCount(source, "plannedCount", "planCount");
   const approvedCount = summaryCount(source, "successfulCount", "approvedCount", "issuedCount");
+
+  if (status === "completed") {
+    return `
+      <div class="summary-amounts">
+        <span>Завершено <strong>${source.completedCount || 0} · ${money(source.completedAmountRequested || source.amountRequested)}</strong></span>
+        <span>Одобрено <strong>${approvedCount} · ${money(source.approvedAmount)}</strong></span>
+        <span>Отказ / непринятые <strong>${source.refusedCount || 0} · ${money(source.refusedAmountRequested)}</strong></span>
+      </div>
+    `;
+  }
 
   return `
     <div class="summary-amounts">
       <span>План подач <strong>${plannedCount} · ${money(source.plannedAmountRequested)}</strong></span>
       <span>Лиды <strong>${source.leadCount || 0} · ${money(source.leadAmountRequested)}</strong></span>
       <span>В работе <strong>${source.workingCount || 0} · ${money(source.workingAmountRequested)}</strong></span>
-      <span>Одобрено <strong>${approvedCount} · ${money(source.approvedAmount)}</strong></span>
     </div>
   `;
 }
@@ -988,13 +997,14 @@ function renderConversionBadges(source) {
 }
 
 function renderReportTotals(groups) {
-  const totalRequested = groups.reduce((total, group) => total + Number(group.totalAmountRequested || group.amountRequested || 0), 0);
+  const totalRequested = groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0);
   const approvedAmount = groups.reduce((total, group) => total + Number(group.approvedAmount || 0), 0);
   const planCount = groups.reduce((total, group) => total + summaryCount(group, "plannedCount", "planCount"), 0);
   const leadCount = groups.reduce((total, group) => total + Number(group.leadCount || 0), 0);
   const workingCount = groups.reduce((total, group) => total + Number(group.workingCount || 0), 0);
   const completedCount = groups.reduce((total, group) => total + Number(group.completedCount || 0), 0);
   const successfulCount = groups.reduce((total, group) => total + Number(group.successfulCount || 0), 0);
+  const refusedCount = groups.reduce((total, group) => total + Number(group.refusedCount || 0), 0);
   return {
     count: groups.reduce((total, group) => total + group.count, 0),
     amountRequested: groups.reduce((total, group) => total + Number(group.amountRequested || 0), 0),
@@ -1003,10 +1013,14 @@ function renderReportTotals(groups) {
     planCount,
     leadCount,
     workingCount,
+    completedCount,
     successfulCount,
+    refusedCount,
     leadAmountRequested: groups.reduce((total, group) => total + Number(group.leadAmountRequested || 0), 0),
     workingAmountRequested: groups.reduce((total, group) => total + Number(group.workingAmountRequested || 0), 0),
     currentAmountRequested: groups.reduce((total, group) => total + Number(group.currentAmountRequested || 0), 0),
+    completedAmountRequested: groups.reduce((total, group) => total + Number(group.completedAmountRequested || 0), 0),
+    refusedAmountRequested: groups.reduce((total, group) => total + Number(group.refusedAmountRequested || 0), 0),
     approvedAmount,
     approvalConversionRate: percent(approvedAmount, totalRequested),
     leadToWorkingConversionRate: percent(workingCount, leadCount + workingCount),
@@ -1570,7 +1584,8 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
     <details class="knowledge-card">
       <summary class="knowledge-card-head">
         <div>
-          <p class="eyebrow">${showBank ? escapeHtml(bank.bank) : "Программа"}</p>
+          <p class="eyebrow">Банк</p>
+          <h3>${escapeHtml(bank.bank)}</h3>
           <h4>
             ${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}
             ${programUrl ? `<a class="knowledge-program-link" href="${escapeHtml(programUrl)}" target="_blank" rel="noopener noreferrer">Ссылка</a>` : ""}
@@ -1841,13 +1856,14 @@ function renderMonthlyActivityRows(items) {
   `;
 }
 
-function renderSummaryCharts(groups) {
+function renderSummaryCharts(groups, status = state.board.status) {
   const topByAmount = [...groups]
-    .sort((left, right) => Number(right.totalAmountRequested || 0) - Number(left.totalAmountRequested || 0))
+    .sort((left, right) => Number(right.amountRequested || 0) - Number(left.amountRequested || 0))
     .slice(0, 8);
-  const topBySuccess = [...groups]
-    .filter((group) => Number(group.completedCount || 0) > 0)
-    .sort((left, right) => Number(right.completedToSuccessConversionRate || 0) - Number(left.completedToSuccessConversionRate || 0))
+  const qualityValueKey = status === "completed" ? "completedToSuccessConversionRate" : "leadToWorkingConversionRate";
+  const topByQuality = [...groups]
+    .filter((group) => Number(status === "completed" ? group.completedCount : group.leadCount + group.workingCount || 0) > 0)
+    .sort((left, right) => Number(right[qualityValueKey] || 0) - Number(left[qualityValueKey] || 0))
     .slice(0, 8);
   const pipeline = [...groups]
     .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
@@ -1864,30 +1880,40 @@ function renderSummaryCharts(groups) {
       <article class="summary-chart-card">
         <p class="eyebrow">Объем</p>
         <h3>Топ по сумме заявок</h3>
-        ${renderBarRows(topByAmount, "name", "totalAmountRequested", "groupBy")}
+        ${renderBarRows(topByAmount, "name", "amountRequested", "groupBy")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Качество</p>
-        <h3>Конверсия завершенных в успешные</h3>
-        ${renderBarRows(topBySuccess.length ? topBySuccess : groups.slice(0, 8), "name", "completedToSuccessConversionRate", "groupBy")}
+        <h3>${status === "completed" ? "Конверсия завершенных в успешные" : "Конверсия лидов в работу"}</h3>
+        ${renderBarRows(topByQuality.length ? topByQuality : groups.slice(0, 8), "name", qualityValueKey, "groupBy")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Структура</p>
-        <h3>План · лиды · работа · завершено</h3>
+        <h3>${status === "completed" ? "Одобрено · отказ / непринятые" : "План · лиды · работа"}</h3>
         <div class="pipeline-list">
           ${
             pipeline
               .map((group) => {
-                const total = Math.max(1, Number(group.planCount || 0) + Number(group.leadCount || 0) + Number(group.workingCount || 0) + Number(group.completedCount || 0));
+                const total = status === "completed"
+                  ? Math.max(1, Number(group.successfulCount || 0) + Number(group.refusedCount || 0))
+                  : Math.max(1, Number(group.planCount || 0) + Number(group.leadCount || 0) + Number(group.workingCount || 0));
                 const width = (value) => Math.round((Number(value || 0) / total) * 100);
                 return `
                   <div class="pipeline-row">
                     <strong>${escapeHtml(group.name)}</strong>
                     <div class="pipeline-track">
-                      <span class="pipeline-plan" style="width:${width(group.planCount)}%"></span>
-                      <span class="pipeline-lead" style="width:${width(group.leadCount)}%"></span>
-                      <span class="pipeline-work" style="width:${width(group.workingCount)}%"></span>
-                      <span class="pipeline-done" style="width:${width(group.completedCount)}%"></span>
+                      ${
+                        status === "completed"
+                          ? `
+                            <span class="pipeline-done" style="width:${width(group.successfulCount)}%"></span>
+                            <span class="pipeline-refused" style="width:${width(group.refusedCount)}%"></span>
+                          `
+                          : `
+                            <span class="pipeline-plan" style="width:${width(group.planCount)}%"></span>
+                            <span class="pipeline-lead" style="width:${width(group.leadCount)}%"></span>
+                            <span class="pipeline-work" style="width:${width(group.workingCount)}%"></span>
+                          `
+                      }
                     </div>
                   </div>
                 `;
@@ -2040,10 +2066,9 @@ function renderBoardSummaryGroups(groups) {
                 </div>
                 <div class="manager-metrics">
                   <span>${group.count} заявок</span>
-                  <strong>Всего ${money(group.totalAmountRequested || group.amountRequested)} (${group.approvalConversionRate || 0}%)</strong>
-                  ${renderSummaryAmountBadges(group)}
+                  <strong>${money(group.amountRequested)} в выбранном отчете (${group.approvalConversionRate || 0}%)</strong>
+                  ${renderSummaryAmountBadges(group, state.board.status)}
                   ${renderConversionBadges(group)}
-                  <span>В выбранном отчете ${money(group.amountRequested)}</span>
                 </div>
               </summary>
               ${renderBoardApplicationRows(resolveBoardApplications(group), state.board.groupBy)}
@@ -2067,14 +2092,14 @@ function renderSummary() {
         <div>
           <p class="eyebrow">Сводный отчет</p>
           <h2>${BOARD_STATUS_LABELS[state.board.status]} заявки · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}</h2>
-          <p class="muted">${totals.count} заявок · ${money(totals.amountRequested)} в выбранном отчете · всего ${money(totals.totalAmountRequested)} (${totals.approvalConversionRate}%)</p>
-          ${renderSummaryAmountBadges(totals)}
+          <p class="muted">${totals.count} заявок · ${money(totals.amountRequested)} в выбранном отчете (${totals.approvalConversionRate}%)</p>
+          ${renderSummaryAmountBadges(totals, state.board.status)}
           ${renderConversionBadges(totals)}
           <p class="muted">Время отчета: ${formatDate(reportTime.iso)} MSK · источник: ${escapeHtml(reportTime.source || "server")}</p>
         </div>
         ${renderBoardControls()}
       </div>
-      ${renderSummaryCharts(groups)}
+      ${renderSummaryCharts(groups, state.board.status)}
       ${renderBoardSummaryGroups(groups)}
     </section>
   `;

@@ -434,18 +434,16 @@ function buildBoardSummary(deals, statusGroup, grouping) {
   const field = groupFields[grouping] || groupFields.manager;
   const fallback = groupFallbacks[grouping] || groupFallbacks.manager;
   const filteredDeals = deals.filter((deal) => deal.statusGroup === statusGroup);
-  const allGroups = groupBy(deals, (deal) => deal[field] || fallback);
 
   return Array.from(groupBy(filteredDeals, (deal) => deal[field] || fallback).entries())
     .map(([name, items]) => {
-      const groupDeals = allGroups.get(name) || items;
-      const plannedDeals = groupDeals.filter((deal) => deal.stage === "planned");
-      const leadDeals = groupDeals.filter((deal) => deal.stage === "lead");
-      const workingDeals = groupDeals.filter((deal) => deal.stage === "submitted");
+      const plannedDeals = items.filter((deal) => deal.stage === "planned");
+      const leadDeals = items.filter((deal) => deal.stage === "lead");
+      const workingDeals = items.filter((deal) => deal.stage === "submitted");
       const currentDeals = [...leadDeals, ...workingDeals];
-      const completedDeals = groupDeals.filter((deal) => deal.statusGroup === "completed");
-      const approvedDeals = groupDeals.filter((deal) => deal.stage === "approved");
-      const totalAmountRequested = sum(groupDeals, "amountRequested");
+      const completedDeals = items.filter((deal) => deal.statusGroup === "completed");
+      const approvedDeals = items.filter((deal) => deal.stage === "approved");
+      const refusedDeals = items.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked");
       const approvedAmount = sum(approvedDeals, "amountApproved");
       const selectedAmountRequested = sum(items, "amountRequested");
 
@@ -462,13 +460,16 @@ function buildBoardSummary(deals, statusGroup, grouping) {
         workingCount: workingDeals.length,
         completedCount: completedDeals.length,
         successfulCount: approvedDeals.length,
+        refusedCount: refusedDeals.length,
         plannedAmountRequested: sum(plannedDeals, "amountRequested"),
         leadAmountRequested: sum(leadDeals, "amountRequested"),
         workingAmountRequested: sum(workingDeals, "amountRequested"),
         currentAmountRequested: sum(currentDeals, "amountRequested"),
+        completedAmountRequested: sum(completedDeals, "amountRequested"),
+        refusedAmountRequested: sum(refusedDeals, "amountRequested"),
         approvedAmount,
-        totalAmountRequested,
-        approvalConversionRate: totalAmountRequested ? Math.round((approvedAmount / totalAmountRequested) * 100) : 0,
+        totalAmountRequested: selectedAmountRequested,
+        approvalConversionRate: selectedAmountRequested ? Math.round((approvedAmount / selectedAmountRequested) * 100) : 0,
         leadToWorkingConversionRate: percent(workingDeals.length, leadDeals.length + workingDeals.length),
         signedToCompletedConversionRate: percent(completedDeals.length, workingDeals.length + completedDeals.length),
         completedToSuccessConversionRate: percent(approvedDeals.length, completedDeals.length),

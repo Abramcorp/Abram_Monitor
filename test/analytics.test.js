@@ -392,12 +392,13 @@ test("dashboard builds board summaries by manager and bank with requested amount
   assert.equal(completedManager.count, 1);
   assert.equal(completedManager.amountRequested, 2000);
   assert.equal(completedManager.amountApproved, 1800);
-  assert.equal(completedManager.currentAmountRequested, 1000);
-  assert.equal(completedManager.workingCount, 1);
-  assert.equal(completedManager.signedToCompletedConversionRate, 50);
+  assert.equal(completedManager.currentAmountRequested, 0);
+  assert.equal(completedManager.workingCount, 0);
+  assert.equal(completedManager.signedToCompletedConversionRate, 100);
   assert.equal(completedManager.approvedAmount, 1800);
-  assert.equal(completedManager.totalAmountRequested, 3000);
-  assert.equal(completedManager.approvalConversionRate, 60);
+  assert.equal(completedManager.completedAmountRequested, 2000);
+  assert.equal(completedManager.totalAmountRequested, 2000);
+  assert.equal(completedManager.approvalConversionRate, 90);
 });
 
 test("dashboard sorts next actions by nearest date", () => {

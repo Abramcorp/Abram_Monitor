@@ -929,17 +929,21 @@ button {
   padding: 14px;
 }
 
-.knowledge-card-head h3,
-.knowledge-card-head h4 {
+.knowledge-card-head h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 22px;
+  font-weight: 900;
 }
 
 .knowledge-card-head h4 {
+  margin: 4px 0 0;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   align-items: baseline;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 800;
 }
 
 .knowledge-card-head time {
@@ -1286,6 +1290,10 @@ td select {
 
 .pipeline-done {
   background: #80c58b;
+}
+
+.pipeline-refused {
+  background: #e88787;
 }
 
 .monthly-activity-list {

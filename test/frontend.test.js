@@ -34,9 +34,16 @@ test("application save exposes a client-level loading indicator", () => {
 
 test("summary amount badges include counts next to requested amounts", () => {
   assert.match(appSource, /План подач <strong>\$\{plannedCount\} · \$\{money\(source\.plannedAmountRequested\)\}/);
-  assert.match(appSource, /Одобрено <strong>\$\{approvedCount\} · \$\{money\(source\.approvedAmount\)\}/);
+  assert.match(appSource, /Завершено <strong>\$\{source\.completedCount \|\| 0\} · \$\{money\(source\.completedAmountRequested \|\| source\.amountRequested\)\}/);
+  assert.match(appSource, /Отказ \/ непринятые <strong>\$\{source\.refusedCount \|\| 0\} · \$\{money\(source\.refusedAmountRequested\)\}/);
   assert.match(appSource, /planCount,/);
   assert.match(appSource, /successfulCount,/);
+});
+
+test("summary report uses selected status amounts instead of all-status totals", () => {
+  assert.match(appSource, /const totalRequested = groups\.reduce\(\(total, group\) => total \+ Number\(group\.amountRequested \|\| 0\), 0\)/);
+  assert.match(appSource, /renderSummaryAmountBadges\(totals, state\.board\.status\)/);
+  assert.doesNotMatch(appSource, /в выбранном отчете · всего/);
 });
 
 test("summary report includes monthly activity chart", () => {
@@ -49,6 +56,8 @@ test("knowledge programs expose links, bank phones, and change history", () => {
   assert.match(appSource, /application-program-link/);
   assert.match(appSource, /knowledge-program-link/);
   assert.match(appSource, /knowledge-bank-phone/);
+  assert.match(appSource, /<p class="eyebrow">Банк<\/p>/);
+  assert.match(appSource, /<h3>\$\{escapeHtml\(bank\.bank\)\}<\/h3>/);
   assert.match(appSource, /История изменений/);
   assert.match(appSource, /program\.changeHistory/);
 });
