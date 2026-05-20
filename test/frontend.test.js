@@ -45,6 +45,14 @@ test("summary report includes monthly activity chart", () => {
   assert.match(appSource, /Активность по месяцам/);
 });
 
+test("knowledge programs expose links, bank phones, and change history", () => {
+  assert.match(appSource, /application-program-link/);
+  assert.match(appSource, /knowledge-program-link/);
+  assert.match(appSource, /knowledge-bank-phone/);
+  assert.match(appSource, /История изменений/);
+  assert.match(appSource, /program\.changeHistory/);
+});
+
 test("completed clients stay visible until explicitly archived", () => {
   assert.doesNotMatch(appSource, /activeCount === 0 && client\.completedCount > 0/);
   assert.match(appSource, /const archivedClients = clientGroups\.filter\(\(client\) => client\.isArchived\)/);

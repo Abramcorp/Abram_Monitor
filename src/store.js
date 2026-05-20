@@ -419,11 +419,14 @@ function createKnowledgeEntry(payload) {
   const bankName = cleanText(payload.bank);
   const program = normalizeKnowledgeProgram({
     id: payload.id || `kb-${Date.now()}`,
+    bankPhone: payload.bankPhone,
     program: payload.program || payload.topic,
+    programUrl: payload.programUrl,
     programType: payload.programType,
     amountRange: payload.amountRange,
     requirements: payload.requirements || payload,
     notes: payload.notes,
+    changeHistory: payload.changeHistory,
     updatedAt: now
   });
 
@@ -568,14 +571,22 @@ function normalizeProgramType(value) {
   return PROGRAM_TYPES.includes(text) ? text : "Стандарт";
 }
 
+function isLegacySourceNote(value) {
+  return /^Источник:/i.test(cleanText(value));
+}
+
 function normalizeKnowledgeProgram(raw = {}) {
   const requirements = raw.requirements && !Array.isArray(raw.requirements) ? raw.requirements : raw;
   const legacyRequirements = Array.isArray(raw.requirements) ? normalizeList(raw.requirements).join("\n") : "";
   const legacyDocuments = Array.isArray(raw.documents) ? normalizeList(raw.documents).join("\n") : normalizeRequirementText(raw.documents);
+  const rawNotes = cleanText(raw.notes);
+  const legacyHistory = isLegacySourceNote(rawNotes) ? rawNotes : "";
 
   return {
     id: cleanText(raw.id) || `kb-${Date.now()}`,
+    bankPhone: cleanText(raw.bankPhone || raw.phone || raw.bank_phone),
     program: cleanText(raw.program || raw.topic || raw.name),
+    programUrl: cleanText(raw.programUrl || raw.url || raw.link || raw.programLink),
     programType: normalizeProgramType(raw.programType || raw.type || raw.category),
     amountRange: cleanText(raw.amountRange || raw.amount || raw.limit || raw.sum),
     requirements: normalizeRequirements({
@@ -583,7 +594,8 @@ function normalizeKnowledgeProgram(raw = {}) {
       documentation: requirements.documentation || legacyDocuments,
       revenue: requirements.revenue || legacyRequirements
     }),
-    notes: cleanText(raw.notes),
+    notes: legacyHistory ? "" : rawNotes,
+    changeHistory: normalizeRequirementText(raw.changeHistory || raw.history || raw.changeLog || raw.sources || raw.source || raw.dataSources || legacyHistory),
     updatedAt: cleanText(raw.updatedAt) || new Date().toISOString()
   };
 }
@@ -601,6 +613,7 @@ function normalizeKnowledgeEntries(entries) {
       bankMap.set(bankName.toLowerCase(), {
         id: cleanText(entry.id) || `bank-knowledge-${bankMap.size + 1}`,
         bank: bankName,
+        phone: cleanText(entry.phone || entry.bankPhone || entry.bank_phone),
         programs: [],
         updatedAt: cleanText(entry.updatedAt)
       });
@@ -611,6 +624,9 @@ function normalizeKnowledgeEntries(entries) {
     for (const rawProgram of programs) {
       const program = normalizeKnowledgeProgram(rawProgram);
       if (program.program) {
+        if (!bank.phone && program.bankPhone) {
+          bank.phone = program.bankPhone;
+        }
         bank.programs.push(program);
       }
     }

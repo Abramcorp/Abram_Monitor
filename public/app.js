@@ -794,7 +794,7 @@ function renderDealTable(deals) {
                     <span class="table-meta muted">${escapeHtml(deal.bureau || "Бюро не указано")}</span>
                   </td>
                   <td>${escapeHtml(deal.manager)}</td>
-                  <td>${escapeHtml(applicationProgramTitle(deal))}</td>
+                  <td>${renderApplicationProgramTitle(deal)}</td>
                   <td>
                     <select data-stage-select="${escapeHtml(deal.id)}" data-current-stage="${escapeHtml(deal.stage)}">
                       ${stageOptions
@@ -843,7 +843,7 @@ function renderClientApplicationCards(applications, emptyText, type) {
           (deal) => `
             <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}">
               <summary class="application-card-head">
-                <strong>${escapeHtml(applicationProgramTitle(deal))}</strong>
+                <strong>${renderApplicationProgramTitle(deal)}</strong>
                 <span>${money(deal.amountRequested)}</span>
                 <em>${escapeHtml(deal.stageLabel)}</em>
                 <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
@@ -1388,7 +1388,21 @@ function filteredKnowledge() {
           return true;
         }
         const requirementText = Object.values(program.requirements || {}).join(" ");
-        return [bank.bank, program.program, program.programType, program.amountRange, program.notes, requirementText].join(" ").toLowerCase().includes(query);
+        return [
+          bank.bank,
+          bank.phone,
+          program.bankPhone,
+          program.program,
+          program.programUrl,
+          program.programType,
+          program.amountRange,
+          program.notes,
+          program.changeHistory,
+          requirementText
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
       })
     }))
     .filter((bank) => {
@@ -1423,6 +1437,44 @@ function applicationProgramTitle(deal) {
     return deal.bank || "Программа не выбрана";
   }
   return `${deal.bank} - ${deal.program}${deal.programAmountRange ? ` (${deal.programAmountRange})` : ""}`;
+}
+
+function findProgramForDeal(deal) {
+  if (!deal) {
+    return null;
+  }
+
+  if (deal.knowledgeProgramId) {
+    const byId = flattenKnowledgePrograms().find((entry) => entry.program.id === deal.knowledgeProgramId);
+    if (byId) {
+      return byId;
+    }
+  }
+
+  const bankName = String(deal.bank || "").trim().toLowerCase();
+  const programName = String(deal.program || "").trim().toLowerCase();
+  if (!bankName || !programName) {
+    return null;
+  }
+
+  return flattenKnowledgePrograms().find((entry) =>
+    entry.bank.bank.toLowerCase() === bankName && entry.program.program.toLowerCase() === programName
+  ) || null;
+}
+
+function applicationProgramUrl(deal) {
+  const entry = findProgramForDeal(deal);
+  return safeExternalUrl(deal?.programUrl || entry?.program.programUrl);
+}
+
+function renderApplicationProgramTitle(deal) {
+  const title = applicationProgramTitle(deal);
+  const url = applicationProgramUrl(deal);
+  if (!url) {
+    return escapeHtml(title);
+  }
+
+  return `<a class="application-program-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`;
 }
 
 function renderApplicationProgramOptions() {
@@ -1510,12 +1562,16 @@ function renderRequirementGrid(requirements = {}) {
 }
 
 function renderKnowledgeProgramCard(program, bank, showBank = false) {
+  const programUrl = safeExternalUrl(program.programUrl);
   return `
     <details class="knowledge-card">
       <summary class="knowledge-card-head">
         <div>
           <p class="eyebrow">${showBank ? escapeHtml(bank.bank) : "Программа"}</p>
-          <h4>${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}</h4>
+          <h4>
+            ${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}
+            ${programUrl ? `<a class="knowledge-program-link" href="${escapeHtml(programUrl)}" target="_blank" rel="noopener noreferrer">Ссылка</a>` : ""}
+          </h4>
         </div>
         <span>${escapeHtml(program.programType || "Стандарт")}</span>
       </summary>
@@ -1526,6 +1582,10 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
         </div>
         ${renderRequirementGrid(program.requirements)}
         <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
+        <details class="knowledge-history">
+          <summary>История изменений</summary>
+          <strong>${escapeHtml(program.changeHistory || `Обновлено: ${formatDate(program.updatedAt || bank.updatedAt)}`)}</strong>
+        </details>
       </div>
     </details>
   `;
@@ -1546,6 +1606,7 @@ function renderKnowledgeBanks(banks) {
                 <div>
                   <p class="eyebrow">Банк</p>
                   <h3>${escapeHtml(bank.bank)}</h3>
+                  ${bank.phone ? `<p class="knowledge-bank-phone">${escapeHtml(bank.phone)}</p>` : ""}
                 </div>
                 <span>${(bank.programs || []).length} программ</span>
               </summary>
@@ -2121,6 +2182,12 @@ function bindDynamicControls() {
     });
   });
 
+  document.querySelectorAll(".knowledge-program-link, .application-program-link").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+  });
+
   document.querySelectorAll("[data-add-application]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -2277,7 +2344,9 @@ function openKnowledgeDialog(entry = null) {
   knowledgeForm.reset();
   knowledgeForm.elements.programId.value = entry?.program?.id || "";
   knowledgeForm.elements.bank.value = entry?.bank?.bank || "";
+  knowledgeForm.elements.bankPhone.value = entry?.bank?.phone || entry?.program?.bankPhone || "";
   knowledgeForm.elements.program.value = entry?.program?.program || "";
+  knowledgeForm.elements.programUrl.value = entry?.program?.programUrl || "";
   knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
   knowledgeForm.elements.programType.value = PROGRAM_TYPES.includes(entry?.program?.programType) ? entry.program.programType : "Стандарт";
 
@@ -2286,6 +2355,7 @@ function openKnowledgeDialog(entry = null) {
     knowledgeForm.elements[key].value = requirements[key] || "";
   });
   knowledgeForm.elements.notes.value = entry?.program?.notes || "";
+  knowledgeForm.elements.changeHistory.value = entry?.program?.changeHistory || "";
   if (knowledgeDialogTitle) {
     knowledgeDialogTitle.textContent = entry ? "Редактировать программу" : "Новая запись";
   }

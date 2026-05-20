@@ -203,8 +203,16 @@
 
         <div class="form-grid">
           <label>
+            Телефон банка
+            <input name="bankPhone" type="tel" autocomplete="off" placeholder="+7...">
+          </label>
+          <label>
             Программа
             <input name="program" required autocomplete="off" placeholder="Оборотный">
+          </label>
+          <label>
+            Ссылка
+            <input name="programUrl" type="url" autocomplete="off" placeholder="https://...">
           </label>
           <label>
             Сумма
@@ -251,6 +259,11 @@
         <label>
           Заметки
           <textarea name="notes" rows="3"></textarea>
+        </label>
+
+        <label>
+          История изменений
+          <textarea name="changeHistory" rows="3" placeholder="Что изменилось, когда и кем"></textarea>
         </label>
 
         <div class="dialog-actions">

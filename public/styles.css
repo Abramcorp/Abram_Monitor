@@ -794,6 +794,13 @@ button {
   font-size: 18px;
 }
 
+.knowledge-bank-phone {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .knowledge-bank-head span {
   color: var(--muted);
   font-size: 13px;
@@ -928,6 +935,13 @@ button {
   font-size: 18px;
 }
 
+.knowledge-card-head h4 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
 .knowledge-card-head time {
   color: var(--muted);
   font-size: 13px;
@@ -937,6 +951,22 @@ button {
   color: var(--green);
   font-size: 14px;
   white-space: normal;
+}
+
+.knowledge-program-link,
+.application-program-link {
+  color: var(--teal-dark);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.knowledge-program-link {
+  font-size: 13px;
+}
+
+.knowledge-program-link:hover,
+.application-program-link:hover {
+  text-decoration: underline;
 }
 
 .knowledge-card-actions {
@@ -972,6 +1002,49 @@ button {
 .knowledge-note {
   margin: 12px 0 0;
   color: var(--muted);
+}
+
+.knowledge-history {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.knowledge-history summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.knowledge-history summary::-webkit-details-marker {
+  display: none;
+}
+
+.knowledge-history summary::after {
+  content: "+";
+  float: right;
+}
+
+.knowledge-history[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledge-history[open] summary::after {
+  content: "-";
+}
+
+.knowledge-history strong {
+  padding: 10px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: pre-line;
 }
 
 .requirement-grid {

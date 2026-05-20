@@ -151,15 +151,31 @@ test("buildInitialCommentAction skips empty application comments", () => {
 
 test("normalizeKnowledgeProgram keeps program type and amount range", () => {
   const program = normalizeKnowledgeProgram({
+    bankPhone: "+7 495 000-00-00",
     program: "Оборотный",
+    programUrl: "https://bank.example/program",
     programType: "Экспресс",
     amountRange: "от 5 до 50 млн",
-    documentation: "Анкета и выписка"
+    documentation: "Анкета и выписка",
+    source: "Обновлено условие по выручке"
   });
 
+  assert.equal(program.bankPhone, "+7 495 000-00-00");
+  assert.equal(program.programUrl, "https://bank.example/program");
   assert.equal(program.programType, "Экспресс");
   assert.equal(program.amountRange, "от 5 до 50 млн");
   assert.equal(program.requirements.documentation, "Анкета и выписка");
+  assert.equal(program.changeHistory, "Обновлено условие по выручке");
+});
+
+test("normalizeKnowledgeProgram moves legacy source notes into change history", () => {
+  const program = normalizeKnowledgeProgram({
+    program: "Оборотный",
+    notes: "Источник: лист Банкитребования, строка 7"
+  });
+
+  assert.equal(program.notes, "");
+  assert.equal(program.changeHistory, "Источник: лист Банкитребования, строка 7");
 });
 
 test("normalizeManager keeps the account card name", () => {
