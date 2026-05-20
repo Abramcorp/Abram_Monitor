@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { buildManagerClientGroups, calculateDashboard, normalizeDeal, toNumber } = require("../src/analytics");
+const { buildCurrentManagerGroups, buildManagerClientGroups, calculateDashboard, normalizeDeal, toNumber } = require("../src/analytics");
 
 test("stage catalog matches source spreadsheet status list", () => {
   const dashboard = calculateDashboard([]);
@@ -154,7 +154,9 @@ test("dashboard groups current clients by manager with application status and la
     new Date("2026-05-13T10:00:00+03:00")
   );
 
-  const manager = dashboard.currentSummary.byManager.find((item) => item.manager === "Елена Иванова");
+  const currentDeals = dashboard.deals.filter((deal) => deal.statusGroup === "current");
+  const managers = buildCurrentManagerGroups(currentDeals);
+  const manager = managers.find((item) => item.manager === "Елена Иванова");
   assert.equal(manager.clientCount, 1);
   assert.equal(manager.count, 2);
   assert.equal(manager.clients[0].client, "ООО Клиент");
@@ -381,7 +383,9 @@ test("dashboard builds board summaries by manager and bank with requested amount
   assert.equal(currentBank.approvedAmount, 0);
   assert.equal(currentBank.totalAmountRequested, 4000);
   assert.equal(currentBank.leadToWorkingConversionRate, 100);
-  assert.equal(currentBank.applications[0].applicationDate, "2026-05-12T07:00:00.000Z");
+  const firstApplicationId = currentBank.applicationIds[0];
+  const firstApplication = dashboard.deals.find((deal) => deal.id === firstApplicationId);
+  assert.equal(firstApplication.applicationDate, "2026-05-12T07:00:00.000Z");
   assert.equal(currentClient.count, 1);
   assert.equal(currentClient.workingCount, 1);
   assert.equal(currentClient.totalAmountRequested, 1000);
@@ -406,4 +410,51 @@ test("dashboard sorts next actions by nearest date", () => {
   );
 
   assert.equal(dashboard.currentSummary.nextActions[0].client, "Раньше");
+});
+
+test("normalizeDeal exposes the application date derived from earliest dated event", () => {
+  const deal = normalizeDeal({
+    id: "appdate-1",
+    client: "ИП Контракт",
+    bank: "Банк",
+    stage: "submitted",
+    inquiryAt: "2026-04-10T09:00:00+03:00",
+    submittedAt: "2026-04-15T12:00:00+03:00",
+    signedAt: "2026-04-20T10:00:00+03:00",
+    createdAt: "2026-04-01T08:00:00+03:00"
+  });
+
+  assert.equal(deal.applicationDate, "2026-04-20T07:00:00.000Z");
+
+  const onlyCreated = normalizeDeal({
+    id: "appdate-2",
+    client: "ИП Без дат",
+    bank: "Банк",
+    createdAt: "2026-04-01T08:00:00+03:00"
+  });
+  assert.equal(onlyCreated.applicationDate, "2026-04-01T05:00:00.000Z");
+});
+
+test("calculateDashboard returns slim payload without dealing dupes", () => {
+  const dashboard = calculateDashboard(
+    [
+      { id: "d1", client: "ООО Альфа", manager: "Анна", bank: "Сбер", stage: "lead", amountRequested: 1000 },
+      { id: "d2", client: "ООО Бета", manager: "Борис", bank: "ВТБ", stage: "approved", amountRequested: 2000, amountApproved: 1800, completedAt: "2026-05-10T08:00:00Z" }
+    ],
+    new Date("2026-05-15T10:00:00Z")
+  );
+
+  assert.equal("managerClientGroups" in dashboard, false, "managerClientGroups removed");
+  assert.deepEqual(Object.keys(dashboard.currentSummary), ["nextActions"], "currentSummary holds only nextActions");
+  for (const status of ["current", "completed"]) {
+    for (const grouping of ["client", "manager", "bank"]) {
+      for (const group of dashboard.boardSummaries[status][grouping]) {
+        assert.equal(Array.isArray(group.applicationIds), true, `${status}.${grouping} has applicationIds`);
+        assert.equal("applications" in group, false, `${status}.${grouping} no applications field`);
+        for (const id of group.applicationIds) {
+          assert.equal(typeof id, "string");
+        }
+      }
+    }
+  }
 });

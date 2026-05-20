@@ -1806,6 +1806,14 @@ function renderBoardControls() {
   `;
 }
 
+function resolveBoardApplications(group) {
+  if (Array.isArray(group?.applicationIds) && group.applicationIds.length) {
+    const dealById = new Map((state.dashboard?.deals || []).map((deal) => [deal.id, deal]));
+    return group.applicationIds.map((id) => dealById.get(id)).filter(Boolean);
+  }
+  return Array.isArray(group?.applications) ? group.applications : [];
+}
+
 function renderBoardApplicationRows(applications, groupBy) {
   if (!applications.length) {
     return `<div class="empty compact-empty">Заявок нет.</div>`;
@@ -1872,7 +1880,7 @@ function renderBoardSummaryGroups(groups) {
                   <span>В выбранном отчете ${money(group.amountRequested)}</span>
                 </div>
               </summary>
-              ${renderBoardApplicationRows(group.applications || [], state.board.groupBy)}
+              ${renderBoardApplicationRows(resolveBoardApplications(group), state.board.groupBy)}
             </details>
           `
         )

@@ -168,6 +168,7 @@ function normalizeDeal(raw = {}) {
     creditVisibleAt,
     completedAt,
     lastActionAt,
+    applicationDate: signedAt || submittedAt || inquiryAt || createdAt,
     actions,
     timeline: cleanText(raw.timeline),
     comment: cleanText(raw.comment),
@@ -472,7 +473,7 @@ function buildBoardSummary(deals, statusGroup, grouping) {
         signedToCompletedConversionRate: percent(completedDeals.length, workingDeals.length + completedDeals.length),
         completedToSuccessConversionRate: percent(approvedDeals.length, completedDeals.length),
         lastActionAt: latestIsoDate(items.map((deal) => deal.lastActionAt)),
-        applications: sortByLastAction(items.map(toApplicationSummary))
+        applicationIds: sortByLastAction([...items]).map((deal) => deal.id)
       };
     })
     .sort((a, b) => b.amountRequested - a.amountRequested || a.name.localeCompare(b.name, "ru"));
@@ -501,12 +502,12 @@ function calculateDashboard(rawDeals, clock = new Date(), timeInfo = null) {
   const plannedDeals = deals.filter((deal) => deal.stage === "planned");
   const leadDeals = deals.filter((deal) => deal.stage === "lead");
   const workingDeals = deals.filter((deal) => deal.stage === "submitted");
-  const overdueDeals = currentDeals.filter((deal) => {
+  const overdueCount = currentDeals.reduce((total, deal) => {
     if (!deal.nextActionAt) {
-      return false;
+      return total;
     }
-    return new Date(deal.nextActionAt).getTime() < clock.getTime();
-  });
+    return new Date(deal.nextActionAt).getTime() < clock.getTime() ? total + 1 : total;
+  }, 0);
 
   const currentFunnel = CURRENT_STAGES.map((stage) => {
     const items = currentDeals.filter((deal) => deal.stage === stage.id);
@@ -542,13 +543,6 @@ function calculateDashboard(rawDeals, clock = new Date(), timeInfo = null) {
     };
   });
 
-  const currentByBank = formatGroup(groupBy(currentDeals, (deal) => deal.bank), (bank, items) => ({
-    bank,
-    count: items.length,
-    amountRequested: sum(items, "amountRequested"),
-    amountApproved: sum(items, "amountApproved")
-  }));
-
   const nextActions = currentDeals
     .filter((deal) => deal.nextActionAt)
     .sort((a, b) => new Date(a.nextActionAt) - new Date(b.nextActionAt))
@@ -579,7 +573,7 @@ function calculateDashboard(rawDeals, clock = new Date(), timeInfo = null) {
       current: currentDeals.length,
       completed: completedDeals.length,
       issued: issuedDeals.length,
-      overdue: overdueDeals.length,
+      overdue: overdueCount,
       planned: plannedDeals.length,
       leads: leadDeals.length,
       working: workingDeals.length,
@@ -597,15 +591,9 @@ function calculateDashboard(rawDeals, clock = new Date(), timeInfo = null) {
       completedToSuccessConversionRate: percent(issuedDeals.length, completedDeals.length)
     },
     currentFunnel,
-    managerClientGroups: buildManagerClientGroups(deals),
     boardSummaries: buildBoardSummaries(deals),
     currentSummary: {
-      overdueDeals,
-      nextActions,
-      byBank: currentByBank,
-      byManager: buildCurrentManagerGroups(currentDeals),
-      needsDocuments: currentDeals.filter((deal) => deal.stage === "lead").length,
-      inBankReview: currentDeals.filter((deal) => deal.stage === "submitted").length
+      nextActions
     },
     completedAnalytics: {
       byResult: completedByResult,
