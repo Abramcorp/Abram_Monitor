@@ -424,6 +424,8 @@ function createKnowledgeEntry(payload) {
     programUrl: payload.programUrl,
     programType: payload.programType,
     amountRange: payload.amountRange,
+    termRange: payload.termRange,
+    reviewTermDeclared: payload.reviewTermDeclared,
     requirements: payload.requirements || payload,
     notes: payload.notes,
     changeHistory: payload.changeHistory,
@@ -589,6 +591,8 @@ function normalizeKnowledgeProgram(raw = {}) {
     programUrl: cleanText(raw.programUrl || raw.url || raw.link || raw.programLink),
     programType: normalizeProgramType(raw.programType || raw.type || raw.category),
     amountRange: cleanText(raw.amountRange || raw.amount || raw.limit || raw.sum),
+    termRange: cleanText(raw.termRange || raw.term || raw.period || raw.duration || raw.creditTerm),
+    reviewTermDeclared: cleanText(raw.reviewTermDeclared || raw.reviewTerm || raw.declaredReviewTerm || raw.reviewPeriod),
     requirements: normalizeRequirements({
       ...requirements,
       documentation: requirements.documentation || legacyDocuments,

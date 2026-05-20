@@ -185,6 +185,15 @@ function dayLabel(count) {
   return `${count} ${word}`;
 }
 
+function daysBetween(start, end) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+  return Math.max(0, Math.round((endDate - startDate) / DAY_MS));
+}
+
 function earliestDate(values) {
   const timestamps = values
     .filter(Boolean)
@@ -1413,6 +1422,8 @@ function filteredKnowledge() {
           program.programUrl,
           program.programType,
           program.amountRange,
+          program.termRange,
+          program.reviewTermDeclared,
           program.notes,
           program.changeHistory,
           requirementText
@@ -1439,12 +1450,20 @@ function groupProgramsByType(programs = []) {
   return [...groups.entries()].filter(([, items]) => items.length);
 }
 
+function programMetaSuffix(amountRange, termRange) {
+  const parts = [
+    amountRange,
+    termRange ? `срок ${termRange}` : ""
+  ].filter(Boolean);
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 function flattenKnowledgePrograms() {
   return state.knowledge.flatMap((bank) =>
     (bank.programs || []).map((program) => ({
       bank,
       program,
-      label: `${bank.bank} - ${program.program}${program.amountRange ? ` (${program.amountRange})` : ""}`
+      label: `${bank.bank} - ${program.program}${programMetaSuffix(program.amountRange, program.termRange)}`
     }))
   );
 }
@@ -1453,7 +1472,7 @@ function applicationProgramTitle(deal) {
   if (!deal.program) {
     return deal.bank || "Программа не выбрана";
   }
-  return `${deal.bank} - ${deal.program}${deal.programAmountRange ? ` (${deal.programAmountRange})` : ""}`;
+  return `${deal.bank} - ${deal.program}${programMetaSuffix(deal.programAmountRange, deal.programTermRange)}`;
 }
 
 function findProgramForDeal(deal) {
@@ -1482,6 +1501,35 @@ function findProgramForDeal(deal) {
 function applicationProgramUrl(deal) {
   const entry = findProgramForDeal(deal);
   return safeExternalUrl(deal?.programUrl || entry?.program.programUrl);
+}
+
+function dealMatchesKnowledgeProgram(deal, program, bank) {
+  if (!deal || !program) {
+    return false;
+  }
+  if (deal.knowledgeProgramId && program.id) {
+    return deal.knowledgeProgramId === program.id;
+  }
+
+  return String(deal.bank || "").trim().toLowerCase() === String(bank?.bank || "").trim().toLowerCase()
+    && String(deal.program || "").trim().toLowerCase() === String(program.program || "").trim().toLowerCase();
+}
+
+function programReviewStats(program, bank) {
+  const reviewDays = (state.dashboard?.deals || [])
+    .filter((deal) => deal.statusGroup === "completed" && deal.signedAt && deal.completedAt && dealMatchesKnowledgeProgram(deal, program, bank))
+    .map((deal) => daysBetween(deal.signedAt, deal.completedAt))
+    .filter((days) => days !== null);
+
+  if (!reviewDays.length) {
+    return "Недостаточно данных";
+  }
+
+  const averageDays = Math.round(reviewDays.reduce((total, days) => total + days, 0) / reviewDays.length);
+  const minDays = Math.min(...reviewDays);
+  const maxDays = Math.max(...reviewDays);
+  const rangeText = minDays === maxDays ? "" : `, диапазон ${dayLabel(minDays)} - ${dayLabel(maxDays)}`;
+  return `среднее ${dayLabel(averageDays)} по ${reviewDays.length} заявкам${rangeText}`;
 }
 
 function renderApplicationProgramTitle(deal) {
@@ -1528,6 +1576,7 @@ function syncApplicationProgramFields() {
   form.elements.program.value = entry?.program.program || "";
   form.elements.programType.value = entry?.program.programType || "";
   form.elements.programAmountRange.value = entry?.program.amountRange || "";
+  form.elements.programTermRange.value = entry?.program.termRange || "";
 }
 
 function renderKnowledgeFilters() {
@@ -1580,6 +1629,7 @@ function renderRequirementGrid(requirements = {}) {
 
 function renderKnowledgeProgramCard(program, bank, showBank = false) {
   const programUrl = safeExternalUrl(program.programUrl);
+  const reviewStats = programReviewStats(program, bank);
   return `
     <details class="knowledge-card">
       <summary class="knowledge-card-head">
@@ -1588,6 +1638,7 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
           <h3>${escapeHtml(bank.bank)}</h3>
           <h4>
             ${escapeHtml(program.program)}${program.amountRange ? ` <span>${escapeHtml(program.amountRange)}</span>` : ""}
+            ${program.termRange ? ` <span>${escapeHtml(`срок ${program.termRange}`)}</span>` : ""}
             ${programUrl ? `<a class="knowledge-program-link" href="${escapeHtml(programUrl)}" target="_blank" rel="noopener noreferrer">Ссылка</a>` : ""}
           </h4>
         </div>
@@ -1599,6 +1650,13 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
           <button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button>
         </div>
         ${renderRequirementGrid(program.requirements)}
+        <div class="knowledge-review-terms">
+          <span>Срок рассмотрения</span>
+          <div>
+            <strong>Заявленный: ${escapeHtml(program.reviewTermDeclared || "Не указан")}</strong>
+            <strong>Статистика: ${escapeHtml(reviewStats)}</strong>
+          </div>
+        </div>
         <p class="knowledge-note">${escapeHtml(program.notes || "Без заметок")}</p>
         <details class="knowledge-history">
           <summary>История изменений</summary>
@@ -2401,6 +2459,8 @@ function openKnowledgeDialog(entry = null) {
   knowledgeForm.elements.program.value = entry?.program?.program || "";
   knowledgeForm.elements.programUrl.value = entry?.program?.programUrl || "";
   knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
+  knowledgeForm.elements.termRange.value = entry?.program?.termRange || "";
+  knowledgeForm.elements.reviewTermDeclared.value = entry?.program?.reviewTermDeclared || "";
   knowledgeForm.elements.programType.value = PROGRAM_TYPES.includes(entry?.program?.programType) ? entry.program.programType : "Стандарт";
 
   const requirements = entry?.program?.requirements || {};

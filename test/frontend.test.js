@@ -56,6 +56,12 @@ test("knowledge programs expose links, bank phones, and change history", () => {
   assert.match(appSource, /application-program-link/);
   assert.match(appSource, /knowledge-program-link/);
   assert.match(appSource, /knowledge-bank-phone/);
+  assert.match(appSource, /programMetaSuffix/);
+  assert.match(appSource, /program\.termRange/);
+  assert.match(appSource, /programTermRange/);
+  assert.match(appSource, /function programReviewStats/);
+  assert.match(appSource, /reviewTermDeclared/);
+  assert.match(appSource, /Статистика:/);
   assert.match(appSource, /<p class="eyebrow">Банк<\/p>/);
   assert.match(appSource, /<h3>\$\{escapeHtml\(bank\.bank\)\}<\/h3>/);
   assert.match(appSource, /История изменений/);

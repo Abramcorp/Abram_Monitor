@@ -37,7 +37,8 @@ test("normalizeDeal keeps selected bank program metadata", () => {
     knowledgeProgramId: "kb-tochka-fast",
     program: "Оборотный",
     programType: "Экспресс",
-    programAmountRange: "от 5 до 15 млн"
+    programAmountRange: "от 5 до 15 млн",
+    programTermRange: "до 36 мес."
   });
 
   assert.equal(deal.bank, "Точка Банк");
@@ -45,6 +46,7 @@ test("normalizeDeal keeps selected bank program metadata", () => {
   assert.equal(deal.program, "Оборотный");
   assert.equal(deal.programType, "Экспресс");
   assert.equal(deal.programAmountRange, "от 5 до 15 млн");
+  assert.equal(deal.programTermRange, "до 36 мес.");
 });
 
 test("normalizeDeal keeps action history chronological and updates last action", () => {

@@ -1051,6 +1051,33 @@ button {
   white-space: pre-line;
 }
 
+.knowledge-review-terms {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.knowledge-review-terms span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.knowledge-review-terms div {
+  display: grid;
+  gap: 5px;
+}
+
+.knowledge-review-terms strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .requirement-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(220px, 1fr));

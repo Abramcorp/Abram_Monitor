@@ -156,6 +156,8 @@ test("normalizeKnowledgeProgram keeps program type and amount range", () => {
     programUrl: "https://bank.example/program",
     programType: "Экспресс",
     amountRange: "от 5 до 50 млн",
+    termRange: "до 36 мес.",
+    reviewTermDeclared: "до 5 рабочих дней",
     documentation: "Анкета и выписка",
     source: "Обновлено условие по выручке"
   });
@@ -164,6 +166,8 @@ test("normalizeKnowledgeProgram keeps program type and amount range", () => {
   assert.equal(program.programUrl, "https://bank.example/program");
   assert.equal(program.programType, "Экспресс");
   assert.equal(program.amountRange, "от 5 до 50 млн");
+  assert.equal(program.termRange, "до 36 мес.");
+  assert.equal(program.reviewTermDeclared, "до 5 рабочих дней");
   assert.equal(program.requirements.documentation, "Анкета и выписка");
   assert.equal(program.changeHistory, "Обновлено условие по выручке");
 });
