@@ -166,8 +166,8 @@ test("sendCompressed never gzips incompressible content types", () => {
 
 test("staticCacheControl picks per-extension cache headers", () => {
   assert.equal(staticCacheControl(".html"), "no-cache");
-  assert.equal(staticCacheControl(".js"), "public, max-age=3600, must-revalidate");
-  assert.equal(staticCacheControl(".css"), "public, max-age=3600, must-revalidate");
+  assert.equal(staticCacheControl(".js"), "no-cache");
+  assert.equal(staticCacheControl(".css"), "no-cache");
   assert.equal(staticCacheControl(".svg"), "public, max-age=3600, must-revalidate");
   assert.equal(staticCacheControl(".png"), "public, max-age=300");
 });

@@ -136,10 +136,10 @@ function readBody(request) {
 }
 
 function staticCacheControl(ext) {
-  if (ext === ".html") {
+  if (ext === ".html" || ext === ".css" || ext === ".js") {
     return "no-cache";
   }
-  if (ext === ".css" || ext === ".js" || ext === ".svg") {
+  if (ext === ".svg") {
     return "public, max-age=3600, must-revalidate";
   }
   return "public, max-age=300";
