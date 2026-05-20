@@ -42,6 +42,7 @@ const dealActionForm = document.querySelector("#dealActionForm");
 const knowledgeDialog = document.querySelector("#knowledgeDialog");
 const knowledgeForm = document.querySelector("#knowledgeForm");
 const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
+const applicationProgramPreview = document.querySelector("#applicationProgramPreview");
 
 const VIEWS = [
   { id: "summary", label: "Сводный отчет" },
@@ -1450,29 +1451,68 @@ function groupProgramsByType(programs = []) {
   return [...groups.entries()].filter(([, items]) => items.length);
 }
 
-function programMetaSuffix(amountRange, termRange) {
-  const parts = [
-    amountRange,
-    termRange ? `срок ${termRange}` : ""
-  ].filter(Boolean);
-  return parts.length ? ` (${parts.join("; ")})` : "";
+function programAmountTermText(amountRange, termRange) {
+  if (amountRange && termRange) {
+    return `${amountRange} (на ${termRange})`;
+  }
+  if (amountRange) {
+    return amountRange;
+  }
+  if (termRange) {
+    return `на ${termRange}`;
+  }
+  return "";
 }
 
-function flattenKnowledgePrograms() {
+function programMetaSuffix(amountRange, termRange) {
+  const amountTerm = programAmountTermText(amountRange, termRange);
+  return amountTerm ? ` - ${amountTerm}` : "";
+}
+
+function programApplicationBaseLabel(bank, program) {
+  return [
+    program.programType || "Стандарт",
+    bank.bank,
+    program.program,
+    programAmountTermText(program.amountRange, program.termRange)
+  ].filter(Boolean).join(" - ");
+}
+
+function programApplicationLabel(bank, program) {
+  const reviewDeclared = program.reviewTermDeclared || "не указан";
+  return `${programApplicationBaseLabel(bank, program)} - рассмотрение (заявленный: ${reviewDeclared} / статистика: ${programReviewStats(program, bank)})`;
+}
+
+function listKnowledgeProgramEntries() {
   return state.knowledge.flatMap((bank) =>
     (bank.programs || []).map((program) => ({
       bank,
-      program,
-      label: `${bank.bank} - ${program.program}${programMetaSuffix(program.amountRange, program.termRange)}`
+      program
     }))
   );
+}
+
+function flattenKnowledgePrograms() {
+  return listKnowledgeProgramEntries().map((entry) => ({
+    ...entry,
+    label: programApplicationLabel(entry.bank, entry.program)
+  }));
 }
 
 function applicationProgramTitle(deal) {
   if (!deal.program) {
     return deal.bank || "Программа не выбрана";
   }
-  return `${deal.bank} - ${deal.program}${programMetaSuffix(deal.programAmountRange, deal.programTermRange)}`;
+  const entry = findProgramForDeal(deal);
+  return [
+    deal.programType || entry?.program.programType || "Стандарт",
+    deal.bank,
+    deal.program,
+    programAmountTermText(
+      deal.programAmountRange || entry?.program.amountRange,
+      deal.programTermRange || entry?.program.termRange
+    )
+  ].filter(Boolean).join(" - ");
 }
 
 function findProgramForDeal(deal) {
@@ -1481,7 +1521,7 @@ function findProgramForDeal(deal) {
   }
 
   if (deal.knowledgeProgramId) {
-    const byId = flattenKnowledgePrograms().find((entry) => entry.program.id === deal.knowledgeProgramId);
+    const byId = listKnowledgeProgramEntries().find((entry) => entry.program.id === deal.knowledgeProgramId);
     if (byId) {
       return byId;
     }
@@ -1493,7 +1533,7 @@ function findProgramForDeal(deal) {
     return null;
   }
 
-  return flattenKnowledgePrograms().find((entry) =>
+  return listKnowledgeProgramEntries().find((entry) =>
     entry.bank.bank.toLowerCase() === bankName && entry.program.program.toLowerCase() === programName
   ) || null;
 }
@@ -1569,14 +1609,37 @@ function renderApplicationProgramOptions() {
     .join("");
 }
 
+function renderApplicationProgramPreview(entry) {
+  if (!applicationProgramPreview) {
+    return;
+  }
+
+  if (!entry) {
+    applicationProgramPreview.innerHTML = `<span>Выберите программу из базы знаний</span>`;
+    return;
+  }
+
+  const reviewDeclared = entry.program.reviewTermDeclared || "не указан";
+  const reviewStats = programReviewStats(entry.program, entry.bank);
+  applicationProgramPreview.innerHTML = `
+    <strong>${escapeHtml(programApplicationBaseLabel(entry.bank, entry.program))}</strong>
+    <span>
+      Рассмотрение:
+      <em class="application-program-review-declared">заявленный: ${escapeHtml(reviewDeclared)}</em>
+      <em class="application-program-review-stat">статистика: ${escapeHtml(reviewStats)}</em>
+    </span>
+  `;
+}
+
 function syncApplicationProgramFields() {
   const programId = form.elements.knowledgeProgramId?.value;
-  const entry = flattenKnowledgePrograms().find((item) => item.program.id === programId);
+  const entry = listKnowledgeProgramEntries().find((item) => item.program.id === programId);
   form.elements.bank.value = entry?.bank.bank || "";
   form.elements.program.value = entry?.program.program || "";
   form.elements.programType.value = entry?.program.programType || "";
   form.elements.programAmountRange.value = entry?.program.amountRange || "";
   form.elements.programTermRange.value = entry?.program.termRange || "";
+  renderApplicationProgramPreview(entry);
 }
 
 function renderKnowledgeFilters() {

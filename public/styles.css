@@ -1448,6 +1448,43 @@ td select {
   font-weight: 700;
 }
 
+.application-program-preview {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.application-program-preview strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.application-program-preview span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.application-program-preview em {
+  font-style: normal;
+  font-weight: 800;
+}
+
+.application-program-review-declared {
+  color: #0f766e;
+}
+
+.application-program-review-stat {
+  color: #7c3aed;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
