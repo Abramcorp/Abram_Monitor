@@ -61,6 +61,20 @@ test("summary report includes donut share charts", () => {
   assert.match(appSource, /conic-gradient/);
 });
 
+test("summary report includes configurable approval and client charts", () => {
+  assert.match(appSource, /summaryCharts/);
+  assert.match(appSource, /SUMMARY_CHART_GROUP_LABELS/);
+  assert.match(appSource, /SUMMARY_CHART_PERIOD_LABELS/);
+  assert.match(appSource, /function buildApprovedAmountChartRows/);
+  assert.match(appSource, /function buildClientCountChartRows/);
+  assert.match(appSource, /function buildApprovalCountChartRows/);
+  assert.match(appSource, /summaryChartGroup/);
+  assert.match(appSource, /summaryChartPeriod/);
+  assert.match(appSource, /Сумма одобренных/);
+  assert.match(appSource, /Количество клиентов/);
+  assert.match(appSource, /Количество одобрений/);
+});
+
 test("knowledge programs expose links, bank phones, and change history", () => {
   assert.match(appSource, /application-program-link/);
   assert.match(appSource, /knowledge-program-link/);

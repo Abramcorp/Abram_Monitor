@@ -17,6 +17,10 @@ const state = {
     status: "current",
     groupBy: "manager"
   },
+  summaryCharts: {
+    groupBy: "overall",
+    period: "year"
+  },
   archive: {
     groupBy: "manager"
   },
@@ -70,6 +74,28 @@ const BOARD_GROUP_LABELS = {
   manager: "По аналитикам",
   client: "По клиентам",
   bank: "По банкам"
+};
+
+const SUMMARY_CHART_GROUP_LABELS = {
+  overall: "Общий",
+  manager: "По аналитикам",
+  bank: "По банкам"
+};
+
+const SUMMARY_CHART_PERIOD_LABELS = {
+  month: "Месяц",
+  quarter: "Квартал",
+  half: "Полугодие",
+  year: "Год",
+  all: "Все время"
+};
+
+const SUMMARY_CHART_PERIOD_MONTHS = {
+  month: 1,
+  quarter: 3,
+  half: 6,
+  year: 12,
+  all: null
 };
 
 const BOARD_GROUP_EYEBROWS = {
@@ -1979,6 +2005,10 @@ function renderCurrent() {
 }
 
 function renderBarRows(items, labelKey, valueKey, classKey) {
+  if (!items.length) {
+    return `<div class="empty compact-empty">Нет данных для графика.</div>`;
+  }
+
   const max = Math.max(...items.map((item) => Number(item[valueKey] || 0)), 1);
   return `
     <div class="chart-list">
@@ -2022,6 +2052,10 @@ function dealActivityDate(deal) {
   return deal.signedAt || deal.submittedAt || deal.inquiryAt || deal.createdAt || deal.updatedAt || deal.lastActionAt;
 }
 
+function approvedDealDate(deal) {
+  return deal.completedAt || deal.updatedAt || deal.lastActionAt || deal.signedAt || deal.createdAt;
+}
+
 function buildMonthlyActivity(deals, limit = 12) {
   const groups = new Map();
 
@@ -2045,6 +2079,215 @@ function buildMonthlyActivity(deals, limit = 12) {
   });
 
   return [...groups.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-limit);
+}
+
+function summaryChartPeriodStart(period = state.summaryCharts.period) {
+  const months = SUMMARY_CHART_PERIOD_MONTHS[period];
+  if (!months) {
+    return null;
+  }
+
+  const clock = new Date(state.dashboard?.time?.iso || state.dashboard?.generatedAt || Date.now());
+  if (Number.isNaN(clock.getTime())) {
+    return null;
+  }
+  return new Date(clock.getFullYear(), clock.getMonth() - months + 1, 1);
+}
+
+function isInSummaryChartPeriod(value, period = state.summaryCharts.period) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+  const start = summaryChartPeriodStart(period);
+  return !start || date >= start;
+}
+
+function summaryChartBucket(record, groupBy, dateValue) {
+  if (groupBy === "manager") {
+    return {
+      key: `manager:${record.manager || "Без аналитика"}`,
+      name: record.manager || "Без аналитика",
+      sortKey: record.manager || ""
+    };
+  }
+
+  if (groupBy === "bank") {
+    return {
+      key: `bank:${record.bank || "Банк не выбран"}`,
+      name: record.bank || "Банк не выбран",
+      sortKey: record.bank || ""
+    };
+  }
+
+  const key = monthKey(dateValue);
+  if (!key) {
+    return null;
+  }
+  return {
+    key: `month:${key}`,
+    name: monthLabelFormatter.format(new Date(dateValue)),
+    sortKey: key
+  };
+}
+
+function sortSummaryChartRows(rows, groupBy, valueKey) {
+  return [...rows].sort((left, right) => {
+    if (groupBy === "overall") {
+      return left.sortKey.localeCompare(right.sortKey);
+    }
+    return Number(right[valueKey] || 0) - Number(left[valueKey] || 0) || left.name.localeCompare(right.name, "ru");
+  });
+}
+
+function buildApprovedMetricChartRows(valueKey) {
+  const groupBy = state.summaryCharts.groupBy;
+  const period = state.summaryCharts.period;
+  const rows = new Map();
+
+  (state.dashboard?.deals || [])
+    .filter((deal) => deal.stage === "approved")
+    .forEach((deal) => {
+      const dateValue = approvedDealDate(deal);
+      if (!isInSummaryChartPeriod(dateValue, period)) {
+        return;
+      }
+      const bucket = summaryChartBucket(deal, groupBy, dateValue);
+      if (!bucket) {
+        return;
+      }
+      if (!rows.has(bucket.key)) {
+        rows.set(bucket.key, {
+          ...bucket,
+          count: 0,
+          approvedAmount: 0,
+          groupBy
+        });
+      }
+      const row = rows.get(bucket.key);
+      row.count += 1;
+      row.approvedAmount += Number(deal.amountApproved || 0);
+    });
+
+  return sortSummaryChartRows(rows.values(), groupBy, valueKey);
+}
+
+function clientFallbackDatesByName() {
+  const dates = new Map();
+  (state.dashboard?.deals || []).forEach((deal) => {
+    const key = `${deal.manager || ""}\u0000${deal.client || ""}`;
+    const dateValue = deal.applicationDate || deal.createdAt || deal.updatedAt;
+    const timestamp = new Date(dateValue).getTime();
+    if (!Number.isFinite(timestamp)) {
+      return;
+    }
+    if (!dates.has(key) || timestamp < dates.get(key).timestamp) {
+      dates.set(key, { dateValue, timestamp });
+    }
+  });
+  return dates;
+}
+
+function fallbackClientRecordsFromDeals() {
+  const records = new Map();
+  (state.dashboard?.deals || []).forEach((deal) => {
+    const key = `${deal.manager || ""}\u0000${deal.client || ""}`;
+    const dateValue = deal.applicationDate || deal.createdAt || deal.updatedAt;
+    const timestamp = new Date(dateValue).getTime();
+    if (!Number.isFinite(timestamp)) {
+      return;
+    }
+    if (!records.has(key) || timestamp < records.get(key).timestamp) {
+      records.set(key, {
+        name: deal.client,
+        manager: deal.manager,
+        createdAt: dateValue,
+        timestamp
+      });
+    }
+  });
+  return [...records.values()];
+}
+
+function buildClientCountChartRows() {
+  const groupBy = state.summaryCharts.groupBy;
+  const period = state.summaryCharts.period;
+  const rows = new Map();
+  const seen = new Set();
+
+  if (groupBy === "bank") {
+    (state.dashboard?.deals || []).forEach((deal) => {
+      const dateValue = deal.applicationDate || deal.createdAt || deal.updatedAt;
+      if (!isInSummaryChartPeriod(dateValue, period)) {
+        return;
+      }
+      const bucket = summaryChartBucket(deal, groupBy, dateValue);
+      if (!bucket) {
+        return;
+      }
+      const uniqueKey = `${bucket.key}\u0000${deal.manager || ""}\u0000${deal.client || ""}`;
+      if (seen.has(uniqueKey)) {
+        return;
+      }
+      seen.add(uniqueKey);
+      if (!rows.has(bucket.key)) {
+        rows.set(bucket.key, { ...bucket, count: 0, groupBy });
+      }
+      rows.get(bucket.key).count += 1;
+    });
+    return sortSummaryChartRows(rows.values(), groupBy, "count");
+  }
+
+  const fallbackDates = clientFallbackDatesByName();
+  const clientRecords = state.clients.length
+    ? state.clients.map((client) => {
+        const fallback = fallbackDates.get(`${client.manager || ""}\u0000${client.name || ""}`);
+        return {
+          name: client.name,
+          manager: client.manager,
+          createdAt: client.createdAt || fallback?.dateValue || client.updatedAt
+        };
+      })
+    : fallbackClientRecordsFromDeals();
+
+  clientRecords.forEach((client) => {
+    const dateValue = client.createdAt;
+    if (!isInSummaryChartPeriod(dateValue, period)) {
+      return;
+    }
+    const bucket = summaryChartBucket(client, groupBy, dateValue);
+    if (!bucket) {
+      return;
+    }
+    const uniqueKey = `${bucket.key}\u0000${client.manager || ""}\u0000${client.name || ""}`;
+    if (seen.has(uniqueKey)) {
+      return;
+    }
+    seen.add(uniqueKey);
+    if (!rows.has(bucket.key)) {
+      rows.set(bucket.key, { ...bucket, count: 0, groupBy });
+    }
+    rows.get(bucket.key).count += 1;
+  });
+
+  return sortSummaryChartRows(rows.values(), groupBy, "count");
+}
+
+function buildApprovedAmountChartRows() {
+  return buildApprovedMetricChartRows("approvedAmount");
+}
+
+function buildApprovalCountChartRows() {
+  return buildApprovedMetricChartRows("count");
+}
+
+function summaryMetricChartTitle(base) {
+  const suffix = state.summaryCharts.groupBy === "overall"
+    ? "по месяцам"
+    : state.summaryCharts.groupBy === "manager"
+      ? "по аналитикам"
+      : "по банкам";
+  return `${base} ${suffix}`;
 }
 
 function donutSegments(items) {
@@ -2184,6 +2427,10 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
     .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
     .slice(0, 8);
   const monthlyActivity = buildMonthlyActivity(state.dashboard.deals || []);
+  const approvedAmountRows = buildApprovedAmountChartRows();
+  const clientCountRows = buildClientCountChartRows();
+  const approvalCountRows = buildApprovalCountChartRows();
+  const chartPeriodLabel = SUMMARY_CHART_PERIOD_LABELS[state.summaryCharts.period].toLowerCase();
   const groupShareTitle = status === "completed"
     ? `Доля одобрений · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`
     : `Доля текущего портфеля · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`;
@@ -2204,6 +2451,21 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
         <p class="eyebrow">Динамика</p>
         <h3>Активность по месяцам</h3>
         ${renderDonutChart(monthlyActivityShareItems(monthlyActivity))}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Одобрения · ${chartPeriodLabel}</p>
+        <h3>${summaryMetricChartTitle("Сумма одобренных")}</h3>
+        ${renderBarRows(approvedAmountRows, "name", "approvedAmount", "groupBy")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Клиенты · ${chartPeriodLabel}</p>
+        <h3>${summaryMetricChartTitle("Количество клиентов")}</h3>
+        ${renderBarRows(clientCountRows, "name", "count", "groupBy")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Одобрения · ${chartPeriodLabel}</p>
+        <h3>${summaryMetricChartTitle("Количество одобрений")}</h3>
+        ${renderBarRows(approvalCountRows, "name", "count", "groupBy")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Объем</p>
@@ -2321,6 +2583,32 @@ function renderBoardControls() {
             `
           )
           .join("")}
+      </div>
+      <div class="chart-filter-row" aria-label="Настройки графиков">
+        <label>
+          Графики
+          <select id="summaryChartGroup">
+            ${Object.entries(SUMMARY_CHART_GROUP_LABELS)
+              .map(
+                ([value, label]) => `
+                  <option value="${value}" ${state.summaryCharts.groupBy === value ? "selected" : ""}>${label}</option>
+                `
+              )
+              .join("")}
+          </select>
+        </label>
+        <label>
+          Период
+          <select id="summaryChartPeriod">
+            ${Object.entries(SUMMARY_CHART_PERIOD_LABELS)
+              .map(
+                ([value, label]) => `
+                  <option value="${value}" ${state.summaryCharts.period === value ? "selected" : ""}>${label}</option>
+                `
+              )
+              .join("")}
+          </select>
+        </label>
       </div>
     </div>
   `;
@@ -2577,6 +2865,14 @@ function initDynamicControls() {
         break;
       case "stageFilter":
         state.filters.stage = target.value;
+        render();
+        break;
+      case "summaryChartGroup":
+        state.summaryCharts.groupBy = target.value;
+        render();
+        break;
+      case "summaryChartPeriod":
+        state.summaryCharts.period = target.value;
         render();
         break;
       default:
