@@ -48,7 +48,8 @@ test("summary report uses selected status amounts instead of all-status totals",
 
 test("summary report includes monthly activity chart", () => {
   assert.match(appSource, /function buildMonthlyActivity/);
-  assert.match(appSource, /function renderMonthlyActivityRows/);
+  assert.match(appSource, /function monthlyActivityShareItems/);
+  assert.match(appSource, /renderDonutChart\(monthlyActivityShareItems\(monthlyActivity\)\)/);
   assert.match(appSource, /Активность по месяцам/);
 });
 

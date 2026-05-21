@@ -2047,30 +2047,6 @@ function buildMonthlyActivity(deals, limit = 12) {
   return [...groups.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-limit);
 }
 
-function renderMonthlyActivityRows(items) {
-  if (!items.length) {
-    return `<div class="empty compact-empty">Нет данных для графика.</div>`;
-  }
-
-  const max = Math.max(...items.map((item) => item.count), 1);
-  return `
-    <div class="monthly-activity-list">
-      ${items
-        .map((item) => {
-          const width = Math.max(4, Math.round((item.count / max) * 100));
-          return `
-            <div class="monthly-activity-row">
-              <strong>${escapeHtml(item.label)}</strong>
-              <div class="bar-track"><div class="bar" style="width: ${width}%"></div></div>
-              <span>${item.count} · ${money(item.amountRequested)}</span>
-            </div>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
 function donutSegments(items) {
   const filtered = items
     .map((item, index) => ({
@@ -2159,6 +2135,19 @@ function compactShareItems(items, valueKey, amountKey, limit = 5) {
   ];
 }
 
+function monthlyActivityShareItems(items) {
+  return compactShareItems(
+    items.map((item) => ({
+      name: item.label,
+      count: item.count,
+      amountRequested: item.amountRequested
+    })),
+    "count",
+    "amountRequested",
+    6
+  );
+}
+
 function summaryStatusShareItems(totals, status) {
   if (status === "completed") {
     return [
@@ -2214,7 +2203,7 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
       <article class="summary-chart-card">
         <p class="eyebrow">Динамика</p>
         <h3>Активность по месяцам</h3>
-        ${renderMonthlyActivityRows(monthlyActivity)}
+        ${renderDonutChart(monthlyActivityShareItems(monthlyActivity))}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Объем</p>
