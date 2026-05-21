@@ -50,8 +50,8 @@ test("summary report includes donut share charts", () => {
   assert.match(appSource, /function renderDonutChart/);
   assert.match(appSource, /summaryStatusShareItems/);
   assert.match(appSource, /summaryGroupShareItems/);
-  assert.match(appSource, /Структура текущих/);
-  assert.match(appSource, /Доля текущего портфеля/);
+  assert.match(appSource, /function summaryStatusTitle/);
+  assert.match(appSource, /function summaryPortfolioTitle/);
   assert.match(appSource, /conic-gradient/);
 });
 
@@ -59,20 +59,35 @@ test("summary report keeps only the requested chart set with a period selector",
   assert.match(appSource, /summaryCharts/);
   assert.match(appSource, /SUMMARY_CHART_PERIOD_LABELS/);
   assert.match(appSource, /function renderAreaChart/);
-  assert.match(appSource, /function buildApplicationCountPeriodRows/);
-  assert.match(appSource, /function buildApprovedCountPeriodRows/);
-  assert.match(appSource, /function buildLeadOutcomeShareItems/);
-  assert.match(appSource, /function buildTopApprovalRows/);
+  assert.match(appSource, /function buildStatusCountPeriodRows/);
+  assert.match(appSource, /function buildStatusFocusPeriodRows/);
+  assert.match(appSource, /function buildOutcomeShareItems/);
+  assert.match(appSource, /function buildTopCountRows/);
   assert.match(appSource, /summaryChartPeriod/);
-  assert.match(appSource, /Заявок в общем/);
+  assert.match(appSource, /Текущих заявок/);
+  assert.match(appSource, /Завершенных заявок/);
+  assert.match(appSource, /Заявок в работе/);
   assert.match(appSource, /Заявок одобрено/);
   assert.match(appSource, /renderAreaChart\(applicationCountRows/);
-  assert.match(appSource, /renderAreaChart\(approvedCountRows/);
+  assert.match(appSource, /renderAreaChart\(focusCountRows/);
   assert.match(appSource, /Лиды в успешные и непринятые/);
+  assert.match(appSource, /Лиды в заявки в работе/);
   assert.match(appSource, /Топ по количеству одобрений/);
+  assert.match(appSource, /Топ по количеству текущих заявок/);
   assert.doesNotMatch(appSource, /summaryChartGroup/);
   assert.doesNotMatch(appSource, /Активность по месяцам/);
   assert.doesNotMatch(appSource, /Количество клиентов/);
+});
+
+test("summary charts are driven by selected status and grouping", () => {
+  assert.match(appSource, /renderSummaryCharts\(groups, state\.board\.status, totals\)/);
+  assert.match(appSource, /buildStatusCountPeriodRows\(status\)/);
+  assert.match(appSource, /buildStatusFocusPeriodRows\(status\)/);
+  assert.match(appSource, /buildTopRequestedRows\(status\)/);
+  assert.match(appSource, /buildTopCountRows\(status\)/);
+  assert.match(appSource, /summaryGroupShareItems\(groups, status\)/);
+  assert.match(appSource, /boardGroupName\(deal, groupBy\)/);
+  assert.doesNotMatch(appSource, /boardSummaries\?\.current\?\\.\[state\.board\.groupBy\]/);
 });
 
 test("knowledge programs expose links, bank phones, and change history", () => {

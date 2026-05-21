@@ -2180,12 +2180,24 @@ function buildPeriodCountRows(deals, dateGetter, filterFn = () => true) {
     .filter((row) => period !== "all" || row.count > 0);
 }
 
-function buildApplicationCountPeriodRows() {
-  return buildPeriodCountRows(state.dashboard?.deals || [], dealApplicationDate);
+function statusDealDate(deal, status) {
+  return status === "completed" ? approvedDealDate(deal) : dealApplicationDate(deal);
 }
 
-function buildApprovedCountPeriodRows() {
-  return buildPeriodCountRows(state.dashboard?.deals || [], approvedDealDate, (deal) => deal.stage === "approved");
+function buildStatusCountPeriodRows(status = state.board.status) {
+  return buildPeriodCountRows(
+    state.dashboard?.deals || [],
+    (deal) => statusDealDate(deal, status),
+    (deal) => deal.statusGroup === status
+  );
+}
+
+function buildStatusFocusPeriodRows(status = state.board.status) {
+  return buildPeriodCountRows(
+    state.dashboard?.deals || [],
+    (deal) => statusDealDate(deal, status),
+    (deal) => status === "completed" ? deal.stage === "approved" : deal.stage === "submitted"
+  );
 }
 
 function boardGroupName(deal, groupBy = state.board.groupBy) {
@@ -2242,7 +2254,16 @@ function buildTopRequestedRows(status = state.board.status) {
     .slice(0, 8);
 }
 
-function buildTopApprovalRows() {
+function buildTopCountRows(status = state.board.status) {
+  if (status !== "completed") {
+    return buildGroupedDealRows({
+      filterFn: (deal) => deal.statusGroup === "current",
+      dateGetter: dealApplicationDate
+    })
+      .sort((left, right) => Number(right.count || 0) - Number(left.count || 0) || Number(right.amountRequested || 0) - Number(left.amountRequested || 0) || left.name.localeCompare(right.name, "ru"))
+      .slice(0, 8);
+  }
+
   return buildGroupedDealRows({
     filterFn: (deal) => deal.stage === "approved",
     dateGetter: approvedDealDate
@@ -2251,7 +2272,23 @@ function buildTopApprovalRows() {
     .slice(0, 8);
 }
 
-function buildLeadOutcomeShareItems() {
+function buildOutcomeShareItems(status = state.board.status) {
+  if (status !== "completed") {
+    const currentItems = (state.dashboard?.deals || []).filter((deal) => {
+      if (deal.stage !== "lead" && deal.stage !== "submitted") {
+        return false;
+      }
+      return isInSummaryChartPeriod(dealApplicationDate(deal));
+    });
+    const leads = currentItems.filter((deal) => deal.stage === "lead");
+    const working = currentItems.filter((deal) => deal.stage === "submitted");
+
+    return [
+      { label: "Лиды", value: leads.length, amount: leads.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0), color: "#e3b91c" },
+      { label: "Заявки в работе", value: working.length, amount: working.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0), color: "#52bfc1" }
+    ];
+  }
+
   const items = (state.dashboard?.deals || []).filter((deal) => {
     if (deal.stage !== "approved" && deal.stage !== "rejected" && deal.stage !== "blocked") {
       return false;
@@ -2463,49 +2500,67 @@ function summaryStatusShareItems(totals, status) {
 }
 
 function summaryGroupShareItems(groups, status) {
-  if (status === "completed") {
-    return compactShareItems(groups, "successfulCount", "approvedAmount");
-  }
-
   return compactShareItems(groups, "count", "amountRequested");
 }
 
+function summaryStatusTitle(status) {
+  return status === "completed" ? "Структура завершенных" : "Структура текущих";
+}
+
+function summaryPortfolioTitle(status) {
+  const groupLabel = BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase();
+  return `${status === "completed" ? "Доля завершенного портфеля" : "Доля текущего портфеля"} · ${groupLabel}`;
+}
+
+function summaryTotalAreaTitle(status) {
+  return status === "completed" ? "Завершенных заявок" : "Текущих заявок";
+}
+
+function summaryFocusAreaTitle(status) {
+  return status === "completed" ? "Заявок одобрено" : "Заявок в работе";
+}
+
+function summaryOutcomeTitle(status) {
+  return status === "completed" ? "Лиды в успешные и непринятые" : "Лиды в заявки в работе";
+}
+
+function summaryTopCountTitle(status) {
+  return status === "completed" ? "Топ по количеству одобрений" : "Топ по количеству текущих заявок";
+}
+
 function renderSummaryCharts(groups, status = state.board.status, totals = renderReportTotals(groups)) {
-  const currentGroups = state.dashboard.boardSummaries?.current?.[state.board.groupBy] || [];
-  const currentTotals = renderReportTotals(currentGroups);
-  const applicationCountRows = buildApplicationCountPeriodRows();
-  const approvedCountRows = buildApprovedCountPeriodRows();
+  const applicationCountRows = buildStatusCountPeriodRows(status);
+  const focusCountRows = buildStatusFocusPeriodRows(status);
   const topByAmount = buildTopRequestedRows(status);
-  const topByApprovals = buildTopApprovalRows();
+  const topByCount = buildTopCountRows(status);
   const chartPeriodLabel = SUMMARY_CHART_PERIOD_LABELS[state.summaryCharts.period].toLowerCase();
-  const groupShareTitle = `Доля текущего портфеля · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`;
 
   return `
     <section class="summary-dashboard-grid">
       <article class="summary-chart-card">
         <p class="eyebrow">Доли</p>
-        <h3>Структура текущих</h3>
-        ${renderDonutChart(summaryStatusShareItems(currentTotals, "current"))}
+        <h3>${summaryStatusTitle(status)}</h3>
+        ${renderDonutChart(summaryStatusShareItems(totals, status), status === "completed" ? "завершено" : "заявок")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Распределение</p>
-        <h3>${groupShareTitle}</h3>
-        ${renderDonutChart(summaryGroupShareItems(currentGroups, "current"), "заявок")}
+        <h3>${summaryPortfolioTitle(status)}</h3>
+        ${renderDonutChart(summaryGroupShareItems(groups, status), "заявок")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Период · ${chartPeriodLabel}</p>
-        <h3>Заявок в общем</h3>
-        ${renderAreaChart(applicationCountRows, "label", "count", "applications")}
+        <h3>${summaryTotalAreaTitle(status)}</h3>
+        ${renderAreaChart(applicationCountRows, "label", "count", `${status}-total`)}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Период · ${chartPeriodLabel}</p>
-        <h3>Заявок одобрено</h3>
-        ${renderAreaChart(approvedCountRows, "label", "count", "approvals")}
+        <h3>${summaryFocusAreaTitle(status)}</h3>
+        ${renderAreaChart(focusCountRows, "label", "count", status === "completed" ? "approvals" : "working")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Конверсия · ${chartPeriodLabel}</p>
-        <h3>Лиды в успешные и непринятые</h3>
-        ${renderDonutChart(buildLeadOutcomeShareItems(), "завершено")}
+        <h3>${summaryOutcomeTitle(status)}</h3>
+        ${renderDonutChart(buildOutcomeShareItems(status), status === "completed" ? "завершено" : "заявок")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Объем</p>
@@ -2513,9 +2568,9 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
         ${renderBarRows(topByAmount, "name", "amountRequested", "groupBy")}
       </article>
       <article class="summary-chart-card">
-        <p class="eyebrow">Одобрения · ${chartPeriodLabel}</p>
-        <h3>Топ по количеству одобрений</h3>
-        ${renderBarRows(topByApprovals, "name", "successfulCount", "groupBy")}
+        <p class="eyebrow">${status === "completed" ? "Одобрения" : "Количество"} · ${chartPeriodLabel}</p>
+        <h3>${summaryTopCountTitle(status)}</h3>
+        ${renderBarRows(topByCount, "name", status === "completed" ? "successfulCount" : "count", "groupBy")}
       </article>
     </section>
   `;
