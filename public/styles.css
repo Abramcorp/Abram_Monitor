@@ -1474,53 +1474,70 @@ td select {
   border-radius: 999px;
 }
 
-.pipeline-list {
+.area-chart {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
+  color: var(--teal);
 }
 
-.pipeline-row {
-  display: grid;
-  gap: 6px;
+.area-chart-approvals {
+  color: var(--green);
 }
 
-.pipeline-row strong {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-
-.pipeline-track {
-  display: flex;
+.area-chart svg {
+  display: block;
   width: 100%;
-  height: 12px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #edf2f7;
+  min-height: 250px;
+  overflow: visible;
 }
 
-.pipeline-track span {
-  min-width: 3px;
-  height: 100%;
+.area-grid-line {
+  stroke: var(--line);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
 }
 
-.pipeline-plan {
-  background: #cfd8e3;
+.area-fill {
+  color: inherit;
 }
 
-.pipeline-lead {
-  background: #e3b91c;
+.area-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
 }
 
-.pipeline-work {
-  background: #52bfc1;
+.area-point {
+  fill: #fff;
+  stroke: currentColor;
+  stroke-width: 2;
 }
 
-.pipeline-done {
-  background: #80c58b;
+.area-point-value,
+.area-axis-text {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.pipeline-refused {
-  background: #e88787;
+.area-point-value {
+  fill: var(--ink);
+}
+
+.area-chart-foot {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.area-chart-foot strong {
+  color: var(--ink);
 }
 
 .board-controls {

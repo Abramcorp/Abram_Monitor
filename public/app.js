@@ -18,7 +18,6 @@ const state = {
     groupBy: "manager"
   },
   summaryCharts: {
-    groupBy: "overall",
     period: "year"
   },
   archive: {
@@ -73,12 +72,6 @@ const BOARD_STATUS_LABELS = {
 const BOARD_GROUP_LABELS = {
   manager: "По аналитикам",
   client: "По клиентам",
-  bank: "По банкам"
-};
-
-const SUMMARY_CHART_GROUP_LABELS = {
-  overall: "Общий",
-  manager: "По аналитикам",
   bank: "По банкам"
 };
 
@@ -169,6 +162,12 @@ const monthLabelFormatter = new Intl.DateTimeFormat("ru-RU", {
   month: "short",
   timeZone: MOSCOW_TIME_ZONE,
   year: "2-digit"
+});
+
+const dayMonthLabelFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "2-digit",
+  month: "short",
+  timeZone: MOSCOW_TIME_ZONE
 });
 
 const DAY_MS = 86400000;
@@ -2017,7 +2016,8 @@ function renderBarRows(items, labelKey, valueKey, classKey) {
           const value = Number(item[valueKey] || 0);
           const width = Math.max(4, Math.round((value / max) * 100));
           const label = item[labelKey] || item.label;
-          const displayValue = valueKey.includes("Rate") ? `${value}%` : valueKey.includes("Amount") ? money(value) : item.count ?? value;
+          const normalizedValueKey = valueKey.toLowerCase();
+          const displayValue = normalizedValueKey.includes("rate") ? `${value}%` : normalizedValueKey.includes("amount") ? money(value) : value;
           return `
             <div class="bar-row">
               <strong>${escapeHtml(label)}</strong>
@@ -2048,37 +2048,30 @@ function monthKey(value) {
   return `${parts.year}-${parts.month}`;
 }
 
-function dealActivityDate(deal) {
-  return deal.signedAt || deal.submittedAt || deal.inquiryAt || deal.createdAt || deal.updatedAt || deal.lastActionAt;
+function dayKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("sv-SE", {
+      timeZone: MOSCOW_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function dealApplicationDate(deal) {
+  return deal.applicationDate || deal.signedAt || deal.submittedAt || deal.inquiryAt || deal.createdAt || deal.updatedAt || deal.lastActionAt;
 }
 
 function approvedDealDate(deal) {
   return deal.completedAt || deal.updatedAt || deal.lastActionAt || deal.signedAt || deal.createdAt;
-}
-
-function buildMonthlyActivity(deals, limit = 12) {
-  const groups = new Map();
-
-  deals.forEach((deal) => {
-    const activityAt = dealActivityDate(deal);
-    const key = monthKey(activityAt);
-    if (!key) {
-      return;
-    }
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        label: monthLabelFormatter.format(new Date(activityAt)),
-        count: 0,
-        amountRequested: 0
-      });
-    }
-    const group = groups.get(key);
-    group.count += 1;
-    group.amountRequested += Number(deal.amountRequested || 0);
-  });
-
-  return [...groups.values()].sort((left, right) => left.key.localeCompare(right.key)).slice(-limit);
 }
 
 function summaryChartPeriodStart(period = state.summaryCharts.period) {
@@ -2103,191 +2096,175 @@ function isInSummaryChartPeriod(value, period = state.summaryCharts.period) {
   return !start || date >= start;
 }
 
-function summaryChartBucket(record, groupBy, dateValue) {
-  if (groupBy === "manager") {
-    return {
-      key: `manager:${record.manager || "Без аналитика"}`,
-      name: record.manager || "Без аналитика",
-      sortKey: record.manager || ""
-    };
+function summaryChartBucketMode(period = state.summaryCharts.period) {
+  return period === "month" ? "day" : "month";
+}
+
+function summaryChartClock() {
+  const clock = new Date(state.dashboard?.time?.iso || state.dashboard?.generatedAt || Date.now());
+  return Number.isNaN(clock.getTime()) ? new Date() : clock;
+}
+
+function shiftMonth(date, offset) {
+  return new Date(date.getFullYear(), date.getMonth() + offset, 1);
+}
+
+function summaryChartFixedBuckets(period = state.summaryCharts.period) {
+  const start = summaryChartPeriodStart(period);
+  if (!start) {
+    return [];
   }
 
-  if (groupBy === "bank") {
-    return {
-      key: `bank:${record.bank || "Банк не выбран"}`,
-      name: record.bank || "Банк не выбран",
-      sortKey: record.bank || ""
-    };
+  const clock = summaryChartClock();
+  const buckets = [];
+  if (summaryChartBucketMode(period) === "day") {
+    for (let cursor = new Date(start); cursor <= clock; cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)) {
+      buckets.push({
+        key: `day:${dayKey(cursor)}`,
+        label: dayMonthLabelFormatter.format(cursor),
+        sortKey: dayKey(cursor),
+        count: 0
+      });
+    }
+    return buckets;
   }
 
-  const key = monthKey(dateValue);
+  for (let cursor = new Date(start); cursor <= clock; cursor = shiftMonth(cursor, 1)) {
+    buckets.push({
+      key: `month:${monthKey(cursor)}`,
+      label: monthLabelFormatter.format(cursor),
+      sortKey: monthKey(cursor),
+      count: 0
+    });
+  }
+  return buckets;
+}
+
+function summaryChartPeriodBucket(dateValue) {
+  const mode = summaryChartBucketMode();
+  const key = mode === "day" ? dayKey(dateValue) : monthKey(dateValue);
   if (!key) {
     return null;
   }
+  const date = new Date(dateValue);
   return {
-    key: `month:${key}`,
-    name: monthLabelFormatter.format(new Date(dateValue)),
+    key: `${mode}:${key}`,
+    label: mode === "day" ? dayMonthLabelFormatter.format(date) : monthLabelFormatter.format(date),
     sortKey: key
   };
 }
 
-function sortSummaryChartRows(rows, groupBy, valueKey) {
-  return [...rows].sort((left, right) => {
-    if (groupBy === "overall") {
-      return left.sortKey.localeCompare(right.sortKey);
-    }
-    return Number(right[valueKey] || 0) - Number(left[valueKey] || 0) || left.name.localeCompare(right.name, "ru");
-  });
+function buildPeriodCountRows(deals, dateGetter, filterFn = () => true) {
+  const period = state.summaryCharts.period;
+  const rows = new Map(summaryChartFixedBuckets(period).map((bucket) => [bucket.key, bucket]));
+
+  deals
+    .filter(filterFn)
+    .forEach((deal) => {
+      const dateValue = dateGetter(deal);
+      if (!isInSummaryChartPeriod(dateValue, period)) {
+        return;
+      }
+      const bucket = summaryChartPeriodBucket(dateValue);
+      if (!bucket) {
+        return;
+      }
+      if (!rows.has(bucket.key)) {
+        rows.set(bucket.key, { ...bucket, count: 0 });
+      }
+      rows.get(bucket.key).count += 1;
+    });
+
+  return [...rows.values()]
+    .sort((left, right) => left.sortKey.localeCompare(right.sortKey))
+    .filter((row) => period !== "all" || row.count > 0);
 }
 
-function buildApprovedMetricChartRows(valueKey) {
-  const groupBy = state.summaryCharts.groupBy;
+function buildApplicationCountPeriodRows() {
+  return buildPeriodCountRows(state.dashboard?.deals || [], dealApplicationDate);
+}
+
+function buildApprovedCountPeriodRows() {
+  return buildPeriodCountRows(state.dashboard?.deals || [], approvedDealDate, (deal) => deal.stage === "approved");
+}
+
+function boardGroupName(deal, groupBy = state.board.groupBy) {
+  if (groupBy === "bank") {
+    return deal.bank || "Банк не выбран";
+  }
+  if (groupBy === "client") {
+    return deal.client || "Клиент не выбран";
+  }
+  return deal.manager || "Аналитик не выбран";
+}
+
+function buildGroupedDealRows({ filterFn, dateGetter }) {
+  const groupBy = state.board.groupBy;
   const period = state.summaryCharts.period;
   const rows = new Map();
 
   (state.dashboard?.deals || [])
-    .filter((deal) => deal.stage === "approved")
+    .filter(filterFn)
     .forEach((deal) => {
-      const dateValue = approvedDealDate(deal);
+      const dateValue = dateGetter(deal);
       if (!isInSummaryChartPeriod(dateValue, period)) {
         return;
       }
-      const bucket = summaryChartBucket(deal, groupBy, dateValue);
-      if (!bucket) {
-        return;
-      }
-      if (!rows.has(bucket.key)) {
-        rows.set(bucket.key, {
-          ...bucket,
+      const name = boardGroupName(deal, groupBy);
+      const key = `${groupBy}:${name}`;
+      if (!rows.has(key)) {
+        rows.set(key, {
+          key,
+          name,
+          groupBy,
           count: 0,
+          amountRequested: 0,
           approvedAmount: 0,
-          groupBy
+          successfulCount: 0
         });
       }
-      const row = rows.get(bucket.key);
+      const row = rows.get(key);
       row.count += 1;
+      row.amountRequested += Number(deal.amountRequested || 0);
       row.approvedAmount += Number(deal.amountApproved || 0);
+      row.successfulCount += deal.stage === "approved" ? 1 : 0;
     });
 
-  return sortSummaryChartRows(rows.values(), groupBy, valueKey);
+  return [...rows.values()];
 }
 
-function clientFallbackDatesByName() {
-  const dates = new Map();
-  (state.dashboard?.deals || []).forEach((deal) => {
-    const key = `${deal.manager || ""}\u0000${deal.client || ""}`;
-    const dateValue = deal.applicationDate || deal.createdAt || deal.updatedAt;
-    const timestamp = new Date(dateValue).getTime();
-    if (!Number.isFinite(timestamp)) {
-      return;
+function buildTopRequestedRows(status = state.board.status) {
+  return buildGroupedDealRows({
+    filterFn: (deal) => deal.statusGroup === status,
+    dateGetter: status === "completed" ? approvedDealDate : dealApplicationDate
+  })
+    .sort((left, right) => Number(right.amountRequested || 0) - Number(left.amountRequested || 0) || left.name.localeCompare(right.name, "ru"))
+    .slice(0, 8);
+}
+
+function buildTopApprovalRows() {
+  return buildGroupedDealRows({
+    filterFn: (deal) => deal.stage === "approved",
+    dateGetter: approvedDealDate
+  })
+    .sort((left, right) => Number(right.successfulCount || 0) - Number(left.successfulCount || 0) || Number(right.approvedAmount || 0) - Number(left.approvedAmount || 0) || left.name.localeCompare(right.name, "ru"))
+    .slice(0, 8);
+}
+
+function buildLeadOutcomeShareItems() {
+  const items = (state.dashboard?.deals || []).filter((deal) => {
+    if (deal.stage !== "approved" && deal.stage !== "rejected" && deal.stage !== "blocked") {
+      return false;
     }
-    if (!dates.has(key) || timestamp < dates.get(key).timestamp) {
-      dates.set(key, { dateValue, timestamp });
-    }
+    return isInSummaryChartPeriod(approvedDealDate(deal));
   });
-  return dates;
-}
+  const approved = items.filter((deal) => deal.stage === "approved");
+  const refused = items.filter((deal) => deal.stage === "rejected" || deal.stage === "blocked");
 
-function fallbackClientRecordsFromDeals() {
-  const records = new Map();
-  (state.dashboard?.deals || []).forEach((deal) => {
-    const key = `${deal.manager || ""}\u0000${deal.client || ""}`;
-    const dateValue = deal.applicationDate || deal.createdAt || deal.updatedAt;
-    const timestamp = new Date(dateValue).getTime();
-    if (!Number.isFinite(timestamp)) {
-      return;
-    }
-    if (!records.has(key) || timestamp < records.get(key).timestamp) {
-      records.set(key, {
-        name: deal.client,
-        manager: deal.manager,
-        createdAt: dateValue,
-        timestamp
-      });
-    }
-  });
-  return [...records.values()];
-}
-
-function buildClientCountChartRows() {
-  const groupBy = state.summaryCharts.groupBy;
-  const period = state.summaryCharts.period;
-  const rows = new Map();
-  const seen = new Set();
-
-  if (groupBy === "bank") {
-    (state.dashboard?.deals || []).forEach((deal) => {
-      const dateValue = deal.applicationDate || deal.createdAt || deal.updatedAt;
-      if (!isInSummaryChartPeriod(dateValue, period)) {
-        return;
-      }
-      const bucket = summaryChartBucket(deal, groupBy, dateValue);
-      if (!bucket) {
-        return;
-      }
-      const uniqueKey = `${bucket.key}\u0000${deal.manager || ""}\u0000${deal.client || ""}`;
-      if (seen.has(uniqueKey)) {
-        return;
-      }
-      seen.add(uniqueKey);
-      if (!rows.has(bucket.key)) {
-        rows.set(bucket.key, { ...bucket, count: 0, groupBy });
-      }
-      rows.get(bucket.key).count += 1;
-    });
-    return sortSummaryChartRows(rows.values(), groupBy, "count");
-  }
-
-  const fallbackDates = clientFallbackDatesByName();
-  const clientRecords = state.clients.length
-    ? state.clients.map((client) => {
-        const fallback = fallbackDates.get(`${client.manager || ""}\u0000${client.name || ""}`);
-        return {
-          name: client.name,
-          manager: client.manager,
-          createdAt: client.createdAt || fallback?.dateValue || client.updatedAt
-        };
-      })
-    : fallbackClientRecordsFromDeals();
-
-  clientRecords.forEach((client) => {
-    const dateValue = client.createdAt;
-    if (!isInSummaryChartPeriod(dateValue, period)) {
-      return;
-    }
-    const bucket = summaryChartBucket(client, groupBy, dateValue);
-    if (!bucket) {
-      return;
-    }
-    const uniqueKey = `${bucket.key}\u0000${client.manager || ""}\u0000${client.name || ""}`;
-    if (seen.has(uniqueKey)) {
-      return;
-    }
-    seen.add(uniqueKey);
-    if (!rows.has(bucket.key)) {
-      rows.set(bucket.key, { ...bucket, count: 0, groupBy });
-    }
-    rows.get(bucket.key).count += 1;
-  });
-
-  return sortSummaryChartRows(rows.values(), groupBy, "count");
-}
-
-function buildApprovedAmountChartRows() {
-  return buildApprovedMetricChartRows("approvedAmount");
-}
-
-function buildApprovalCountChartRows() {
-  return buildApprovedMetricChartRows("count");
-}
-
-function summaryMetricChartTitle(base) {
-  const suffix = state.summaryCharts.groupBy === "overall"
-    ? "по месяцам"
-    : state.summaryCharts.groupBy === "manager"
-      ? "по аналитикам"
-      : "по банкам";
-  return `${base} ${suffix}`;
+  return [
+    { label: "Успешно завершенные", value: approved.length, amount: approved.reduce((total, deal) => total + Number(deal.amountApproved || 0), 0), color: "#80c58b" },
+    { label: "Непринятые", value: refused.length, amount: refused.reduce((total, deal) => total + Number(deal.amountRequested || 0), 0), color: "#e88787" }
+  ];
 }
 
 function donutSegments(items) {
@@ -2353,6 +2330,98 @@ function renderDonutChart(items, centerLabel = "заявок") {
   `;
 }
 
+function areaChartLabelStep(points) {
+  if (points.length <= 6) {
+    return 1;
+  }
+  return Math.ceil(points.length / 6);
+}
+
+function renderAreaChart(items, labelKey, valueKey, chartClass = "default") {
+  const values = items.map((item) => Number(item[valueKey] || 0));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (!items.length || !total) {
+    return `<div class="empty compact-empty">Нет данных для графика.</div>`;
+  }
+
+  const width = 760;
+  const height = 280;
+  const padding = { top: 22, right: 20, bottom: 46, left: 46 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const baseline = padding.top + plotHeight;
+  const max = Math.max(...values, 1);
+  const points = items.map((item, index) => {
+    const x = pointsX(index, items.length, padding.left, plotWidth);
+    const value = Number(item[valueKey] || 0);
+    const y = baseline - (value / max) * plotHeight;
+    return {
+      x,
+      y,
+      value,
+      label: item[labelKey] || item.label || ""
+    };
+  });
+  const linePath = points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const areaPath = `M ${points[0].x.toFixed(1)} ${baseline} L ${points
+    .map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(" L ")} L ${points[points.length - 1].x.toFixed(1)} ${baseline} Z`;
+  const gradientId = `area-gradient-${chartClass}`;
+  const labelStep = areaChartLabelStep(points);
+  const ticks = [0, Math.ceil(max / 2), max].filter((value, index, list) => list.indexOf(value) === index);
+
+  return `
+    <div class="area-chart area-chart-${escapeHtml(chartClass)}">
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`Динамика: ${total}`)}">
+        <defs>
+          <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.34"></stop>
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0.06"></stop>
+          </linearGradient>
+        </defs>
+        ${ticks
+          .map((tick) => {
+            const y = baseline - (tick / max) * plotHeight;
+            return `
+              <line class="area-grid-line" x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}"></line>
+              <text class="area-axis-text" x="${padding.left - 12}" y="${(y + 4).toFixed(1)}" text-anchor="end">${tick}</text>
+            `;
+          })
+          .join("")}
+        <path class="area-fill" d="${areaPath}" fill="url(#${gradientId})"></path>
+        <path class="area-line" d="${linePath}"></path>
+        ${points
+          .map(
+            (point) => `
+              <circle class="area-point" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5"></circle>
+              <text class="area-point-value" x="${point.x.toFixed(1)}" y="${Math.max(12, point.y - 9).toFixed(1)}" text-anchor="middle">${point.value || ""}</text>
+            `
+          )
+          .join("")}
+        ${points
+          .map((point, index) => {
+            const show = index === 0 || index === points.length - 1 || index % labelStep === 0;
+            return show
+              ? `<text class="area-axis-text" x="${point.x.toFixed(1)}" y="${height - 16}" text-anchor="middle">${escapeHtml(point.label)}</text>`
+              : "";
+          })
+          .join("")}
+      </svg>
+      <div class="area-chart-foot">
+        <span>Всего: <strong>${total}</strong></span>
+        <span>Пик: <strong>${max}</strong></span>
+      </div>
+    </div>
+  `;
+}
+
+function pointsX(index, length, left, plotWidth) {
+  if (length <= 1) {
+    return left + plotWidth / 2;
+  }
+  return left + (index / (length - 1)) * plotWidth;
+}
+
 function compactShareItems(items, valueKey, amountKey, limit = 5) {
   const sorted = [...items]
     .map((item) => ({
@@ -2376,19 +2445,6 @@ function compactShareItems(items, valueKey, amountKey, limit = 5) {
       amount: tail.reduce((sum, item) => sum + item.amount, 0)
     }
   ];
-}
-
-function monthlyActivityShareItems(items) {
-  return compactShareItems(
-    items.map((item) => ({
-      name: item.label,
-      count: item.count,
-      amountRequested: item.amountRequested
-    })),
-    "count",
-    "amountRequested",
-    6
-  );
 }
 
 function summaryStatusShareItems(totals, status) {
@@ -2415,57 +2471,41 @@ function summaryGroupShareItems(groups, status) {
 }
 
 function renderSummaryCharts(groups, status = state.board.status, totals = renderReportTotals(groups)) {
-  const topByAmount = [...groups]
-    .sort((left, right) => Number(right.amountRequested || 0) - Number(left.amountRequested || 0))
-    .slice(0, 8);
-  const qualityValueKey = status === "completed" ? "completedToSuccessConversionRate" : "leadToWorkingConversionRate";
-  const topByQuality = [...groups]
-    .filter((group) => Number(status === "completed" ? group.completedCount : group.leadCount + group.workingCount || 0) > 0)
-    .sort((left, right) => Number(right[qualityValueKey] || 0) - Number(left[qualityValueKey] || 0))
-    .slice(0, 8);
-  const pipeline = [...groups]
-    .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
-    .slice(0, 8);
-  const monthlyActivity = buildMonthlyActivity(state.dashboard.deals || []);
-  const approvedAmountRows = buildApprovedAmountChartRows();
-  const clientCountRows = buildClientCountChartRows();
-  const approvalCountRows = buildApprovalCountChartRows();
+  const currentGroups = state.dashboard.boardSummaries?.current?.[state.board.groupBy] || [];
+  const currentTotals = renderReportTotals(currentGroups);
+  const applicationCountRows = buildApplicationCountPeriodRows();
+  const approvedCountRows = buildApprovedCountPeriodRows();
+  const topByAmount = buildTopRequestedRows(status);
+  const topByApprovals = buildTopApprovalRows();
   const chartPeriodLabel = SUMMARY_CHART_PERIOD_LABELS[state.summaryCharts.period].toLowerCase();
-  const groupShareTitle = status === "completed"
-    ? `Доля одобрений · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`
-    : `Доля текущего портфеля · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`;
+  const groupShareTitle = `Доля текущего портфеля · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}`;
 
   return `
     <section class="summary-dashboard-grid">
       <article class="summary-chart-card">
         <p class="eyebrow">Доли</p>
-        <h3>${status === "completed" ? "Структура завершенных" : "Структура текущих"}</h3>
-        ${renderDonutChart(summaryStatusShareItems(totals, status))}
+        <h3>Структура текущих</h3>
+        ${renderDonutChart(summaryStatusShareItems(currentTotals, "current"))}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Распределение</p>
         <h3>${groupShareTitle}</h3>
-        ${renderDonutChart(summaryGroupShareItems(groups, status), status === "completed" ? "одобрено" : "заявок")}
+        ${renderDonutChart(summaryGroupShareItems(currentGroups, "current"), "заявок")}
       </article>
       <article class="summary-chart-card">
-        <p class="eyebrow">Динамика</p>
-        <h3>Активность по месяцам</h3>
-        ${renderDonutChart(monthlyActivityShareItems(monthlyActivity))}
+        <p class="eyebrow">Период · ${chartPeriodLabel}</p>
+        <h3>Заявок в общем</h3>
+        ${renderAreaChart(applicationCountRows, "label", "count", "applications")}
       </article>
       <article class="summary-chart-card">
-        <p class="eyebrow">Одобрения · ${chartPeriodLabel}</p>
-        <h3>${summaryMetricChartTitle("Сумма одобренных")}</h3>
-        ${renderBarRows(approvedAmountRows, "name", "approvedAmount", "groupBy")}
+        <p class="eyebrow">Период · ${chartPeriodLabel}</p>
+        <h3>Заявок одобрено</h3>
+        ${renderAreaChart(approvedCountRows, "label", "count", "approvals")}
       </article>
       <article class="summary-chart-card">
-        <p class="eyebrow">Клиенты · ${chartPeriodLabel}</p>
-        <h3>${summaryMetricChartTitle("Количество клиентов")}</h3>
-        ${renderBarRows(clientCountRows, "name", "count", "groupBy")}
-      </article>
-      <article class="summary-chart-card">
-        <p class="eyebrow">Одобрения · ${chartPeriodLabel}</p>
-        <h3>${summaryMetricChartTitle("Количество одобрений")}</h3>
-        ${renderBarRows(approvalCountRows, "name", "count", "groupBy")}
+        <p class="eyebrow">Конверсия · ${chartPeriodLabel}</p>
+        <h3>Лиды в успешные и непринятые</h3>
+        ${renderDonutChart(buildLeadOutcomeShareItems(), "завершено")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Объем</p>
@@ -2473,44 +2513,9 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
         ${renderBarRows(topByAmount, "name", "amountRequested", "groupBy")}
       </article>
       <article class="summary-chart-card">
-        <p class="eyebrow">Качество</p>
-        <h3>${status === "completed" ? "Конверсия завершенных в успешные" : "Конверсия лидов в работу"}</h3>
-        ${renderBarRows(topByQuality.length ? topByQuality : groups.slice(0, 8), "name", qualityValueKey, "groupBy")}
-      </article>
-      <article class="summary-chart-card">
-        <p class="eyebrow">Структура</p>
-        <h3>${status === "completed" ? "Одобрено · отказ / непринятые" : "План · лиды · работа"}</h3>
-        <div class="pipeline-list">
-          ${
-            pipeline
-              .map((group) => {
-                const total = status === "completed"
-                  ? Math.max(1, Number(group.successfulCount || 0) + Number(group.refusedCount || 0))
-                  : Math.max(1, Number(group.planCount || 0) + Number(group.leadCount || 0) + Number(group.workingCount || 0));
-                const width = (value) => Math.round((Number(value || 0) / total) * 100);
-                return `
-                  <div class="pipeline-row">
-                    <strong>${escapeHtml(group.name)}</strong>
-                    <div class="pipeline-track">
-                      ${
-                        status === "completed"
-                          ? `
-                            <span class="pipeline-done" style="width:${width(group.successfulCount)}%"></span>
-                            <span class="pipeline-refused" style="width:${width(group.refusedCount)}%"></span>
-                          `
-                          : `
-                            <span class="pipeline-plan" style="width:${width(group.planCount)}%"></span>
-                            <span class="pipeline-lead" style="width:${width(group.leadCount)}%"></span>
-                            <span class="pipeline-work" style="width:${width(group.workingCount)}%"></span>
-                          `
-                      }
-                    </div>
-                  </div>
-                `;
-              })
-              .join("") || `<div class="empty compact-empty">Нет данных для графика.</div>`
-          }
-        </div>
+        <p class="eyebrow">Одобрения · ${chartPeriodLabel}</p>
+        <h3>Топ по количеству одобрений</h3>
+        ${renderBarRows(topByApprovals, "name", "successfulCount", "groupBy")}
       </article>
     </section>
   `;
@@ -2585,18 +2590,6 @@ function renderBoardControls() {
           .join("")}
       </div>
       <div class="chart-filter-row" aria-label="Настройки графиков">
-        <label>
-          Графики
-          <select id="summaryChartGroup">
-            ${Object.entries(SUMMARY_CHART_GROUP_LABELS)
-              .map(
-                ([value, label]) => `
-                  <option value="${value}" ${state.summaryCharts.groupBy === value ? "selected" : ""}>${label}</option>
-                `
-              )
-              .join("")}
-          </select>
-        </label>
         <label>
           Период
           <select id="summaryChartPeriod">
@@ -2865,10 +2858,6 @@ function initDynamicControls() {
         break;
       case "stageFilter":
         state.filters.stage = target.value;
-        render();
-        break;
-      case "summaryChartGroup":
-        state.summaryCharts.groupBy = target.value;
         render();
         break;
       case "summaryChartPeriod":

@@ -46,33 +46,33 @@ test("summary report uses selected status amounts instead of all-status totals",
   assert.doesNotMatch(appSource, /в выбранном отчете · всего/);
 });
 
-test("summary report includes monthly activity chart", () => {
-  assert.match(appSource, /function buildMonthlyActivity/);
-  assert.match(appSource, /function monthlyActivityShareItems/);
-  assert.match(appSource, /renderDonutChart\(monthlyActivityShareItems\(monthlyActivity\)\)/);
-  assert.match(appSource, /Активность по месяцам/);
-});
-
 test("summary report includes donut share charts", () => {
   assert.match(appSource, /function renderDonutChart/);
   assert.match(appSource, /summaryStatusShareItems/);
   assert.match(appSource, /summaryGroupShareItems/);
-  assert.match(appSource, /Доля одобрений/);
+  assert.match(appSource, /Структура текущих/);
+  assert.match(appSource, /Доля текущего портфеля/);
   assert.match(appSource, /conic-gradient/);
 });
 
-test("summary report includes configurable approval and client charts", () => {
+test("summary report keeps only the requested chart set with a period selector", () => {
   assert.match(appSource, /summaryCharts/);
-  assert.match(appSource, /SUMMARY_CHART_GROUP_LABELS/);
   assert.match(appSource, /SUMMARY_CHART_PERIOD_LABELS/);
-  assert.match(appSource, /function buildApprovedAmountChartRows/);
-  assert.match(appSource, /function buildClientCountChartRows/);
-  assert.match(appSource, /function buildApprovalCountChartRows/);
-  assert.match(appSource, /summaryChartGroup/);
+  assert.match(appSource, /function renderAreaChart/);
+  assert.match(appSource, /function buildApplicationCountPeriodRows/);
+  assert.match(appSource, /function buildApprovedCountPeriodRows/);
+  assert.match(appSource, /function buildLeadOutcomeShareItems/);
+  assert.match(appSource, /function buildTopApprovalRows/);
   assert.match(appSource, /summaryChartPeriod/);
-  assert.match(appSource, /Сумма одобренных/);
-  assert.match(appSource, /Количество клиентов/);
-  assert.match(appSource, /Количество одобрений/);
+  assert.match(appSource, /Заявок в общем/);
+  assert.match(appSource, /Заявок одобрено/);
+  assert.match(appSource, /renderAreaChart\(applicationCountRows/);
+  assert.match(appSource, /renderAreaChart\(approvedCountRows/);
+  assert.match(appSource, /Лиды в успешные и непринятые/);
+  assert.match(appSource, /Топ по количеству одобрений/);
+  assert.doesNotMatch(appSource, /summaryChartGroup/);
+  assert.doesNotMatch(appSource, /Активность по месяцам/);
+  assert.doesNotMatch(appSource, /Количество клиентов/);
 });
 
 test("knowledge programs expose links, bank phones, and change history", () => {
