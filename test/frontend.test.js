@@ -61,6 +61,7 @@ test("summary report keeps only the requested chart set with a period selector",
   assert.match(appSource, /function renderAreaChart/);
   assert.match(appSource, /function buildStatusCountPeriodRows/);
   assert.match(appSource, /function buildStatusFocusPeriodRows/);
+  assert.match(appSource, /function buildGroupedPeriodSeries/);
   assert.match(appSource, /function buildOutcomeShareItems/);
   assert.match(appSource, /function buildTopCountRows/);
   assert.match(appSource, /summaryChartPeriod/);
@@ -68,8 +69,8 @@ test("summary report keeps only the requested chart set with a period selector",
   assert.match(appSource, /Завершенных заявок/);
   assert.match(appSource, /Заявок в работе/);
   assert.match(appSource, /Заявок одобрено/);
-  assert.match(appSource, /renderAreaChart\(applicationCountRows/);
-  assert.match(appSource, /renderAreaChart\(focusCountRows/);
+  assert.match(appSource, /renderAreaChart\(applicationCountRows[^)]*applicationSeries/);
+  assert.match(appSource, /renderAreaChart\(focusCountRows[^)]*focusSeries/);
   assert.match(appSource, /Лиды в успешные и непринятые/);
   assert.match(appSource, /Лиды в заявки в работе/);
   assert.match(appSource, /Топ по количеству одобрений/);
@@ -83,11 +84,22 @@ test("summary charts are driven by selected status and grouping", () => {
   assert.match(appSource, /renderSummaryCharts\(groups, state\.board\.status, totals\)/);
   assert.match(appSource, /buildStatusCountPeriodRows\(status\)/);
   assert.match(appSource, /buildStatusFocusPeriodRows\(status\)/);
+  assert.match(appSource, /buildGroupedPeriodSeries\(applicationCountRows, status\)/);
+  assert.match(appSource, /buildGroupedPeriodSeries\(focusCountRows, status, true\)/);
   assert.match(appSource, /buildTopRequestedRows\(status\)/);
   assert.match(appSource, /buildTopCountRows\(status\)/);
   assert.match(appSource, /summaryGroupShareItems\(groups, status\)/);
   assert.match(appSource, /boardGroupName\(deal, groupBy\)/);
   assert.doesNotMatch(appSource, /boardSummaries\?\.current\?\\.\[state\.board\.groupBy\]/);
+});
+
+test("summary area charts overlay grouped series on top of the total line", () => {
+  assert.match(appSource, /AREA_SERIES_COLORS/);
+  assert.match(appSource, /area-series-line/);
+  assert.match(appSource, /area-series-point/);
+  assert.match(appSource, /area-series-legend/);
+  assert.match(appSource, /boardGroupName\(deal, groupBy\)/);
+  assert.match(appSource, /Остальные/);
 });
 
 test("knowledge programs expose links, bank phones, and change history", () => {

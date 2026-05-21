@@ -130,6 +130,7 @@ const KNOWLEDGE_SECTIONS = {
 };
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
 const DONUT_COLORS = ["#52bfc1", "#315f9c", "#80c58b", "#e3b91c", "#b66a13", "#b6414a", "#64748b"];
+const AREA_SERIES_COLORS = ["#315f9c", "#b66a13", "#12806c", "#b6414a", "#6d5bd0", "#64748b"];
 
 const currency = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 0,
@@ -2200,6 +2201,10 @@ function buildStatusFocusPeriodRows(status = state.board.status) {
   );
 }
 
+function summaryFocusFilter(deal, status = state.board.status) {
+  return status === "completed" ? deal.stage === "approved" : deal.stage === "submitted";
+}
+
 function boardGroupName(deal, groupBy = state.board.groupBy) {
   if (groupBy === "bank") {
     return deal.bank || "Банк не выбран";
@@ -2243,6 +2248,66 @@ function buildGroupedDealRows({ filterFn, dateGetter }) {
     });
 
   return [...rows.values()];
+}
+
+function buildGroupedPeriodSeries(baseRows, status = state.board.status, focusOnly = false, limit = 6) {
+  if (!baseRows.length) {
+    return [];
+  }
+
+  const bucketKeys = new Set(baseRows.map((row) => row.key));
+  const groupBy = state.board.groupBy;
+  const period = state.summaryCharts.period;
+  const rows = new Map();
+
+  (state.dashboard?.deals || [])
+    .filter((deal) => focusOnly ? summaryFocusFilter(deal, status) : deal.statusGroup === status)
+    .forEach((deal) => {
+      const dateValue = statusDealDate(deal, status);
+      if (!isInSummaryChartPeriod(dateValue, period)) {
+        return;
+      }
+      const bucket = summaryChartPeriodBucket(dateValue);
+      if (!bucket || !bucketKeys.has(bucket.key)) {
+        return;
+      }
+      const name = boardGroupName(deal, groupBy);
+      const key = `${groupBy}:${name}`;
+      if (!rows.has(key)) {
+        rows.set(key, {
+          key,
+          name,
+          total: 0,
+          values: new Map()
+        });
+      }
+      const row = rows.get(key);
+      row.total += 1;
+      row.values.set(bucket.key, Number(row.values.get(bucket.key) || 0) + 1);
+    });
+
+  const sorted = [...rows.values()]
+    .filter((row) => row.total > 0)
+    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name, "ru"));
+  const head = sorted.slice(0, limit);
+  const tail = sorted.slice(limit);
+  const series = head.map((row, index) => ({
+    name: row.name,
+    total: row.total,
+    color: AREA_SERIES_COLORS[index % AREA_SERIES_COLORS.length],
+    values: baseRows.map((bucket) => Number(row.values.get(bucket.key) || 0))
+  }));
+
+  if (tail.length) {
+    series.push({
+      name: "Остальные",
+      total: tail.reduce((total, row) => total + row.total, 0),
+      color: AREA_SERIES_COLORS[series.length % AREA_SERIES_COLORS.length],
+      values: baseRows.map((bucket) => tail.reduce((total, row) => total + Number(row.values.get(bucket.key) || 0), 0))
+    });
+  }
+
+  return series;
 }
 
 function buildTopRequestedRows(status = state.board.status) {
@@ -2374,7 +2439,7 @@ function areaChartLabelStep(points) {
   return Math.ceil(points.length / 6);
 }
 
-function renderAreaChart(items, labelKey, valueKey, chartClass = "default") {
+function renderAreaChart(items, labelKey, valueKey, chartClass = "default", series = []) {
   const values = items.map((item) => Number(item[valueKey] || 0));
   const total = values.reduce((sum, value) => sum + value, 0);
   if (!items.length || !total) {
@@ -2400,6 +2465,13 @@ function renderAreaChart(items, labelKey, valueKey, chartClass = "default") {
     };
   });
   const linePath = points.map((point, index) => `${index ? "L" : "M"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const buildLinePath = (lineValues) => lineValues
+    .map((value, index) => {
+      const x = pointsX(index, items.length, padding.left, plotWidth);
+      const y = baseline - (Number(value || 0) / max) * plotHeight;
+      return `${index ? "L" : "M"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
   const areaPath = `M ${points[0].x.toFixed(1)} ${baseline} L ${points
     .map((point) => `${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
     .join(" L ")} L ${points[points.length - 1].x.toFixed(1)} ${baseline} Z`;
@@ -2427,6 +2499,23 @@ function renderAreaChart(items, labelKey, valueKey, chartClass = "default") {
           .join("")}
         <path class="area-fill" d="${areaPath}" fill="url(#${gradientId})"></path>
         <path class="area-line" d="${linePath}"></path>
+        ${series
+          .map(
+            (line) => `
+              <path class="area-series-line" d="${buildLinePath(line.values)}" style="--series-color:${escapeHtml(line.color)}"></path>
+              ${line.values
+                .map((value, index) => {
+                  if (!value) {
+                    return "";
+                  }
+                  const x = pointsX(index, items.length, padding.left, plotWidth);
+                  const y = baseline - (Number(value || 0) / max) * plotHeight;
+                  return `<circle class="area-series-point" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" style="--series-color:${escapeHtml(line.color)}"></circle>`;
+                })
+                .join("")}
+            `
+          )
+          .join("")}
         ${points
           .map(
             (point) => `
@@ -2448,6 +2537,24 @@ function renderAreaChart(items, labelKey, valueKey, chartClass = "default") {
         <span>Всего: <strong>${total}</strong></span>
         <span>Пик: <strong>${max}</strong></span>
       </div>
+      ${
+        series.length
+          ? `
+            <div class="area-series-legend">
+              ${series
+                .map(
+                  (line) => `
+                    <span>
+                      <i style="--series-color:${escapeHtml(line.color)}"></i>
+                      ${escapeHtml(line.name)} <strong>${line.total}</strong>
+                    </span>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
     </div>
   `;
 }
@@ -2531,6 +2638,8 @@ function summaryTopCountTitle(status) {
 function renderSummaryCharts(groups, status = state.board.status, totals = renderReportTotals(groups)) {
   const applicationCountRows = buildStatusCountPeriodRows(status);
   const focusCountRows = buildStatusFocusPeriodRows(status);
+  const applicationSeries = buildGroupedPeriodSeries(applicationCountRows, status);
+  const focusSeries = buildGroupedPeriodSeries(focusCountRows, status, true);
   const topByAmount = buildTopRequestedRows(status);
   const topByCount = buildTopCountRows(status);
   const chartPeriodLabel = SUMMARY_CHART_PERIOD_LABELS[state.summaryCharts.period].toLowerCase();
@@ -2550,12 +2659,12 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
       <article class="summary-chart-card">
         <p class="eyebrow">Период · ${chartPeriodLabel}</p>
         <h3>${summaryTotalAreaTitle(status)}</h3>
-        ${renderAreaChart(applicationCountRows, "label", "count", `${status}-total`)}
+        ${renderAreaChart(applicationCountRows, "label", "count", `${status}-total`, applicationSeries)}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Период · ${chartPeriodLabel}</p>
         <h3>${summaryFocusAreaTitle(status)}</h3>
-        ${renderAreaChart(focusCountRows, "label", "count", status === "completed" ? "approvals" : "working")}
+        ${renderAreaChart(focusCountRows, "label", "count", status === "completed" ? "approvals" : "working", focusSeries)}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Конверсия · ${chartPeriodLabel}</p>

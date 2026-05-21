@@ -1510,9 +1510,23 @@ td select {
   stroke-width: 3;
 }
 
+.area-series-line {
+  fill: none;
+  stroke: var(--series-color);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .area-point {
   fill: #fff;
   stroke: currentColor;
+  stroke-width: 2;
+}
+
+.area-series-point {
+  fill: #fff;
+  stroke: var(--series-color);
   stroke-width: 2;
 }
 
@@ -1537,6 +1551,34 @@ td select {
 }
 
 .area-chart-foot strong {
+  color: var(--ink);
+}
+
+.area-series-legend {
+  display: flex;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.area-series-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.area-series-legend i {
+  width: 18px;
+  height: 3px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--series-color);
+}
+
+.area-series-legend strong {
   color: var(--ink);
 }
 
