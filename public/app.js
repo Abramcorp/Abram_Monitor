@@ -738,7 +738,8 @@ function setDealDialogLoading(isLoading) {
 }
 
 function resetFilters() {
-  state.filters = { query: "", manager: "all", bank: "all", stage: "all" };
+  const preservedQuery = state.filters?.query || "";
+  state.filters = { query: preservedQuery, manager: "all", bank: "all", programType: "all", category: "all", stage: "all" };
 }
 
 function renderViewTabs() {
@@ -756,8 +757,8 @@ function renderViewTabs() {
 }
 
 const TOPBAR_PRIMARY_BY_VIEW = {
-  summary: "newClientButton",
-  funnels: "newClientButton",
+  summary: "newDealButton",
+  funnels: "newDealButton",
   archive: "newClientButton",
   knowledge: "newKnowledgeButton"
 };
@@ -766,7 +767,7 @@ function updateActionVisibility() {
   newManagerButton.hidden = state.view !== "funnels";
   newClientButton.hidden = false;
   if (newDealButton) {
-    newDealButton.hidden = true;
+    newDealButton.hidden = state.view === "knowledge" || state.view === "archive";
   }
   if (newTaskButton) {
     newTaskButton.hidden = false;
@@ -774,7 +775,7 @@ function updateActionVisibility() {
   newKnowledgeButton.hidden = false;
 
   const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
-  [newManagerButton, newClientButton, newTaskButton, newKnowledgeButton].forEach((button) => {
+  [newManagerButton, newClientButton, newDealButton, newTaskButton, newKnowledgeButton].forEach((button) => {
     if (!button) {
       return;
     }
@@ -1142,14 +1143,17 @@ function renderClientApplicationCards(applications, emptyText, type) {
                   <span>Дата подписания</span>
                   <input data-application-field="${escapeHtml(deal.id)}" data-field="signedAt" type="datetime-local" value="${formatDateTimeInput(deal.signedAt)}">
                 </label>
-                <label class="application-field">
-                  <span>Дата запроса КИ</span>
-                  <input data-application-field="${escapeHtml(deal.id)}" data-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
-                </label>
-                <label class="application-field">
-                  <span>Дата звонка андеррайтера</span>
-                  <input data-application-field="${escapeHtml(deal.id)}" data-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
-                </label>
+                <details class="application-extra-dates">
+                  <summary>Прочие даты</summary>
+                  <label class="application-field">
+                    <span>Дата запроса КИ</span>
+                    <input data-application-field="${escapeHtml(deal.id)}" data-field="kiRequestedAt" type="date" value="${formatDateInput(deal.kiRequestedAt)}">
+                  </label>
+                  <label class="application-field">
+                    <span>Дата звонка андеррайтера</span>
+                    <input data-application-field="${escapeHtml(deal.id)}" data-field="analystCallAt" type="date" value="${formatDateInput(deal.analystCallAt)}">
+                  </label>
+                </details>
                 ${
                   type === "approved"
                     ? `<div class="application-field"><span>Одобрено</span><strong>${money(deal.amountApproved)}</strong></div>`
@@ -3179,6 +3183,9 @@ function scheduleQueryFilterRender(input) {
   }, 200);
 }
 
+const NEGATIVE_FINAL_STAGES = new Set(["rejected", "blocked"]);
+const NEGATIVE_STAGE_LABELS = { rejected: "Отклонено", blocked: "Нет возможности завести" };
+
 async function handleSaveApplication(saveButton) {
   const card = saveButton.closest(".client-application-card");
   const stageSelect = card?.querySelector("[data-stage-select]");
@@ -3198,6 +3205,22 @@ async function handleSaveApplication(saveButton) {
       return;
     }
     payload[requirement.field] = dateInput.value;
+  }
+
+  if (NEGATIVE_FINAL_STAGES.has(nextStage) && !NEGATIVE_FINAL_STAGES.has(currentStage)) {
+    const label = NEGATIVE_STAGE_LABELS[nextStage] || nextStage;
+    const reason = window.prompt(`Укажите причину статуса «${label}»:`, "");
+    if (reason === null) {
+      stageSelect.value = currentStage;
+      return;
+    }
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      window.alert("Причина обязательна для этого статуса");
+      stageSelect.focus();
+      return;
+    }
+    payload.comment = trimmed;
   }
 
   card?.querySelectorAll("[data-application-field]").forEach((input) => {
