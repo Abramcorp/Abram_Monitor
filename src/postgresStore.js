@@ -317,6 +317,17 @@ async function deleteRow(collection, id) {
   return result.rows[0]?.data || null;
 }
 
+async function deleteTasksByClient(managerName, clientName) {
+  const result = await getPool().query(
+    `DELETE FROM app_tasks
+     WHERE lower(data->>'manager') = lower($1)
+       AND lower(data->>'client') = lower($2)
+     RETURNING data`,
+    [String(managerName || ""), String(clientName || "")]
+  );
+  return result.rows.map((row) => row.data);
+}
+
 async function listKnowledge() {
   const result = await getPool().query(
     `SELECT bank_id, bank, data, updated_at
@@ -414,6 +425,7 @@ module.exports = {
   listKnowledge,
   listRows,
   deleteRow,
+  deleteTasksByClient,
   updateKnowledgeProgram,
   updateRow
 };

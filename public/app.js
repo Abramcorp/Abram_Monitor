@@ -11,6 +11,7 @@ const state = {
     query: "",
     manager: "all",
     bank: "all",
+    programType: "all",
     category: "all",
     stage: "all"
   },
@@ -128,9 +129,9 @@ const PROGRAM_CATEGORIES = [
 ];
 const CATEGORY_FALLBACK_LABEL = "Без категории";
 const KNOWLEDGE_SECTIONS = {
-  banks: "По банкам",
-  programs: "По типам",
-  categories: "По категориям"
+  banks: "Банки",
+  programs: "Программы",
+  categories: "Категории"
 };
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
 const DONUT_COLORS = ["#52bfc1", "#315f9c", "#80c58b", "#e3b91c", "#b66a13", "#b6414a", "#64748b"];
@@ -1658,12 +1659,18 @@ function renderManagerClientView() {
 function filteredKnowledge() {
   const query = state.filters.query.toLowerCase();
   const categoryFilter = state.filters.category;
+  const programTypeFilter = state.filters.programType;
+  const programTypeActive = programTypeFilter && programTypeFilter !== "all";
+  const categoryActive = categoryFilter && categoryFilter !== "all";
   return state.knowledge
     .filter((bank) => state.filters.bank === "all" || bank.bank === state.filters.bank)
     .map((bank) => ({
       ...bank,
       programs: (bank.programs || []).filter((program) => {
-        if (categoryFilter && categoryFilter !== "all") {
+        if (programTypeActive && (program.programType || "Стандарт") !== programTypeFilter) {
+          return false;
+        }
+        if (categoryActive) {
           const programCategory = program.category || "";
           if (categoryFilter === "__none__") {
             if (programCategory) {
@@ -1698,7 +1705,7 @@ function filteredKnowledge() {
       })
     }))
     .filter((bank) => {
-      if (!query && (!categoryFilter || categoryFilter === "all")) {
+      if (!query && !categoryActive && !programTypeActive) {
         return true;
       }
       return bank.programs.length > 0;
@@ -1910,6 +1917,10 @@ function renderKnowledgeFilters() {
     .sort((a, b) => a.localeCompare(b, "ru"))
     .map((bank) => `<option value="${escapeHtml(bank)}" ${state.filters.bank === bank ? "selected" : ""}>${escapeHtml(bank)}</option>`)
     .join("");
+  const programTypeFilter = state.filters.programType || "all";
+  const programTypeOptions = PROGRAM_TYPES
+    .map((type) => `<option value="${escapeHtml(type)}" ${programTypeFilter === type ? "selected" : ""}>${escapeHtml(type)}</option>`)
+    .join("");
   const categoryFilter = state.filters.category || "all";
   const categoryOptions = PROGRAM_CATEGORIES
     .map((category) => `<option value="${escapeHtml(category)}" ${categoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`)
@@ -1919,11 +1930,15 @@ function renderKnowledgeFilters() {
     <div class="filters">
       <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, категория, требование">
       <select id="bankFilter">
-        <option value="all">Все банки</option>
+        <option value="all">Банки — все</option>
         ${bankOptions}
       </select>
+      <select id="programTypeFilter">
+        <option value="all" ${programTypeFilter === "all" ? "selected" : ""}>Программы — все</option>
+        ${programTypeOptions}
+      </select>
       <select id="categoryFilter">
-        <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Все категории</option>
+        <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Категории — все</option>
         <option value="__none__" ${categoryFilter === "__none__" ? "selected" : ""}>${escapeHtml(CATEGORY_FALLBACK_LABEL)}</option>
         ${categoryOptions}
       </select>
@@ -1946,19 +1961,40 @@ function renderKnowledgeSectionControls() {
 }
 
 function renderRequirementGrid(requirements = {}) {
-  return `
-    <div class="requirement-grid">
-      ${Object.entries(REQUIREMENT_LABELS)
-        .map(
-          ([key, label]) => `
-            <div class="requirement-item">
-              <span>${label}</span>
-              <strong>${escapeHtml(requirements[key] || "Не указано")}</strong>
-            </div>
-          `
-        )
-        .join("")}
+  const entries = Object.entries(REQUIREMENT_LABELS);
+  const isFilled = (key) => {
+    const value = requirements[key];
+    return typeof value === "string" ? Boolean(value.trim()) : Boolean(value);
+  };
+  const filled = entries.filter(([key]) => isFilled(key));
+  const empty = entries.filter(([key]) => !isFilled(key));
+
+  if (!filled.length) {
+    return `<p class="muted compact-empty">Требования пока не указаны.</p>`;
+  }
+
+  const renderItem = ([key, label]) => `
+    <div class="requirement-item">
+      <span>${label}</span>
+      <strong>${escapeHtml(requirements[key] || "Не указано")}</strong>
     </div>
+  `;
+
+  const filledHtml = filled.map(renderItem).join("");
+  const emptyHtml = empty.length
+    ? `
+      <details class="requirement-empty-toggle">
+        <summary>Показать все требования (${empty.length} пусто)</summary>
+        <div class="requirement-grid requirement-grid-empty">
+          ${empty.map(renderItem).join("")}
+        </div>
+      </details>
+    `
+    : "";
+
+  return `
+    <div class="requirement-grid">${filledHtml}</div>
+    ${emptyHtml}
   `;
 }
 
@@ -3267,6 +3303,10 @@ function initDynamicControls() {
         state.filters.bank = target.value;
         render();
         break;
+      case "programTypeFilter":
+        state.filters.programType = target.value;
+        render();
+        break;
       case "categoryFilter":
         state.filters.category = target.value;
         render();
@@ -3478,6 +3518,9 @@ function openKnowledgeDialog(entry = null) {
   });
   knowledgeForm.elements.notes.value = entry?.program?.notes || "";
   knowledgeForm.elements.changeHistory.value = entry?.program?.changeHistory || "";
+  if (knowledgeForm.elements.changeNote) {
+    knowledgeForm.elements.changeNote.value = "";
+  }
   if (knowledgeDialogTitle) {
     knowledgeDialogTitle.textContent = entry ? "Редактировать программу" : "Новая запись";
   }
@@ -3758,6 +3801,19 @@ dealActionForm.addEventListener("submit", async (event) => {
   await refreshDashboard();
 });
 
+function buildChangeHistoryWithNote(existing, note) {
+  const cleanNote = String(note || "").trim();
+  const previous = String(existing || "").trim();
+  if (!cleanNote) {
+    return previous;
+  }
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const newLine = `[${stamp}] ${cleanNote}`;
+  return previous ? `${newLine}\n${previous}` : newLine;
+}
+
 knowledgeForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") {
     return;
@@ -3768,6 +3824,9 @@ knowledgeForm.addEventListener("submit", async (event) => {
   const payload = Object.fromEntries(formData.entries());
   const programId = payload.programId;
   delete payload.programId;
+  const note = payload.changeNote;
+  delete payload.changeNote;
+  payload.changeHistory = buildChangeHistoryWithNote(payload.changeHistory, note);
   await requestJson(programId ? `/api/knowledge/programs/${encodeURIComponent(programId)}` : "/api/knowledge", {
     method: programId ? "PATCH" : "POST",
     body: JSON.stringify(payload)
@@ -3779,4 +3838,22 @@ knowledgeForm.addEventListener("submit", async (event) => {
 
 loadData().catch((error) => {
   app.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+});
+
+// Refresh after long inactivity when user returns to the tab.
+let lastVisibilityRefreshAt = Date.now();
+const VISIBILITY_REFRESH_THROTTLE_MS = 30_000;
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastVisibilityRefreshAt < VISIBILITY_REFRESH_THROTTLE_MS) {
+    return;
+  }
+  lastVisibilityRefreshAt = now;
+  loadData({ targets: ["dashboard", "tasks"] }).catch(() => {
+    // ignore — main app still usable; next manual ↻ will retry
+  });
 });
