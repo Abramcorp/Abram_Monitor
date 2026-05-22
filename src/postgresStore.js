@@ -20,6 +20,10 @@ const COLLECTIONS = {
   managers: {
     file: path.join(DATA_DIR, "managers.json"),
     table: "app_managers"
+  },
+  tasks: {
+    file: path.join(DATA_DIR, "tasks.json"),
+    table: "app_tasks"
   }
 };
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
@@ -161,6 +165,19 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
           updated_at timestamptz NOT NULL DEFAULT now()
         );
 
+        CREATE TABLE IF NOT EXISTS app_tasks (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS app_tasks_due_idx
+          ON app_tasks ((data->>'dueAt'));
+
+        CREATE INDEX IF NOT EXISTS app_tasks_client_idx
+          ON app_tasks (lower(data->>'manager'), lower(data->>'client'));
+
         CREATE TABLE IF NOT EXISTS app_knowledge_programs (
           id text PRIMARY KEY,
           bank_id text NOT NULL,
@@ -178,6 +195,7 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
       await seedCollection("clients", readJson(COLLECTIONS.clients.file, []));
       await seedCollection("banks", readJson(COLLECTIONS.banks.file, []));
       await seedCollection("managers", readJson(COLLECTIONS.managers.file, []));
+      await seedCollection("tasks", readJson(COLLECTIONS.tasks.file, []));
       await seedKnowledge(normalizeKnowledgeEntries(readJson(KNOWLEDGE_FILE, [])));
     })();
   }

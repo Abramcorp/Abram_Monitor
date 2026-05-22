@@ -10,7 +10,9 @@ const {
   normalizeClient,
   normalizeKnowledgeProgram,
   normalizeManager,
-  validateDealDates
+  normalizeTask,
+  validateDealDates,
+  validateTask
 } = require("../src/store");
 
 function restoreEnv(name, value) {
@@ -255,4 +257,38 @@ test("normalizeClient keeps client card dates when present", () => {
   assert.equal(client.archivedAt, "2026-05-12T06:00:00.000Z");
   assert.equal(client.createdAt, "2026-05-10T07:00:00.000Z");
   assert.equal(client.updatedAt, "2026-05-11T09:30:00.000Z");
+});
+
+test("normalizeTask cleans fields and converts the due date to ISO", () => {
+  const task = normalizeTask({
+    id: "task-1",
+    manager: "  Анна Орлова  ",
+    client: "ООО Альфа",
+    title: "Позвонить уточнить документы",
+    dueAt: "2026-05-22T14:00:00+03:00",
+    createdAt: "2026-05-22T10:00:00+03:00",
+    updatedAt: "2026-05-22T10:00:00+03:00"
+  });
+
+  assert.equal(task.id, "task-1");
+  assert.equal(task.manager, "Анна Орлова");
+  assert.equal(task.client, "ООО Альфа");
+  assert.equal(task.title, "Позвонить уточнить документы");
+  assert.equal(task.dueAt, "2026-05-22T11:00:00.000Z");
+  assert.equal(task.completedAt, "");
+});
+
+test("normalizeTask accepts alternate payload aliases for title", () => {
+  const fromText = normalizeTask({ manager: "A", client: "B", text: "Заметка", dueAt: "2026-05-22T10:00:00+03:00" });
+  const fromAction = normalizeTask({ manager: "A", client: "B", action: "Действие", dueAt: "2026-05-22T10:00:00+03:00" });
+  assert.equal(fromText.title, "Заметка");
+  assert.equal(fromAction.title, "Действие");
+});
+
+test("validateTask requires manager, client, title and dueAt", () => {
+  assert.throws(() => validateTask({ client: "X", title: "Y", dueAt: "2026-05-22T10:00:00.000Z" }), /Аналитик/);
+  assert.throws(() => validateTask({ manager: "A", title: "Y", dueAt: "2026-05-22T10:00:00.000Z" }), /Клиент/);
+  assert.throws(() => validateTask({ manager: "A", client: "X", dueAt: "2026-05-22T10:00:00.000Z" }), /Описание задачи/);
+  assert.throws(() => validateTask({ manager: "A", client: "X", title: "Y" }), /Срок исполнения/);
+  assert.doesNotThrow(() => validateTask({ manager: "A", client: "X", title: "Y", dueAt: "2026-05-22T10:00:00.000Z" }));
 });

@@ -19,6 +19,7 @@
           <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
           <button class="ghost-button" id="newManagerButton" type="button">+ Аналитик</button>
           <button class="ghost-button" id="newClientButton" type="button">+ Клиент</button>
+          <button class="ghost-button" id="newTaskButton" type="button">+ Задача</button>
           <button class="ghost-button" id="newKnowledgeButton" type="button">+ Запись БЗ</button>
         </div>
       </header>
@@ -183,6 +184,51 @@
         <div class="dialog-actions">
           <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
           <button class="primary-button" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="deal-dialog" id="taskDialog">
+      <form method="dialog" class="deal-form" id="taskForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Задача</p>
+            <h2>Новая задача</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <label>
+          Аналитик
+          <select name="manager" id="taskManager" required></select>
+        </label>
+
+        <label>
+          Клиент
+          <select name="client" id="taskClient" required></select>
+        </label>
+
+        <label>
+          Что нужно сделать
+          <textarea name="title" rows="3" required placeholder="Например: позвонить уточнить выписку"></textarea>
+        </label>
+
+        <div class="task-due-group">
+          <div class="task-due-presets" role="group" aria-label="Срок исполнения">
+            <button class="ghost-button small-button" data-due-preset="4" type="button">+4 ч</button>
+            <button class="ghost-button small-button" data-due-preset="24" type="button">+24 ч</button>
+            <button class="ghost-button small-button" data-due-preset="72" type="button">+72 ч</button>
+            <button class="ghost-button small-button" data-due-preset="tomorrow-10" type="button">Завтра 10:00</button>
+          </div>
+          <label>
+            Точное время
+            <input name="dueAt" id="taskDueAt" type="datetime-local" required>
+          </label>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Создать</button>
         </div>
       </form>
     </dialog>

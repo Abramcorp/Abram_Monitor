@@ -15,14 +15,18 @@ const {
   createDeal,
   createKnowledgeEntry,
   createManager,
+  createTask,
   deleteManager,
+  deleteTask,
   getBanks,
   getClients,
   getDeals,
   getKnowledge,
   getManagers,
+  getTasks,
   updateDeal,
   updateKnowledgeProgram,
+  updateTask,
   initStore
 } = require("./src/store");
 
@@ -308,6 +312,39 @@ async function handleApi(request, response) {
   if (request.method === "POST" && pathname === "/api/knowledge") {
     const payload = await readBody(request);
     sendJson(response, 201, { entry: await createKnowledgeEntry(payload) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/tasks") {
+    sendJson(response, 200, { tasks: await getTasks() });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/tasks") {
+    const payload = await readBody(request);
+    sendJson(response, 201, { task: await createTask(payload) });
+    return;
+  }
+
+  const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+  if (request.method === "PATCH" && taskMatch) {
+    const payload = await readBody(request);
+    const task = await updateTask(decodeURIComponent(taskMatch[1]), payload);
+    if (!task) {
+      sendJson(response, 404, { error: "Task not found" });
+      return;
+    }
+    sendJson(response, 200, { task });
+    return;
+  }
+
+  if (request.method === "DELETE" && taskMatch) {
+    const task = await deleteTask(decodeURIComponent(taskMatch[1]));
+    if (!task) {
+      sendJson(response, 404, { error: "Task not found" });
+      return;
+    }
+    sendJson(response, 200, { task });
     return;
   }
 
