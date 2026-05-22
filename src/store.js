@@ -418,6 +418,34 @@ async function archiveClientPostgres(id) {
   return updated ? normalizeClient(updated) : null;
 }
 
+function deleteClient(id) {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.deleteRow("clients", id));
+  }
+  const clients = getClients();
+  const index = clients.findIndex((client) => client.id === id);
+  if (index === -1) {
+    return null;
+  }
+  const [deleted] = clients.splice(index, 1);
+  writeJson(CLIENTS_FILE, clients);
+  return deleted;
+}
+
+function deleteDeal(id) {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.deleteRow("deals", id));
+  }
+  const deals = getDeals();
+  const index = deals.findIndex((deal) => deal.id === id);
+  if (index === -1) {
+    return null;
+  }
+  const [deleted] = deals.splice(index, 1);
+  saveDeals(deals);
+  return deleted;
+}
+
 function normalizeTask(raw = {}) {
   const createdAt = toIsoDate(raw.createdAt);
   const updatedAt = toIsoDate(raw.updatedAt);
@@ -799,6 +827,8 @@ module.exports = {
   createKnowledgeEntry,
   createManager,
   createTask,
+  deleteClient,
+  deleteDeal,
   deleteManager,
   deleteTask,
   getBanks,

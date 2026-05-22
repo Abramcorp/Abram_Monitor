@@ -1073,6 +1073,9 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 <button class="primary-button small-button application-save-button" data-save-application="${escapeHtml(deal.id)}" type="button">
                   Сохранить
                 </button>
+                <button class="ghost-button small-button danger-button application-delete-button" data-delete-deal="${escapeHtml(deal.id)}" data-deal-title="${escapeHtml(deal.client + " · " + (deal.program || deal.bank || ""))}" type="button">
+                  Удалить заявку
+                </button>
                 <label class="application-field">
                   <span>Сумма заявки</span>
                   <input data-application-field="${escapeHtml(deal.id)}" data-field="amountRequested" inputmode="decimal" value="${escapeHtml(deal.amountRequested || "")}">
@@ -1259,7 +1262,7 @@ function renderAddApplicationButton(manager, client) {
 }
 
 function renderClientActions(client, settings = {}) {
-  if (!settings.allowAddApplication && !settings.allowArchive) {
+  if (!settings.allowAddApplication && !settings.allowArchive && !client.clientId) {
     return "";
   }
 
@@ -1268,7 +1271,12 @@ function renderClientActions(client, settings = {}) {
       ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
       ${
         settings.allowArchive && client.clientId
-          ? `<button class="ghost-button small-button danger-button" data-archive-client="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">В архив</button>`
+          ? `<button class="ghost-button small-button" data-archive-client="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">В архив</button>`
+          : ""
+      }
+      ${
+        client.clientId
+          ? `<button class="ghost-button small-button danger-button" data-delete-client="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">Удалить клиента</button>`
           : ""
       }
     </div>
@@ -1590,14 +1598,6 @@ function renderManagerClientView() {
                             <span>Лиды <strong>${manager.leadCount} · ${money(manager.leadAmountRequested)}</strong></span>
                             <span>Заявки в работе <strong>${manager.workingCount} · ${money(manager.workingAmountRequested)}</strong></span>
                           </div>
-                          <button
-                            class="ghost-button small-button danger-button"
-                            data-delete-manager="${escapeHtml(manager.managerId)}"
-                            data-manager-name="${escapeHtml(manager.manager)}"
-                            type="button"
-                          >
-                            Удалить
-                          </button>
                         </div>
                       </summary>
                       ${renderClientCards(manager.clients, "Клиентов пока нет.")}
@@ -3142,18 +3142,6 @@ async function handleSaveApplication(saveButton) {
   }
 }
 
-async function handleDeleteManager(button) {
-  if (!button.dataset.deleteManager) {
-    return;
-  }
-  const confirmed = window.confirm(`Удалить аналитика "${button.dataset.managerName}"?`);
-  if (!confirmed) {
-    return;
-  }
-  await requestJson(`/api/managers/${encodeURIComponent(button.dataset.deleteManager)}`, { method: "DELETE" });
-  await loadData({ targets: ["managers", "dashboard"] });
-}
-
 async function handleArchiveClient(button) {
   if (!button.dataset.archiveClient) {
     return;
@@ -3164,6 +3152,40 @@ async function handleArchiveClient(button) {
   }
   await requestJson(`/api/clients/${encodeURIComponent(button.dataset.archiveClient)}/archive`, { method: "PATCH" });
   await loadData({ targets: ["clients", "dashboard"] });
+}
+
+async function handleDeleteClient(button) {
+  if (!button.dataset.deleteClient) {
+    return;
+  }
+  const name = button.dataset.clientName || "клиента";
+  const confirmed = window.confirm(`Удалить клиента "${name}" безвозвратно?\nВсе его заявки и задачи останутся, но потеряют ссылку на карточку клиента.`);
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await requestJson(`/api/clients/${encodeURIComponent(button.dataset.deleteClient)}`, { method: "DELETE" });
+    await loadData({ targets: ["clients", "dashboard", "tasks"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleDeleteDeal(button) {
+  if (!button.dataset.deleteDeal) {
+    return;
+  }
+  const title = button.dataset.dealTitle || "эту заявку";
+  const confirmed = window.confirm(`Удалить заявку "${title}" безвозвратно?`);
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await requestJson(`/api/deals/${encodeURIComponent(button.dataset.deleteDeal)}`, { method: "DELETE" });
+    await refreshDashboard();
+  } catch (error) {
+    window.alert(error.message);
+  }
 }
 
 let dynamicControlsInitialized = false;
@@ -3267,19 +3289,27 @@ function initDynamicControls() {
       return;
     }
 
-    const deleteManager = target.closest("[data-delete-manager]");
-    if (deleteManager) {
-      event.preventDefault();
-      event.stopPropagation();
-      await handleDeleteManager(deleteManager);
-      return;
-    }
-
     const archiveClient = target.closest("[data-archive-client]");
     if (archiveClient) {
       event.preventDefault();
       event.stopPropagation();
       await handleArchiveClient(archiveClient);
+      return;
+    }
+
+    const deleteClient = target.closest("[data-delete-client]");
+    if (deleteClient) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteClient(deleteClient);
+      return;
+    }
+
+    const deleteDeal = target.closest("[data-delete-deal]");
+    if (deleteDeal) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteDeal(deleteDeal);
       return;
     }
 

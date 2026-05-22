@@ -16,6 +16,8 @@ const {
   createKnowledgeEntry,
   createManager,
   createTask,
+  deleteClient,
+  deleteDeal,
   deleteManager,
   deleteTask,
   getBanks,
@@ -249,6 +251,16 @@ async function handleApi(request, response) {
     return;
   }
 
+  if (request.method === "DELETE" && dealMatch) {
+    const deal = await deleteDeal(decodeURIComponent(dealMatch[1]));
+    if (!deal) {
+      sendJson(response, 404, { error: "Deal not found" });
+      return;
+    }
+    sendJson(response, 200, { deal });
+    return;
+  }
+
   if (request.method === "GET" && pathname === "/api/banks") {
     sendJson(response, 200, { banks: await getBanks() });
     return;
@@ -274,6 +286,17 @@ async function handleApi(request, response) {
   const clientArchiveMatch = pathname.match(/^\/api\/clients\/([^/]+)\/archive$/);
   if (request.method === "PATCH" && clientArchiveMatch) {
     const client = await archiveClient(decodeURIComponent(clientArchiveMatch[1]));
+    if (!client) {
+      sendJson(response, 404, { error: "Client not found" });
+      return;
+    }
+    sendJson(response, 200, { client });
+    return;
+  }
+
+  const clientMatch = pathname.match(/^\/api\/clients\/([^/]+)$/);
+  if (request.method === "DELETE" && clientMatch) {
+    const client = await deleteClient(decodeURIComponent(clientMatch[1]));
     if (!client) {
       sendJson(response, 404, { error: "Client not found" });
       return;
