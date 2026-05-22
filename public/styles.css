@@ -331,9 +331,16 @@ textarea:focus-visible {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   padding: 14px;
   border-bottom: 1px solid var(--line);
+}
+
+.tasks-strip.is-manager {
+  flex: 1 1 100%;
+  order: -1;
+  margin-bottom: 0;
 }
 
 .manager-head h3 {

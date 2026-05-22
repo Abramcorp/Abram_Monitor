@@ -478,6 +478,11 @@ function tasksForClient(manager, client) {
   return state.tasks.filter((task) => compareKey(task.manager) === m && compareKey(task.client) === c);
 }
 
+function tasksForManager(managerName) {
+  const m = compareKey(managerName);
+  return state.tasks.filter((task) => compareKey(task.manager) === m);
+}
+
 function classifyTask(task, now = Date.now()) {
   if (task.completedAt) {
     return "done";
@@ -536,6 +541,42 @@ function formatDueRelative(iso) {
     return `${days} дн`;
   };
   return diff < 0 ? `просрочено на ${formatPart()}` : `через ${formatPart()}`;
+}
+
+function renderManagerTaskBadge(manager) {
+  const managerName = manager?.manager || "";
+  const tasks = tasksForManager(managerName);
+  const summary = summarizeTasks(tasks);
+  if (!summary.total) {
+    return `
+      <button class="tasks-strip is-manager is-empty" data-add-task-for="" data-task-manager="${escapeHtml(managerName)}" type="button">
+        <span class="tasks-strip-label">Задачи аналитика</span>
+        <span class="tasks-strip-meta">нет — добавить</span>
+      </button>
+    `;
+  }
+  let stateClass;
+  let meta;
+  if (summary.overdue) {
+    stateClass = "is-overdue";
+    meta = `${summary.overdue} просрочено · всего активных ${summary.active}`;
+  } else if (summary.dueSoon) {
+    stateClass = "is-due-soon";
+    meta = `${summary.dueSoon} срочно · всего ${summary.active}`;
+  } else if (summary.active) {
+    stateClass = "is-active";
+    meta = `${summary.active} активных${summary.nextDueAt ? ` · ${formatDueRelative(summary.nextDueAt)}` : ""}`;
+  } else {
+    stateClass = "is-empty";
+    meta = `выполнено ${summary.done}`;
+  }
+  return `
+    <div class="tasks-strip is-manager ${stateClass}" data-tasks-manager-only="${escapeHtml(managerName)}">
+      <span class="tasks-strip-label">Задачи аналитика · ${summary.active || summary.done}</span>
+      <span class="tasks-strip-meta">${escapeHtml(meta)}</span>
+      <button class="ghost-button small-button tasks-strip-add" data-add-task-for="" data-task-manager="${escapeHtml(managerName)}" type="button">+ Задача</button>
+    </div>
+  `;
 }
 
 function renderClientTaskBadge(client) {
@@ -1349,6 +1390,7 @@ function renderManagerGroups(deals) {
           (manager) => `
             <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("current-manager", manager.manager))}">
               <summary class="manager-head">
+                ${renderManagerTaskBadge(manager)}
                 <div>
                   <p class="eyebrow">Аналитик</p>
                   <h3>${escapeHtml(manager.manager)}</h3>
@@ -1587,6 +1629,7 @@ function renderManagerClientView() {
                   (manager) => `
                     <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
                       <summary class="manager-head">
+                        ${renderManagerTaskBadge(manager)}
                         <div>
                           <p class="eyebrow">Аналитик</p>
                           <h3>${escapeHtml(manager.manager)}</h3>
