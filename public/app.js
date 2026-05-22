@@ -11,6 +11,7 @@ const state = {
     query: "",
     manager: "all",
     bank: "all",
+    programType: "all",
     category: "all",
     stage: "all"
   },
@@ -128,9 +129,9 @@ const PROGRAM_CATEGORIES = [
 ];
 const CATEGORY_FALLBACK_LABEL = "Без категории";
 const KNOWLEDGE_SECTIONS = {
-  banks: "По банкам",
-  programs: "По типам",
-  categories: "По категориям"
+  banks: "Банки",
+  programs: "Программы",
+  categories: "Категории"
 };
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
 const DONUT_COLORS = ["#52bfc1", "#315f9c", "#80c58b", "#e3b91c", "#b66a13", "#b6414a", "#64748b"];
@@ -1658,12 +1659,18 @@ function renderManagerClientView() {
 function filteredKnowledge() {
   const query = state.filters.query.toLowerCase();
   const categoryFilter = state.filters.category;
+  const programTypeFilter = state.filters.programType;
+  const programTypeActive = programTypeFilter && programTypeFilter !== "all";
+  const categoryActive = categoryFilter && categoryFilter !== "all";
   return state.knowledge
     .filter((bank) => state.filters.bank === "all" || bank.bank === state.filters.bank)
     .map((bank) => ({
       ...bank,
       programs: (bank.programs || []).filter((program) => {
-        if (categoryFilter && categoryFilter !== "all") {
+        if (programTypeActive && (program.programType || "Стандарт") !== programTypeFilter) {
+          return false;
+        }
+        if (categoryActive) {
           const programCategory = program.category || "";
           if (categoryFilter === "__none__") {
             if (programCategory) {
@@ -1698,7 +1705,7 @@ function filteredKnowledge() {
       })
     }))
     .filter((bank) => {
-      if (!query && (!categoryFilter || categoryFilter === "all")) {
+      if (!query && !categoryActive && !programTypeActive) {
         return true;
       }
       return bank.programs.length > 0;
@@ -1910,6 +1917,10 @@ function renderKnowledgeFilters() {
     .sort((a, b) => a.localeCompare(b, "ru"))
     .map((bank) => `<option value="${escapeHtml(bank)}" ${state.filters.bank === bank ? "selected" : ""}>${escapeHtml(bank)}</option>`)
     .join("");
+  const programTypeFilter = state.filters.programType || "all";
+  const programTypeOptions = PROGRAM_TYPES
+    .map((type) => `<option value="${escapeHtml(type)}" ${programTypeFilter === type ? "selected" : ""}>${escapeHtml(type)}</option>`)
+    .join("");
   const categoryFilter = state.filters.category || "all";
   const categoryOptions = PROGRAM_CATEGORIES
     .map((category) => `<option value="${escapeHtml(category)}" ${categoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`)
@@ -1919,11 +1930,15 @@ function renderKnowledgeFilters() {
     <div class="filters">
       <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, категория, требование">
       <select id="bankFilter">
-        <option value="all">Все банки</option>
+        <option value="all">Банки — все</option>
         ${bankOptions}
       </select>
+      <select id="programTypeFilter">
+        <option value="all" ${programTypeFilter === "all" ? "selected" : ""}>Программы — все</option>
+        ${programTypeOptions}
+      </select>
       <select id="categoryFilter">
-        <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Все категории</option>
+        <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Категории — все</option>
         <option value="__none__" ${categoryFilter === "__none__" ? "selected" : ""}>${escapeHtml(CATEGORY_FALLBACK_LABEL)}</option>
         ${categoryOptions}
       </select>
@@ -3265,6 +3280,10 @@ function initDynamicControls() {
         break;
       case "bankFilter":
         state.filters.bank = target.value;
+        render();
+        break;
+      case "programTypeFilter":
+        state.filters.programType = target.value;
         render();
         break;
       case "categoryFilter":
