@@ -418,9 +418,14 @@ async function archiveClientPostgres(id) {
   return updated ? normalizeClient(updated) : null;
 }
 
-function deleteClient(id) {
+async function deleteClient(id) {
   if (postgresStore.isEnabled()) {
-    return initStore().then(() => postgresStore.deleteRow("clients", id));
+    await initStore();
+    const deleted = await postgresStore.deleteRow("clients", id);
+    if (deleted) {
+      await postgresStore.deleteTasksByClient(deleted.manager || "", deleted.name || "");
+    }
+    return deleted;
   }
   const clients = getClients();
   const index = clients.findIndex((client) => client.id === id);
@@ -429,7 +434,25 @@ function deleteClient(id) {
   }
   const [deleted] = clients.splice(index, 1);
   writeJson(CLIENTS_FILE, clients);
+  cascadeDeleteTasksByClient(deleted.manager, deleted.name);
   return deleted;
+}
+
+function cascadeDeleteTasksByClient(managerName, clientName) {
+  const targetManager = cleanText(managerName).toLowerCase();
+  const targetClient = cleanText(clientName).toLowerCase();
+  if (!targetManager || !targetClient) {
+    return;
+  }
+  const tasks = readJson(TASKS_FILE, []);
+  const remaining = tasks.filter((task) => {
+    const m = cleanText(task.manager).toLowerCase();
+    const c = cleanText(task.client).toLowerCase();
+    return !(m === targetManager && c === targetClient);
+  });
+  if (remaining.length !== tasks.length) {
+    saveTasks(remaining);
+  }
 }
 
 function deleteDeal(id) {
