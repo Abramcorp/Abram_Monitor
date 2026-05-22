@@ -1455,6 +1455,39 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
+.requirement-empty-toggle {
+  margin-top: 8px;
+}
+
+.requirement-empty-toggle > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+  list-style: none;
+}
+
+.requirement-empty-toggle > summary::-webkit-details-marker {
+  display: none;
+}
+
+.requirement-empty-toggle > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 12px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.requirement-empty-toggle[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.requirement-grid-empty {
+  margin-top: 8px;
+  opacity: 0.7;
+}
+
 .stage-column {
   min-height: 150px;
   border: 1px solid var(--line);
