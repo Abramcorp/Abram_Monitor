@@ -6,6 +6,7 @@ const state = {
   dashboard: null,
   knowledge: [],
   managers: [],
+  tasks: [],
   filters: {
     query: "",
     manager: "all",
@@ -47,6 +48,9 @@ const knowledgeDialog = document.querySelector("#knowledgeDialog");
 const knowledgeForm = document.querySelector("#knowledgeForm");
 const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
 const applicationProgramPreview = document.querySelector("#applicationProgramPreview");
+const taskDialog = document.querySelector("#taskDialog");
+const taskForm = document.querySelector("#taskForm");
+const newTaskButton = document.querySelector("#newTaskButton");
 
 const VIEWS = [
   { id: "summary", label: "Сводный отчет" },
@@ -457,9 +461,150 @@ const LOAD_DATA_TARGETS = {
   banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; } },
   clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; } },
   managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; } },
-  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } }
+  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } },
+  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; } }
 };
 const LOAD_DATA_ALL = Object.keys(LOAD_DATA_TARGETS);
+
+// ===== Tasks helpers =====
+
+function compareKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function tasksForClient(manager, client) {
+  const m = compareKey(manager);
+  const c = compareKey(client);
+  return state.tasks.filter((task) => compareKey(task.manager) === m && compareKey(task.client) === c);
+}
+
+function classifyTask(task, now = Date.now()) {
+  if (task.completedAt) {
+    return "done";
+  }
+  const due = task.dueAt ? new Date(task.dueAt).getTime() : NaN;
+  if (Number.isNaN(due)) {
+    return "active";
+  }
+  if (due < now) {
+    return "overdue";
+  }
+  if (due - now < 4 * 60 * 60 * 1000) {
+    return "due-soon";
+  }
+  return "active";
+}
+
+function summarizeTasks(tasks) {
+  const now = Date.now();
+  const summary = { total: tasks.length, active: 0, overdue: 0, dueSoon: 0, done: 0, nextDueAt: "" };
+  let nextDue = Infinity;
+  for (const task of tasks) {
+    const state = classifyTask(task, now);
+    if (state === "done") {
+      summary.done += 1;
+      continue;
+    }
+    summary.active += 1;
+    if (state === "overdue") summary.overdue += 1;
+    if (state === "due-soon") summary.dueSoon += 1;
+    if (task.dueAt) {
+      const due = new Date(task.dueAt).getTime();
+      if (!Number.isNaN(due) && due < nextDue) {
+        nextDue = due;
+      }
+    }
+  }
+  if (nextDue !== Infinity) {
+    summary.nextDueAt = new Date(nextDue).toISOString();
+  }
+  return summary;
+}
+
+function formatDueRelative(iso) {
+  if (!iso) return "";
+  const now = Date.now();
+  const target = new Date(iso).getTime();
+  if (Number.isNaN(target)) return "";
+  const diff = target - now;
+  const absMinutes = Math.round(Math.abs(diff) / 60000);
+  const formatPart = () => {
+    if (absMinutes < 60) return `${absMinutes} мин`;
+    const hours = Math.round(absMinutes / 60);
+    if (hours < 36) return `${hours} ч`;
+    const days = Math.round(hours / 24);
+    return `${days} дн`;
+  };
+  return diff < 0 ? `просрочено на ${formatPart()}` : `через ${formatPart()}`;
+}
+
+function renderClientTaskBadge(client) {
+  const tasks = tasksForClient(client.manager || client.managerName || "", client.client);
+  const summary = summarizeTasks(tasks);
+  if (!summary.total) {
+    return `
+      <button class="tasks-strip is-empty" data-add-task-for="${escapeHtml(client.client)}" data-task-manager="${escapeHtml(client.manager || "")}" type="button">
+        <span class="tasks-strip-label">Задачи</span>
+        <span class="tasks-strip-meta">нет — добавить</span>
+      </button>
+    `;
+  }
+  let stateClass = "";
+  let meta;
+  if (summary.overdue) {
+    stateClass = "is-overdue";
+    meta = `${summary.overdue} просрочено · всего активных ${summary.active}`;
+  } else if (summary.dueSoon) {
+    stateClass = "is-due-soon";
+    meta = `${summary.dueSoon} срочно · всего ${summary.active}`;
+  } else if (summary.active) {
+    stateClass = "is-active";
+    meta = `${summary.active} активных${summary.nextDueAt ? ` · ${formatDueRelative(summary.nextDueAt)}` : ""}`;
+  } else {
+    stateClass = "is-empty";
+    meta = `выполнено ${summary.done}`;
+  }
+  return `
+    <div class="tasks-strip ${stateClass}" data-tasks-client="${escapeHtml(client.client)}" data-tasks-manager="${escapeHtml(client.manager || "")}">
+      <span class="tasks-strip-label">Задачи · ${summary.active || summary.done}</span>
+      <span class="tasks-strip-meta">${escapeHtml(meta)}</span>
+      <button class="ghost-button small-button tasks-strip-add" data-add-task-for="${escapeHtml(client.client)}" data-task-manager="${escapeHtml(client.manager || "")}" type="button">+ Задача</button>
+    </div>
+  `;
+}
+
+function renderClientTaskList(client) {
+  const tasks = tasksForClient(client.manager || client.managerName || "", client.client);
+  const active = tasks.filter((task) => !task.completedAt).sort((a, b) => {
+    const da = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
+    const db = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
+    return da - db;
+  });
+  const done = tasks.filter((task) => task.completedAt).sort((a, b) => (a.completedAt < b.completedAt ? 1 : -1));
+  const renderRow = (task) => {
+    const cls = classifyTask(task);
+    return `
+      <li class="task-row task-${cls}" data-task-id="${escapeHtml(task.id)}">
+        <label class="task-toggle">
+          <input type="checkbox" data-task-toggle="${escapeHtml(task.id)}" ${task.completedAt ? "checked" : ""}>
+          <span class="task-title">${escapeHtml(task.title)}</span>
+        </label>
+        <span class="task-due" title="${escapeHtml(task.dueAt || "")}">${escapeHtml(task.dueAt ? formatDueRelative(task.dueAt) : "без срока")}</span>
+        <button class="icon-button small-button" data-task-delete="${escapeHtml(task.id)}" type="button" title="Удалить">×</button>
+      </li>
+    `;
+  };
+  return `
+    <div class="task-list-wrap">
+      <div class="task-list-head">
+        <h4>Задачи клиента</h4>
+        <button class="ghost-button small-button" data-add-task-for="${escapeHtml(client.client)}" data-task-manager="${escapeHtml(client.manager || "")}" type="button">+ Задача</button>
+      </div>
+      ${active.length ? `<ul class="task-list">${active.map(renderRow).join("")}</ul>` : `<p class="muted compact-empty">Активных задач нет.</p>`}
+      ${done.length ? `<details class="task-history"><summary>Выполненные (${done.length})</summary><ul class="task-list is-done">${done.map(renderRow).join("")}</ul></details>` : ""}
+    </div>
+  `;
+}
 
 async function loadData(options = {}) {
   const requested = Array.isArray(options.targets) && options.targets.length
@@ -581,10 +726,13 @@ function updateActionVisibility() {
   if (newDealButton) {
     newDealButton.hidden = true;
   }
+  if (newTaskButton) {
+    newTaskButton.hidden = false;
+  }
   newKnowledgeButton.hidden = false;
 
   const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
-  [newManagerButton, newClientButton, newKnowledgeButton].forEach((button) => {
+  [newManagerButton, newClientButton, newTaskButton, newKnowledgeButton].forEach((button) => {
     if (!button) {
       return;
     }
@@ -1157,6 +1305,7 @@ function renderClientSummary(client, options = {}) {
   const settings = typeof options === "object" ? options : {};
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
   return `
+    ${renderClientTaskBadge(client)}
     <div class="client-summary-main">
       <strong class="client-title">${escapeHtml(client.client)}</strong>
       <div class="client-summary-amounts">
@@ -1212,6 +1361,7 @@ function renderManagerGroups(deals) {
                         </summary>
                         <div class="client-drilldown">
                           ${renderClientActions(client, { allowAddApplication: true, allowArchive: true })}
+                          ${renderClientTaskList(client)}
                           ${renderClientApplicationSections(client)}
                         </div>
                       </details>
@@ -1244,6 +1394,7 @@ function renderClientCards(clients, emptyText, options = {}) {
               </summary>
               <div class="client-drilldown">
                 ${renderClientActions(client, settings)}
+                ${renderClientTaskList(client)}
                 ${renderClientApplicationSections(client)}
               </div>
             </details>
@@ -3030,9 +3181,16 @@ function initDynamicControls() {
     }
   });
 
-  app.addEventListener("change", (event) => {
+  app.addEventListener("change", async (event) => {
     const target = event.target;
-    if (!target?.id) {
+    if (!target) {
+      return;
+    }
+    if (target.dataset?.taskToggle) {
+      await handleToggleTask(target.dataset.taskToggle, target.checked);
+      return;
+    }
+    if (!target.id) {
       return;
     }
     switch (target.id) {
@@ -3149,6 +3307,32 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       await handleSaveApplication(saveApplication);
+      return;
+    }
+
+    const addTaskFor = target.closest("[data-add-task-for]");
+    if (addTaskFor) {
+      event.preventDefault();
+      event.stopPropagation();
+      openTaskDialog({
+        manager: addTaskFor.dataset.taskManager || "",
+        client: addTaskFor.dataset.addTaskFor || ""
+      });
+      return;
+    }
+
+    const deleteTaskBtn = target.closest("[data-task-delete]");
+    if (deleteTaskBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteTask(deleteTaskBtn.dataset.taskDelete);
+      return;
+    }
+
+    const duePreset = target.closest("[data-due-preset]");
+    if (duePreset) {
+      event.preventDefault();
+      applyDuePreset(duePreset.dataset.duePreset);
     }
   });
 }
@@ -3298,6 +3482,140 @@ managerForm.addEventListener("submit", async (event) => {
 newKnowledgeButton.addEventListener("click", () => {
   openKnowledgeDialog();
 });
+
+if (newTaskButton) {
+  newTaskButton.addEventListener("click", () => {
+    openTaskDialog();
+  });
+}
+
+async function handleToggleTask(taskId, completed) {
+  try {
+    await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ completed })
+    });
+    await loadData({ targets: ["tasks"] });
+  } catch (error) {
+    window.alert(error.message);
+    await loadData({ targets: ["tasks"] });
+  }
+}
+
+async function handleDeleteTask(taskId) {
+  if (!taskId) {
+    return;
+  }
+  const confirmed = window.confirm("Удалить задачу?");
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+    await loadData({ targets: ["tasks"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+function formatDateTimeLocal(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function applyDuePreset(preset) {
+  if (!taskForm) {
+    return;
+  }
+  const input = taskForm.elements.dueAt;
+  if (!input) {
+    return;
+  }
+  const now = new Date();
+  let target;
+  if (preset === "tomorrow-10") {
+    target = new Date(now);
+    target.setDate(target.getDate() + 1);
+    target.setHours(10, 0, 0, 0);
+  } else {
+    const hours = Number(preset) || 24;
+    target = new Date(now.getTime() + hours * 60 * 60 * 1000);
+    target.setSeconds(0, 0);
+  }
+  input.value = formatDateTimeLocal(target);
+}
+
+function fillTaskDialogOptions(preselectManager) {
+  const managerSelect = document.querySelector("#taskManager");
+  const clientSelect = document.querySelector("#taskClient");
+  if (!managerSelect || !clientSelect) {
+    return;
+  }
+  const managerNames = [...new Set([
+    ...state.managers.map((manager) => manager.name),
+    ...state.clients.map((client) => client.manager).filter(Boolean)
+  ])].sort((a, b) => a.localeCompare(b, "ru"));
+  managerSelect.innerHTML = `<option value="" disabled selected>Выберите аналитика</option>${managerNames
+    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}`;
+  if (preselectManager && managerNames.includes(preselectManager)) {
+    managerSelect.value = preselectManager;
+  }
+  refreshTaskClientOptions();
+}
+
+function refreshTaskClientOptions(preselectClient = null) {
+  const managerSelect = document.querySelector("#taskManager");
+  const clientSelect = document.querySelector("#taskClient");
+  if (!managerSelect || !clientSelect) {
+    return;
+  }
+  const manager = managerSelect.value;
+  const clientNames = [...new Set(
+    state.clients.filter((c) => !manager || c.manager === manager).map((c) => c.name)
+  )].sort((a, b) => a.localeCompare(b, "ru"));
+  clientSelect.innerHTML = `<option value="" disabled selected>Выберите клиента</option>${clientNames
+    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}`;
+  if (preselectClient && clientNames.includes(preselectClient)) {
+    clientSelect.value = preselectClient;
+  }
+}
+
+function openTaskDialog({ manager = "", client = "" } = {}) {
+  if (!taskDialog || !taskForm) {
+    return;
+  }
+  taskForm.reset();
+  fillTaskDialogOptions(manager);
+  if (client) {
+    refreshTaskClientOptions(client);
+  }
+  applyDuePreset("24");
+  taskDialog.showModal();
+}
+
+if (taskForm) {
+  document.querySelector("#taskManager")?.addEventListener("change", () => refreshTaskClientOptions());
+  taskForm.addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") {
+      return;
+    }
+    event.preventDefault();
+    if (!taskForm.reportValidity()) {
+      return;
+    }
+    const payload = Object.fromEntries(new FormData(taskForm).entries());
+    try {
+      await requestJson("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      taskDialog.close();
+      await loadData({ targets: ["tasks"] });
+    } catch (error) {
+      window.alert(error.message);
+    }
+  });
+}
 
 form.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") {

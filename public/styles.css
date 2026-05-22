@@ -452,6 +452,194 @@ textarea:focus-visible {
   display: none;
 }
 
+/* ===== Tasks: client strip + list + overdue blink ===== */
+
+.tasks-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #f6f8fa;
+  color: var(--ink);
+  font-size: 13px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tasks-strip.is-empty {
+  background: #f3f5f7;
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.tasks-strip.is-active {
+  border-color: rgba(49, 95, 156, 0.4);
+  background: rgba(49, 95, 156, 0.08);
+}
+
+.tasks-strip.is-due-soon {
+  border-color: rgba(182, 106, 19, 0.5);
+  background: rgba(182, 106, 19, 0.1);
+  color: var(--amber);
+}
+
+.tasks-strip.is-overdue {
+  border-color: rgba(182, 65, 74, 0.6);
+  background: rgba(182, 65, 74, 0.12);
+  color: var(--red);
+  animation: task-strip-pulse 1.4s ease-in-out infinite;
+}
+
+.tasks-strip-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
+.tasks-strip-meta {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.tasks-strip-add {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+@keyframes task-strip-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(182, 65, 74, 0);
+    background: rgba(182, 65, 74, 0.12);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(182, 65, 74, 0.35);
+    background: rgba(182, 65, 74, 0.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks-strip.is-overdue { animation: none; }
+}
+
+.task-list-wrap {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.task-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+
+.task-list-head h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fbfcfd;
+  font-size: 14px;
+}
+
+.task-row .task-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.task-row .task-due {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.task-row.task-active { border-color: rgba(49, 95, 156, 0.25); }
+.task-row.task-due-soon {
+  border-color: rgba(182, 106, 19, 0.5);
+  background: rgba(182, 106, 19, 0.05);
+}
+.task-row.task-due-soon .task-due { color: var(--amber); font-weight: 700; }
+
+.task-row.task-overdue {
+  border-color: rgba(182, 65, 74, 0.5);
+  background: rgba(182, 65, 74, 0.08);
+  animation: task-row-pulse 1.4s ease-in-out infinite;
+}
+.task-row.task-overdue .task-due { color: var(--red); font-weight: 700; }
+
+.task-row.task-done {
+  opacity: 0.65;
+  background: #f3f5f7;
+}
+.task-row.task-done .task-title { text-decoration: line-through; color: var(--muted); }
+
+@keyframes task-row-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(182, 65, 74, 0); }
+  50% { box-shadow: 0 0 0 2px rgba(182, 65, 74, 0.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-row.task-overdue { animation: none; }
+}
+
+.task-history {
+  margin-top: 10px;
+}
+
+.task-history > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.task-due-group {
+  display: grid;
+  gap: 8px;
+}
+
+.task-due-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-due-presets .small-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .client-title {
   display: block;
   margin-bottom: 8px;

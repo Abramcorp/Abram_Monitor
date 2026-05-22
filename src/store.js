@@ -12,6 +12,7 @@ const BANKS_FILE = path.join(DATA_DIR, "banks.json");
 const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
+const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
 const PROGRAM_CATEGORIES = [
   "1 КАТЕГОРИЯ",
@@ -417,6 +418,131 @@ async function archiveClientPostgres(id) {
   return updated ? normalizeClient(updated) : null;
 }
 
+function normalizeTask(raw = {}) {
+  const createdAt = toIsoDate(raw.createdAt);
+  const updatedAt = toIsoDate(raw.updatedAt);
+  return {
+    id: cleanText(raw.id) || `task-${Date.now()}`,
+    manager: cleanText(raw.manager),
+    client: cleanText(raw.client),
+    title: cleanText(raw.title || raw.text || raw.action),
+    dueAt: toIsoDate(raw.dueAt),
+    completedAt: toIsoDate(raw.completedAt),
+    createdAt: createdAt,
+    updatedAt: updatedAt || createdAt
+  };
+}
+
+function getTasks() {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.listRows("tasks")).then((tasks) => tasks.map(normalizeTask));
+  }
+  return readJson(TASKS_FILE, []).map(normalizeTask);
+}
+
+function saveTasks(tasks) {
+  writeJson(TASKS_FILE, tasks.map(normalizeTask));
+}
+
+function validateTask(task) {
+  if (!task.manager) {
+    throw new Error("Аналитик обязателен");
+  }
+  if (!task.client) {
+    throw new Error("Клиент обязателен");
+  }
+  if (!task.title) {
+    throw new Error("Описание задачи обязательно");
+  }
+  if (!task.dueAt) {
+    throw new Error("Срок исполнения обязателен");
+  }
+}
+
+async function createTask(payload) {
+  const now = await getMoscowNowIso();
+  const task = normalizeTask({
+    ...payload,
+    id: payload.id || `task-${new Date(now).getTime()}`,
+    createdAt: payload.createdAt || now,
+    updatedAt: now
+  });
+  validateTask(task);
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.insertRow("tasks", task)).then(normalizeTask);
+  }
+  const tasks = getTasks();
+  tasks.push(task);
+  saveTasks(tasks);
+  return task;
+}
+
+async function updateTask(id, patch) {
+  if (postgresStore.isEnabled()) {
+    return updateTaskPostgres(id, patch);
+  }
+
+  const updatedAt = await getMoscowNowIso();
+  const tasks = getTasks();
+  const index = tasks.findIndex((task) => task.id === id);
+  if (index === -1) {
+    return null;
+  }
+  const next = normalizeTask({
+    ...tasks[index],
+    ...patch,
+    id,
+    updatedAt
+  });
+  if (patch.completed === true && !next.completedAt) {
+    next.completedAt = updatedAt;
+  }
+  if (patch.completed === false) {
+    next.completedAt = "";
+  }
+  validateTask(next);
+  tasks[index] = next;
+  saveTasks(tasks);
+  return tasks[index];
+}
+
+async function updateTaskPostgres(id, patch) {
+  await initStore();
+  const updatedAt = await getMoscowNowIso();
+  const updated = await postgresStore.updateRow("tasks", id, (rawTask) => {
+    const previous = normalizeTask(rawTask);
+    const next = normalizeTask({
+      ...previous,
+      ...patch,
+      id,
+      updatedAt
+    });
+    if (patch.completed === true && !next.completedAt) {
+      next.completedAt = updatedAt;
+    }
+    if (patch.completed === false) {
+      next.completedAt = "";
+    }
+    validateTask(next);
+    return next;
+  });
+  return updated ? normalizeTask(updated) : null;
+}
+
+function deleteTask(id) {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.deleteRow("tasks", id));
+  }
+  const tasks = getTasks();
+  const index = tasks.findIndex((task) => task.id === id);
+  if (index === -1) {
+    return null;
+  }
+  const [deleted] = tasks.splice(index, 1);
+  saveTasks(tasks);
+  return deleted;
+}
+
 function getKnowledge() {
   if (postgresStore.isEnabled()) {
     return initStore().then(() => postgresStore.listKnowledge()).then(normalizeKnowledgeEntries);
@@ -672,17 +798,23 @@ module.exports = {
   createDeal,
   createKnowledgeEntry,
   createManager,
+  createTask,
   deleteManager,
+  deleteTask,
   getBanks,
   getClients,
   getDeals,
   getKnowledge,
   getManagers,
+  getTasks,
   initStore,
   normalizeClient,
   normalizeManager,
   normalizeKnowledgeProgram,
+  normalizeTask,
   validateDealDates,
+  validateTask,
   updateDeal,
-  updateKnowledgeProgram
+  updateKnowledgeProgram,
+  updateTask
 };
