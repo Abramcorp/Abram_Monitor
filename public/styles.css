@@ -987,6 +987,44 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.application-extra-dates {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #fbfcfd;
+}
+
+.application-extra-dates > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  list-style: none;
+  padding: 4px 0;
+}
+
+.application-extra-dates > summary::-webkit-details-marker {
+  display: none;
+}
+
+.application-extra-dates > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.application-extra-dates[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.application-extra-dates[open] > .application-field {
+  margin-top: 6px;
+}
+
 .application-history-field {
   gap: 8px;
 }
