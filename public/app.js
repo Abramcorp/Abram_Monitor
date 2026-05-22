@@ -568,6 +568,13 @@ function renderViewTabs() {
   });
 }
 
+const TOPBAR_PRIMARY_BY_VIEW = {
+  summary: "newClientButton",
+  funnels: "newClientButton",
+  archive: "newClientButton",
+  knowledge: "newKnowledgeButton"
+};
+
 function updateActionVisibility() {
   newManagerButton.hidden = state.view !== "funnels";
   newClientButton.hidden = false;
@@ -575,6 +582,16 @@ function updateActionVisibility() {
     newDealButton.hidden = true;
   }
   newKnowledgeButton.hidden = false;
+
+  const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
+  [newManagerButton, newClientButton, newKnowledgeButton].forEach((button) => {
+    if (!button) {
+      return;
+    }
+    const isPrimary = button.id === primaryId;
+    button.classList.toggle("primary-button", isPrimary);
+    button.classList.toggle("ghost-button", !isPrimary);
+  });
 }
 
 function renderKpis() {
@@ -2878,6 +2895,16 @@ function renderSummary() {
   `;
 }
 
+function updatePageHeader() {
+  const view = VIEWS.find((item) => item.id === state.view);
+  const label = view?.label || "Мониторинг состояния заявок";
+  const heading = document.querySelector(".topbar h1");
+  if (heading) {
+    heading.textContent = label;
+  }
+  document.title = `${label} · Deal Monitor`;
+}
+
 function render() {
   if (!state.dashboard) {
     app.innerHTML = `<div class="loading">Загрузка данных...</div>`;
@@ -2885,6 +2912,7 @@ function render() {
   }
 
   renderViewTabs();
+  updatePageHeader();
   updateActionVisibility();
 
   const views = {
