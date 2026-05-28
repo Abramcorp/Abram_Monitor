@@ -63,15 +63,17 @@ function saveDeals(deals) {
   writeJson(DEALS_FILE, deals.map(normalizeDeal));
 }
 
+const LEAD_BUCKET_STAGE_IDS = new Set(["lead", "documents_requested"]);
+
 function validateDealDates(deal, previousDeal = null) {
-  if (deal.stage === "lead" && !deal.inquiryAt) {
-    throw new Error("Дата обращения обязательна для статуса \"Закинули лид\"");
+  if (LEAD_BUCKET_STAGE_IDS.has(deal.stage) && !deal.inquiryAt) {
+    throw new Error("Дата обращения обязательна для этого статуса");
   }
   if (deal.stage === "submitted" && !deal.signedAt) {
     throw new Error("Дата подписания обязательна для статуса \"Подписали заявку ждем решение\"");
   }
-  if (previousDeal?.stage === "lead" && deal.stage === "submitted" && !deal.inquiryAt) {
-    throw new Error("Дата обращения обязательна при переходе из статуса \"Закинули лид\"");
+  if (LEAD_BUCKET_STAGE_IDS.has(previousDeal?.stage) && deal.stage === "submitted" && !deal.inquiryAt) {
+    throw new Error("Дата обращения обязательна при переходе на \"Подписали заявку\"");
   }
 }
 

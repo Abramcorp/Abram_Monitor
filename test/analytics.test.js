@@ -12,11 +12,33 @@ test("stage catalog matches source spreadsheet status list", () => {
       "Плановая",
       "Закинули лид",
       "Подписали заявку ждем решение",
+      "Запрос документов",
       "Одобрено",
       "Отклонено",
       "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)"
     ]
   );
+});
+
+test("stage catalog keeps the requested-documents stage out of the funnel columns", () => {
+  const dashboard = calculateDashboard([]);
+  assert.deepEqual(
+    dashboard.stages.current.map((stage) => stage.id),
+    ["planned", "lead", "submitted"]
+  );
+});
+
+test("requested-documents stage is counted as lead in the funnel and group buckets", () => {
+  const dashboard = calculateDashboard([
+    { id: "lead-1", client: "A", manager: "M", bank: "Bank", stage: "lead", amountRequested: 1000, inquiryAt: "2026-05-20T10:00:00+03:00" },
+    { id: "docs-1", client: "B", manager: "M", bank: "Bank", stage: "documents_requested", amountRequested: 500, inquiryAt: "2026-05-21T10:00:00+03:00" }
+  ], new Date("2026-05-22T10:00:00+03:00"));
+
+  const leadFunnel = dashboard.currentFunnel.find((stage) => stage.id === "lead");
+  assert.equal(leadFunnel.count, 2, "lead funnel includes documents_requested deal");
+  assert.equal(leadFunnel.amountRequested, 1500);
+  assert.equal(dashboard.totals.leads, 2);
+  assert.equal(dashboard.totals.amountRequestedLeads, 1500);
 });
 
 test("toNumber handles formatted ruble values", () => {
