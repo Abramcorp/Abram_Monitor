@@ -8,16 +8,26 @@ const CURRENT_STAGES = [
   { id: "submitted", label: "Подписали заявку ждем решение" }
 ];
 
+// Дополнительные текущие статусы — не показываются отдельной колонкой в воронке,
+// но попадают в селект статусов и в lead-bucket при подсчёте метрик.
+const EXTRA_CURRENT_STAGES = [
+  { id: "documents_requested", label: "Запрос документов", funnelBucket: "lead" }
+];
+
 const COMPLETED_STAGES = [
   { id: "approved", label: "Одобрено" },
   { id: "rejected", label: "Отклонено" },
   { id: "blocked", label: "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)" }
 ];
 
-const ALL_STAGES = [...CURRENT_STAGES, ...COMPLETED_STAGES];
+const ALL_STAGES = [...CURRENT_STAGES, ...EXTRA_CURRENT_STAGES, ...COMPLETED_STAGES];
 const STAGE_LABELS = Object.fromEntries(ALL_STAGES.map((stage) => [stage.id, stage.label]));
-const CURRENT_STAGE_IDS = new Set(CURRENT_STAGES.map((stage) => stage.id));
+const CURRENT_STAGE_IDS = new Set([...CURRENT_STAGES, ...EXTRA_CURRENT_STAGES].map((stage) => stage.id));
 const COMPLETED_STAGE_IDS = new Set(COMPLETED_STAGES.map((stage) => stage.id));
+const LEAD_BUCKET_STAGE_IDS = new Set([
+  "lead",
+  ...EXTRA_CURRENT_STAGES.filter((stage) => stage.funnelBucket === "lead").map((stage) => stage.id)
+]);
 const LEGACY_STAGE_MAP = {
   documents: "lead",
   ki_check: "lead",
@@ -105,6 +115,7 @@ function stageFromLegacyStatus(rawStage, rawStatus) {
   if (/отказ|отклон/.test(status)) return "rejected";
   if (/одобрен|выдан|финансирован|закрыт/.test(status)) return "approved";
   if (/подпис|рассмотр|подан|банк/.test(status)) return "submitted";
+  if (/запрос.*документ|документ.*запрос|запрашива.*документ/.test(status)) return "documents_requested";
   if (/лид|документ|обращение|ки|кредитн/.test(status)) return "lead";
   if (/план/.test(status)) return "planned";
   return "planned";
@@ -320,7 +331,7 @@ function sortByBucketEntry(items, bucket) {
 function buildClientGroup(client, clientDeals) {
   const applications = sortByLastAction(clientDeals.map(toApplicationSummary));
   const plannedApplications = sortByBucketEntry(applications.filter((deal) => deal.stage === "planned"), "planned");
-  const leadApplications = sortByBucketEntry(applications.filter((deal) => deal.stage === "lead"), "current");
+  const leadApplications = sortByBucketEntry(applications.filter((deal) => LEAD_BUCKET_STAGE_IDS.has(deal.stage)), "current");
   const workingApplications = sortByBucketEntry(applications.filter((deal) => deal.stage === "submitted"), "current");
   const currentApplications = sortByBucketEntry(
     applications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned"),
@@ -334,7 +345,7 @@ function buildClientGroup(client, clientDeals) {
   const activeApplications = [...currentApplications, ...plannedApplications];
   const completedApplications = [...successfulApplications, ...refusedApplications];
   const plannedDeals = clientDeals.filter((deal) => deal.stage === "planned");
-  const leadDeals = clientDeals.filter((deal) => deal.stage === "lead");
+  const leadDeals = clientDeals.filter((deal) => LEAD_BUCKET_STAGE_IDS.has(deal.stage));
   const workingDeals = clientDeals.filter((deal) => deal.stage === "submitted");
   const currentDeals = clientDeals.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned");
   const approvedDeals = clientDeals.filter((deal) => deal.stage === "approved");
@@ -381,7 +392,7 @@ function buildManagerClientGroups(deals) {
       const currentDeals = managerDeals.filter((deal) => deal.statusGroup === "current");
       const completedDeals = managerDeals.filter((deal) => deal.statusGroup === "completed");
       const currentApplicationDeals = currentDeals.filter((deal) => deal.stage !== "planned");
-      const leadDeals = managerDeals.filter((deal) => deal.stage === "lead");
+      const leadDeals = managerDeals.filter((deal) => LEAD_BUCKET_STAGE_IDS.has(deal.stage));
       const workingDeals = managerDeals.filter((deal) => deal.stage === "submitted");
 
       return {
@@ -440,7 +451,7 @@ function buildBoardSummary(deals, statusGroup, grouping) {
   return Array.from(groupBy(filteredDeals, (deal) => deal[field] || fallback).entries())
     .map(([name, items]) => {
       const plannedDeals = items.filter((deal) => deal.stage === "planned");
-      const leadDeals = items.filter((deal) => deal.stage === "lead");
+      const leadDeals = items.filter((deal) => LEAD_BUCKET_STAGE_IDS.has(deal.stage));
       const workingDeals = items.filter((deal) => deal.stage === "submitted");
       const currentDeals = [...leadDeals, ...workingDeals];
       const completedDeals = items.filter((deal) => deal.statusGroup === "completed");
@@ -503,7 +514,7 @@ function calculateDashboard(rawDeals, clock = new Date(), timeInfo = null) {
   const completedDeals = deals.filter((deal) => deal.statusGroup === "completed");
   const issuedDeals = completedDeals.filter((deal) => deal.stage === "approved");
   const plannedDeals = deals.filter((deal) => deal.stage === "planned");
-  const leadDeals = deals.filter((deal) => deal.stage === "lead");
+  const leadDeals = deals.filter((deal) => LEAD_BUCKET_STAGE_IDS.has(deal.stage));
   const workingDeals = deals.filter((deal) => deal.stage === "submitted");
   const overdueCount = currentDeals.reduce((total, deal) => {
     if (!deal.nextActionAt) {
@@ -513,7 +524,10 @@ function calculateDashboard(rawDeals, clock = new Date(), timeInfo = null) {
   }, 0);
 
   const currentFunnel = CURRENT_STAGES.map((stage) => {
-    const items = currentDeals.filter((deal) => deal.stage === stage.id);
+    const matchesStage = stage.id === "lead"
+      ? (deal) => LEAD_BUCKET_STAGE_IDS.has(deal.stage)
+      : (deal) => deal.stage === stage.id;
+    const items = currentDeals.filter(matchesStage);
     return {
       ...stage,
       count: items.length,

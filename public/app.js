@@ -430,13 +430,15 @@ function restoreUiState(snapshot) {
   });
 }
 
+const LEAD_BUCKET_STAGES = new Set(["lead", "documents_requested"]);
+
 function getStageDateRequirements(stage, currentStage = "") {
   const requirements = [];
-  if (stage === "lead") {
+  if (LEAD_BUCKET_STAGES.has(stage)) {
     requirements.push({ field: "inquiryAt", label: "Дата обращения" });
   }
   if (stage === "submitted") {
-    if (currentStage === "lead") {
+    if (LEAD_BUCKET_STAGES.has(currentStage)) {
       requirements.push({ field: "inquiryAt", label: "Дата обращения" });
     }
     requirements.push({ field: "signedAt", label: "Дата подписания" });
@@ -920,7 +922,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
           const nameMeta = clientMetaByName.get(clientNameKey(client));
           const meta = exactMeta || (nameMeta?.archivedAt ? nameMeta : {}) || {};
           const plannedApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "planned"), "planned");
-          const leadApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "lead"), "current");
+          const leadApplications = sortByBucketEntry(sortedApplications.filter((deal) => LEAD_BUCKET_STAGES.has(deal.stage)), "current");
           const workingApplications = sortByBucketEntry(sortedApplications.filter((deal) => deal.stage === "submitted"), "current");
           const currentApplications = sortByBucketEntry(
             sortedApplications.filter((deal) => deal.statusGroup === "current" && deal.stage !== "planned"),
@@ -2596,7 +2598,7 @@ function buildOutcomeShareItems(status = state.board.status) {
       }
       return isInSummaryChartPeriod(dealApplicationDate(deal));
     });
-    const leads = currentItems.filter((deal) => deal.stage === "lead");
+    const leads = currentItems.filter((deal) => LEAD_BUCKET_STAGES.has(deal.stage));
     const working = currentItems.filter((deal) => deal.stage === "submitted");
 
     return [
