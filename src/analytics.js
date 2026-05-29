@@ -9,9 +9,9 @@ const CURRENT_STAGES = [
 ];
 
 // Дополнительные текущие статусы — не показываются отдельной колонкой в воронке,
-// но попадают в селект статусов и в lead-bucket при подсчёте метрик.
+// но попадают в селект статусов (после стадии insertAfter) и в lead-bucket при подсчёте метрик.
 const EXTRA_CURRENT_STAGES = [
-  { id: "documents_requested", label: "Запрос документов", funnelBucket: "lead" }
+  { id: "documents_requested", label: "Запрос документов", funnelBucket: "lead", insertAfter: "lead" }
 ];
 
 const COMPLETED_STAGES = [
@@ -20,7 +20,24 @@ const COMPLETED_STAGES = [
   { id: "blocked", label: "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)" }
 ];
 
-const ALL_STAGES = [...CURRENT_STAGES, ...EXTRA_CURRENT_STAGES, ...COMPLETED_STAGES];
+const ALL_STAGES = (() => {
+  const ordered = [];
+  for (const stage of CURRENT_STAGES) {
+    ordered.push(stage);
+    for (const extra of EXTRA_CURRENT_STAGES) {
+      if (extra.insertAfter === stage.id) {
+        ordered.push(extra);
+      }
+    }
+  }
+  for (const extra of EXTRA_CURRENT_STAGES) {
+    if (!extra.insertAfter || !CURRENT_STAGES.some((stage) => stage.id === extra.insertAfter)) {
+      ordered.push(extra);
+    }
+  }
+  ordered.push(...COMPLETED_STAGES);
+  return ordered;
+})();
 const STAGE_LABELS = Object.fromEntries(ALL_STAGES.map((stage) => [stage.id, stage.label]));
 const CURRENT_STAGE_IDS = new Set([...CURRENT_STAGES, ...EXTRA_CURRENT_STAGES].map((stage) => stage.id));
 const COMPLETED_STAGE_IDS = new Set(COMPLETED_STAGES.map((stage) => stage.id));
