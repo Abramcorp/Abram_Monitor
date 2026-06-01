@@ -7,6 +7,7 @@ const state = {
   knowledge: [],
   managers: [],
   tasks: [],
+  user: null,
   filters: {
     query: "",
     manager: "all",
@@ -52,6 +53,21 @@ const applicationProgramPreview = document.querySelector("#applicationProgramPre
 const taskDialog = document.querySelector("#taskDialog");
 const taskForm = document.querySelector("#taskForm");
 const newTaskButton = document.querySelector("#newTaskButton");
+const loginShell = document.querySelector("#loginShell");
+const loginForm = document.querySelector("#loginForm");
+const loginError = document.querySelector("#loginError");
+const loginSubmit = document.querySelector("#loginSubmit");
+const appShell = document.querySelector("#appShell");
+const logoutButton = document.querySelector("#logoutButton");
+const userBadge = document.querySelector("#userBadge");
+const userBadgeName = document.querySelector("#userBadgeName");
+const userBadgeRole = document.querySelector("#userBadgeRole");
+
+const ROLE_LABELS = {
+  admin: "Администратор",
+  analyst_abram: "Аналитик AbramCorp",
+  partner: "Партнёрский контур"
+};
 
 const VIEWS = [
   { id: "summary", label: "Сводный отчет" },
@@ -446,13 +462,31 @@ function getStageDateRequirements(stage, currentStage = "") {
   return requirements;
 }
 
+class UnauthorizedError extends Error {
+  constructor(message = "Не авторизовано") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
 async function requestJson(url, options) {
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json" },
     ...options
   });
 
-  const payload = await response.json();
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = {};
+  }
+
+  if (response.status === 401 && !String(url).startsWith("/api/auth/")) {
+    handleSessionExpired();
+    throw new UnauthorizedError(payload.error || "Сессия истекла");
+  }
+
   if (!response.ok) {
     throw new Error(payload.error || "Ошибка запроса");
   }
@@ -3861,7 +3895,142 @@ knowledgeForm.addEventListener("submit", async (event) => {
   await loadData({ targets: ["knowledge"] });
 });
 
-loadData().catch((error) => {
+// ===== Auth bootstrap =====
+
+function showLoginScreen({ focus = true } = {}) {
+  if (loginShell) loginShell.hidden = false;
+  if (appShell) appShell.hidden = true;
+  if (loginError) {
+    loginError.hidden = true;
+    loginError.textContent = "";
+  }
+  if (loginForm) {
+    loginForm.reset();
+    if (focus) {
+      const loginInput = loginForm.elements.login;
+      loginInput?.focus?.();
+    }
+  }
+}
+
+function showAppShell() {
+  if (loginShell) loginShell.hidden = true;
+  if (appShell) appShell.hidden = false;
+}
+
+function applyUserToBadge(user) {
+  if (!userBadge || !userBadgeName || !userBadgeRole) {
+    return;
+  }
+  if (!user) {
+    userBadge.hidden = true;
+    userBadgeName.textContent = "";
+    userBadgeRole.textContent = "";
+    if (logoutButton) logoutButton.hidden = true;
+    return;
+  }
+  userBadge.hidden = false;
+  userBadgeName.textContent = user.fullName || user.login;
+  userBadgeRole.textContent = ROLE_LABELS[user.role] || user.role;
+  if (logoutButton) logoutButton.hidden = false;
+}
+
+function handleSessionExpired() {
+  state.user = null;
+  applyUserToBadge(null);
+  showLoginScreen();
+}
+
+async function fetchCurrentUser() {
+  try {
+    const { user } = await requestJson("/api/auth/me");
+    return user || null;
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function startApplication() {
+  const user = await fetchCurrentUser();
+  if (!user) {
+    state.user = null;
+    applyUserToBadge(null);
+    showLoginScreen();
+    return;
+  }
+  state.user = user;
+  applyUserToBadge(user);
+  showAppShell();
+  try {
+    await loadData();
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return;
+    }
+    app.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+if (loginForm) {
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (loginSubmit) loginSubmit.disabled = true;
+    if (loginError) {
+      loginError.hidden = true;
+      loginError.textContent = "";
+    }
+    const formData = new FormData(loginForm);
+    const payload = {
+      login: String(formData.get("login") || "").trim(),
+      password: String(formData.get("password") || "")
+    };
+    try {
+      const { user } = await requestJson("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      state.user = user;
+      applyUserToBadge(user);
+      showAppShell();
+      await loadData();
+    } catch (error) {
+      if (loginError) {
+        loginError.hidden = false;
+        loginError.textContent = error.message || "Ошибка входа";
+      }
+    } finally {
+      if (loginSubmit) loginSubmit.disabled = false;
+    }
+  });
+}
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", async () => {
+    logoutButton.disabled = true;
+    try {
+      await requestJson("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore — даже если бэк ругнулся, локально разлогиниваемся
+    } finally {
+      logoutButton.disabled = false;
+    }
+    state.user = null;
+    applyUserToBadge(null);
+    state.dashboard = null;
+    state.banks = [];
+    state.clients = [];
+    state.managers = [];
+    state.knowledge = [];
+    state.tasks = [];
+    showLoginScreen();
+  });
+}
+
+startApplication().catch((error) => {
+  console.error("Bootstrap failed", error);
   app.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
 });
 
