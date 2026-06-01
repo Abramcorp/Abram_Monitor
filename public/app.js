@@ -800,7 +800,7 @@ const TOPBAR_PRIMARY_BY_VIEW = {
 };
 
 function updateActionVisibility() {
-  newManagerButton.hidden = state.view !== "funnels";
+  newManagerButton.hidden = state.view !== "funnels" || !isAdmin();
   newClientButton.hidden = false;
   if (newDealButton) {
     newDealButton.hidden = state.view === "knowledge" || state.view === "archive";
@@ -808,14 +808,14 @@ function updateActionVisibility() {
   if (newTaskButton) {
     newTaskButton.hidden = false;
   }
-  newKnowledgeButton.hidden = false;
+  newKnowledgeButton.hidden = !canEditKnowledge();
 
   const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
   [newManagerButton, newClientButton, newDealButton, newTaskButton, newKnowledgeButton].forEach((button) => {
     if (!button) {
       return;
     }
-    const isPrimary = button.id === primaryId;
+    const isPrimary = button.id === primaryId && !button.hidden;
     button.classList.toggle("primary-button", isPrimary);
     button.classList.toggle("ghost-button", !isPrimary);
   });
@@ -2065,7 +2065,7 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
       <div class="knowledge-card-body">
         <div class="knowledge-card-actions">
           <time>${formatDate(program.updatedAt || bank.updatedAt)}</time>
-          <button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button>
+          ${canEditKnowledge() ? `<button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button>` : ""}
         </div>
         ${renderRequirementGrid(program.requirements)}
         <div class="knowledge-review-terms">
@@ -3590,11 +3590,12 @@ function openApplicationDialog(manager, client) {
   fillDealFormOptions();
   form.reset();
   setDealDialogLoading(false);
-  form.elements.manager.value = manager || "";
+  const lockedManager = isPartner() ? partnerManagerName() : manager || "";
+  form.elements.manager.value = lockedManager;
   form.elements.client.value = client || "";
-  form.elements.managerLocked.value = manager || "";
+  form.elements.managerLocked.value = lockedManager;
   form.elements.manager.disabled = true;
-  form.elements.client.readOnly = true;
+  form.elements.client.readOnly = Boolean(client);
   form.elements.stage.value = "planned";
   syncApplicationProgramFields();
   updateApplicationDateRequirements();
@@ -3623,8 +3624,15 @@ if (newDealButton) {
     fillDealFormOptions();
     form.reset();
     setDealDialogLoading(false);
-    form.elements.manager.disabled = false;
-    form.elements.managerLocked.value = "";
+    if (isPartner()) {
+      const name = partnerManagerName();
+      form.elements.manager.value = name;
+      form.elements.managerLocked.value = name;
+      form.elements.manager.disabled = true;
+    } else {
+      form.elements.manager.disabled = false;
+      form.elements.managerLocked.value = "";
+    }
     form.elements.client.readOnly = false;
     form.elements.stage.value = "planned";
     syncApplicationProgramFields();
@@ -3636,6 +3644,13 @@ if (newDealButton) {
 newClientButton.addEventListener("click", () => {
   fillDealFormOptions();
   clientForm.reset();
+  if (isPartner()) {
+    const name = partnerManagerName();
+    clientForm.elements.manager.value = name;
+    clientForm.elements.manager.disabled = true;
+  } else {
+    clientForm.elements.manager.disabled = false;
+  }
   clientDialog.showModal();
 });
 
@@ -3760,7 +3775,12 @@ function openTaskDialog({ manager = "", client = "" } = {}) {
     return;
   }
   taskForm.reset();
-  fillTaskDialogOptions(manager);
+  const presetManager = isPartner() ? partnerManagerName() : manager;
+  fillTaskDialogOptions(presetManager);
+  const managerSelect = document.querySelector("#taskManager");
+  if (managerSelect) {
+    managerSelect.disabled = isPartner();
+  }
   if (client) {
     refreshTaskClientOptions(client);
   }
@@ -3779,6 +3799,9 @@ if (taskForm) {
       return;
     }
     const payload = Object.fromEntries(new FormData(taskForm).entries());
+    if (isPartner()) {
+      payload.manager = partnerManagerName();
+    }
     try {
       await requestJson("/api/tasks", {
         method: "POST",
@@ -3836,9 +3859,13 @@ clientForm.addEventListener("submit", async (event) => {
 
   event.preventDefault();
   const formData = new FormData(clientForm);
+  const payload = Object.fromEntries(formData.entries());
+  if (isPartner()) {
+    payload.manager = partnerManagerName();
+  }
   await requestJson("/api/clients", {
     method: "POST",
-    body: JSON.stringify(Object.fromEntries(formData.entries()))
+    body: JSON.stringify(payload)
   });
   clientDialog.close();
   await loadData({ targets: ["clients"] });
