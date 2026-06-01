@@ -69,6 +69,25 @@ const ROLE_LABELS = {
   partner: "Партнёрский контур"
 };
 
+function currentRole() {
+  return state.user?.role || null;
+}
+function isAdmin() {
+  return currentRole() === "admin";
+}
+function isAnalystAbram() {
+  return currentRole() === "analyst_abram";
+}
+function isPartner() {
+  return currentRole() === "partner";
+}
+function canEditKnowledge() {
+  return isAdmin() || isAnalystAbram();
+}
+function partnerManagerName() {
+  return isPartner() ? String(state.user?.fullName || "").trim() : "";
+}
+
 const VIEWS = [
   { id: "summary", label: "Сводный отчет" },
   { id: "funnels", label: "Аналитики" },
