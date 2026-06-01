@@ -33,6 +33,7 @@ const {
   getTasks,
   updateDeal,
   updateKnowledgeProgram,
+  updateManager,
   updateTask,
   initStore
 } = require("./src/store");
@@ -582,19 +583,28 @@ async function handleApi(request, response) {
 
   if (request.method === "GET" && pathname === "/api/managers") {
     const managersRaw = await getManagers();
-    // Join: проставляем role из соответствующей учётки по name === fullName.
+    // Join: сначала по userId (жёсткая привязка), затем fallback по name === fullName.
     const allUsers = await users.listUsers();
-    const roleByName = new Map();
+    const userById = new Map();
+    const userByFullName = new Map();
     for (const u of allUsers) {
+      userById.set(u.id, u);
       const key = String(u.fullName || "").trim().toLowerCase();
       if (key) {
-        roleByName.set(key, u.role);
+        userByFullName.set(key, u);
       }
     }
-    const enriched = managersRaw.map((manager) => ({
-      ...manager,
-      role: roleByName.get(String(manager.name || "").trim().toLowerCase()) || ""
-    }));
+    const enriched = managersRaw.map((manager) => {
+      const linkedById = manager.userId ? userById.get(manager.userId) : null;
+      const linkedByName = !linkedById ? userByFullName.get(String(manager.name || "").trim().toLowerCase()) : null;
+      const linked = linkedById || linkedByName;
+      return {
+        ...manager,
+        role: linked?.role || "",
+        userLogin: linked?.login || "",
+        userFullName: linked?.fullName || ""
+      };
+    });
     const managers = scope ? filterByManager(enriched, scope, (manager) => manager.name) : enriched;
     sendJson(response, 200, { managers });
     return;
@@ -616,6 +626,26 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { manager });
+    return;
+  }
+
+  if (request.method === "PATCH" && managerMatch) {
+    requireRole(request, ["admin"]);
+    const managerId = decodeURIComponent(managerMatch[1]);
+    const payload = await readBody(request);
+    const patch = {};
+    if (payload.userId !== undefined) {
+      patch.userId = String(payload.userId || "");
+    }
+    if (payload.name !== undefined) {
+      patch.name = String(payload.name || "");
+    }
+    const updated = await updateManager(managerId, patch);
+    if (!updated) {
+      sendJson(response, 404, { error: "Manager not found" });
+      return;
+    }
+    sendJson(response, 200, { manager: updated });
     return;
   }
 

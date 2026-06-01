@@ -1116,6 +1116,10 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
       return {
         managerId: managerRecord.id,
         manager,
+        userId: managerRecord.userId || "",
+        userLogin: managerRecord.userLogin || "",
+        userFullName: managerRecord.userFullName || "",
+        role: managerRecord.role || "",
         clientCount: activeClients.length,
         count: activeClients.reduce((total, client) => total + client.count, 0),
         activeCount: activeClients.reduce((total, client) => total + client.activeCount, 0),
@@ -1754,6 +1758,25 @@ function managerRoleByName(name) {
   return found?.role || "";
 }
 
+function renderManagerLinkControl(manager) {
+  if (!isAdmin()) return "";
+  if (!manager.managerId) return "";
+  if (manager.userId) {
+    const loginLabel = manager.userLogin ? `@${escapeHtml(manager.userLogin)}` : "учётка";
+    return `
+      <div class="manager-link-info">
+        <span class="manager-link-badge" title="Привязан к учётке ${escapeHtml(manager.userLogin || "")}">🔗 ${loginLabel}</span>
+        <button class="ghost-button small-button" type="button" data-unlink-manager="${escapeHtml(manager.managerId)}">Отвязать</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="manager-link-info">
+      <button class="ghost-button small-button" type="button" data-link-manager="${escapeHtml(manager.managerId)}" data-manager-name="${escapeHtml(manager.manager)}">Привязать к учётке</button>
+    </div>
+  `;
+}
+
 function renderManagerCard(manager) {
   return `
     <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
@@ -1763,6 +1786,7 @@ function renderManagerCard(manager) {
         <div>
           <p class="eyebrow">Аналитик</p>
           <h3>${escapeHtml(manager.manager)}</h3>
+          ${renderManagerLinkControl(manager)}
         </div>
         <div class="manager-metrics">
           <strong>${manager.clientCount} клиентов</strong>
@@ -3886,6 +3910,22 @@ function initDynamicControls() {
       return;
     }
 
+    const linkManagerBtn = target.closest("[data-link-manager]");
+    if (linkManagerBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleLinkManagerToUser(linkManagerBtn);
+      return;
+    }
+
+    const unlinkManagerBtn = target.closest("[data-unlink-manager]");
+    if (unlinkManagerBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleUnlinkManagerFromUser(unlinkManagerBtn);
+      return;
+    }
+
     const addDocRequestBtn = target.closest("[data-add-doc-request]");
     if (addDocRequestBtn) {
       event.preventDefault();
@@ -4443,6 +4483,75 @@ async function handleDeleteUser(button) {
   try {
     await requestJson(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
     await loadData({ targets: ["users"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleLinkManagerToUser(button) {
+  const managerId = button.dataset.linkManager;
+  const managerName = button.dataset.managerName || "";
+  if (!managerId) return;
+  // Подгружаем актуальный список пользователей если их нет
+  if (!Array.isArray(state.users) || !state.users.length) {
+    try {
+      await loadData({ targets: ["users"] });
+    } catch (error) {
+      window.alert("Не удалось загрузить список пользователей: " + error.message);
+      return;
+    }
+  }
+  const candidates = (state.users || []).filter((u) => u.role === "analyst_abram" || u.role === "partner" || u.role === "admin");
+  if (!candidates.length) {
+    window.alert("Нет учёток, к которым можно привязать. Создайте аналитика или партнёра.");
+    return;
+  }
+  const list = candidates
+    .map((u, i) => `${i + 1}. ${u.fullName || u.login} (${u.login}) — ${ROLE_LABELS[u.role] || u.role}`)
+    .join("\n");
+  const answer = window.prompt(
+    `Привязать аналитика «${managerName}» к учётке.\n\nВведите логин или номер из списка:\n\n${list}`,
+    ""
+  );
+  if (!answer) return;
+  const trimmed = answer.trim();
+  let chosen = null;
+  // Сначала пробуем как номер.
+  const asNumber = Number(trimmed);
+  if (Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= candidates.length) {
+    chosen = candidates[asNumber - 1];
+  } else {
+    const lower = trimmed.toLowerCase();
+    chosen = candidates.find((u) => String(u.login || "").toLowerCase() === lower)
+      || candidates.find((u) => String(u.fullName || "").toLowerCase() === lower);
+  }
+  if (!chosen) {
+    window.alert(`Учётка «${trimmed}» не найдена среди аналитиков и партнёров.`);
+    return;
+  }
+  try {
+    await requestJson(`/api/managers/${encodeURIComponent(managerId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ userId: chosen.id })
+    });
+    showToast(`Привязано: ${managerName} → ${chosen.login}`, { type: "success" });
+    await loadData({ targets: ["managers"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleUnlinkManagerFromUser(button) {
+  const managerId = button.dataset.unlinkManager;
+  if (!managerId) return;
+  if (!window.confirm("Отвязать аналитика от учётки?")) return;
+  try {
+    await requestJson(`/api/managers/${encodeURIComponent(managerId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ userId: "" })
+    });
+    showToast("Привязка снята", { type: "info" });
+    await loadData({ targets: ["managers"] });
   } catch (error) {
     window.alert(error.message);
   }
