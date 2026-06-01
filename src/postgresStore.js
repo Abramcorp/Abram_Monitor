@@ -28,6 +28,10 @@ const COLLECTIONS = {
   users: {
     file: path.join(DATA_DIR, "users.json"),
     table: "app_users"
+  },
+  document_requests: {
+    file: path.join(DATA_DIR, "document_requests.json"),
+    table: "app_document_requests"
   }
 };
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
@@ -192,6 +196,19 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
         CREATE UNIQUE INDEX IF NOT EXISTS app_users_login_idx
           ON app_users (lower(data->>'login'));
 
+        CREATE TABLE IF NOT EXISTS app_document_requests (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS app_document_requests_deal_idx
+          ON app_document_requests ((data->>'dealId'));
+
+        CREATE INDEX IF NOT EXISTS app_document_requests_manager_idx
+          ON app_document_requests (lower(data->>'manager'));
+
         CREATE TABLE IF NOT EXISTS app_knowledge_programs (
           id text PRIMARY KEY,
           bank_id text NOT NULL,
@@ -210,6 +227,7 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
       await seedCollection("banks", readJson(COLLECTIONS.banks.file, []));
       await seedCollection("managers", readJson(COLLECTIONS.managers.file, []));
       await seedCollection("tasks", readJson(COLLECTIONS.tasks.file, []));
+      await seedCollection("document_requests", readJson(COLLECTIONS.document_requests.file, []));
       await seedKnowledge(normalizeKnowledgeEntries(readJson(KNOWLEDGE_FILE, [])));
     })();
   }
@@ -342,6 +360,25 @@ async function deleteTasksByClient(managerName, clientName) {
   return result.rows.map((row) => row.data);
 }
 
+async function deleteDocumentRequestsByDeal(dealId) {
+  const result = await getPool().query(
+    `DELETE FROM app_document_requests WHERE data->>'dealId' = $1 RETURNING data`,
+    [String(dealId || "")]
+  );
+  return result.rows.map((row) => row.data);
+}
+
+async function deleteDocumentRequestsByClient(managerName, clientName) {
+  const result = await getPool().query(
+    `DELETE FROM app_document_requests
+     WHERE lower(data->>'manager') = lower($1)
+       AND lower(data->>'clientName') = lower($2)
+     RETURNING data`,
+    [String(managerName || ""), String(clientName || "")]
+  );
+  return result.rows.map((row) => row.data);
+}
+
 async function listKnowledge() {
   const result = await getPool().query(
     `SELECT bank_id, bank, data, updated_at
@@ -438,6 +475,8 @@ module.exports = {
   isEnabled,
   listKnowledge,
   listRows,
+  deleteDocumentRequestsByClient,
+  deleteDocumentRequestsByDeal,
   deleteRow,
   deleteTasksByClient,
   updateKnowledgeProgram,
