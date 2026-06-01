@@ -33,6 +33,7 @@ const {
   getTasks,
   updateDeal,
   updateKnowledgeProgram,
+  updateManager,
   updateTask,
   initStore
 } = require("./src/store");
@@ -581,8 +582,31 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/managers") {
-    const managers = await getManagers();
-    sendJson(response, 200, { managers: scope ? filterByManager(managers, scope, (manager) => manager.name) : managers });
+    const managersRaw = await getManagers();
+    // Join: сначала по userId (жёсткая привязка), затем fallback по name === fullName.
+    const allUsers = await users.listUsers();
+    const userById = new Map();
+    const userByFullName = new Map();
+    for (const u of allUsers) {
+      userById.set(u.id, u);
+      const key = String(u.fullName || "").trim().toLowerCase();
+      if (key) {
+        userByFullName.set(key, u);
+      }
+    }
+    const enriched = managersRaw.map((manager) => {
+      const linkedById = manager.userId ? userById.get(manager.userId) : null;
+      const linkedByName = !linkedById ? userByFullName.get(String(manager.name || "").trim().toLowerCase()) : null;
+      const linked = linkedById || linkedByName;
+      return {
+        ...manager,
+        role: linked?.role || "",
+        userLogin: linked?.login || "",
+        userFullName: linked?.fullName || ""
+      };
+    });
+    const managers = scope ? filterByManager(enriched, scope, (manager) => manager.name) : enriched;
+    sendJson(response, 200, { managers });
     return;
   }
 
@@ -602,6 +626,26 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { manager });
+    return;
+  }
+
+  if (request.method === "PATCH" && managerMatch) {
+    requireRole(request, ["admin"]);
+    const managerId = decodeURIComponent(managerMatch[1]);
+    const payload = await readBody(request);
+    const patch = {};
+    if (payload.userId !== undefined) {
+      patch.userId = String(payload.userId || "");
+    }
+    if (payload.name !== undefined) {
+      patch.name = String(payload.name || "");
+    }
+    const updated = await updateManager(managerId, patch);
+    if (!updated) {
+      sendJson(response, 404, { error: "Manager not found" });
+      return;
+    }
+    sendJson(response, 200, { manager: updated });
     return;
   }
 
@@ -703,6 +747,18 @@ async function handleApi(request, response) {
         fullName: payload.fullName,
         role: payload.role
       });
+      // Авто-создаём manager для ролей-аналитиков, если такого ещё нет.
+      if (created && (created.role === "partner" || created.role === "analyst_abram") && created.fullName) {
+        const existingManagers = await getManagers();
+        const exists = existingManagers.some((m) => String(m.name || "").trim().toLowerCase() === created.fullName.trim().toLowerCase());
+        if (!exists) {
+          try {
+            await createManager({ name: created.fullName });
+          } catch {
+            // конфликт по имени или ошибка валидации — игнорируем; админ может создать вручную
+          }
+        }
+      }
       sendJson(response, 201, { user: created });
     } catch (error) {
       sendJson(response, 400, { error: error.message });

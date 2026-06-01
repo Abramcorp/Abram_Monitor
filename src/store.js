@@ -252,6 +252,7 @@ function normalizeManager(raw = {}) {
   return {
     id: cleanText(raw.id) || `manager-${Date.now()}`,
     name,
+    userId: cleanText(raw.userId),
     createdAt: toIsoDate(raw.createdAt) || now,
     updatedAt: toIsoDate(raw.updatedAt) || now
   };
@@ -300,6 +301,32 @@ function createManager(payload) {
   managers.push(manager);
   writeJson(MANAGERS_FILE, managers);
   return manager;
+}
+
+async function updateManager(id, patch) {
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("managers", id, (current) => normalizeManager({
+      ...current,
+      ...patch,
+      id,
+      updatedAt: new Date().toISOString()
+    }));
+    return updated ? normalizeManager(updated) : null;
+  }
+  const managers = getManagers();
+  const index = managers.findIndex((m) => m.id === id);
+  if (index === -1) {
+    return null;
+  }
+  managers[index] = normalizeManager({
+    ...managers[index],
+    ...patch,
+    id,
+    updatedAt: new Date().toISOString()
+  });
+  writeJson(MANAGERS_FILE, managers);
+  return managers[index];
 }
 
 function deleteManager(id) {
@@ -1088,5 +1115,6 @@ module.exports = {
   validateTask,
   updateDeal,
   updateKnowledgeProgram,
+  updateManager,
   updateTask
 };
