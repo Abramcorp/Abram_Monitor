@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260601-auth-users">
+    <link rel="stylesheet" href="/styles.css?v=20260601-doc-requests">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -211,6 +211,37 @@
         </div>
       </form>
     </dialog>
+
+    <dialog class="deal-dialog" id="documentRequestDialog">
+      <form method="dialog" class="deal-form" id="documentRequestForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Запрос документов</p>
+            <h2>Новый запрос</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <label>
+          По какой заявке
+          <select name="dealId" id="docRequestDeal" required></select>
+        </label>
+
+        <label>
+          Список документов
+          <textarea name="items" rows="6" required placeholder="Перечислите документы, можно построчно"></textarea>
+        </label>
+
+        <p class="login-error" id="docRequestError" hidden></p>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Запросить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast-host" id="toastHost" aria-live="polite"></div>
 
     <dialog class="deal-dialog" id="userDialog">
       <form method="dialog" class="deal-form" id="userForm">
@@ -419,6 +450,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260601-auth-users" defer></script>
+    <script src="/app.js?v=20260601-doc-requests" defer></script>
   </body>
 </html>

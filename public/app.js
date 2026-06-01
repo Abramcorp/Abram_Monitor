@@ -8,6 +8,8 @@ const state = {
   managers: [],
   tasks: [],
   users: [],
+  documentRequests: [],
+  lastSeenFulfilledRequestIds: new Set(),
   user: null,
   filters: {
     query: "",
@@ -56,6 +58,11 @@ const userDialogTitle = document.querySelector("#userDialogTitle");
 const userFormError = document.querySelector("#userFormError");
 const userPasswordHint = document.querySelector("#userPasswordHint");
 const userLoginField = document.querySelector("#userLogin");
+const documentRequestDialog = document.querySelector("#documentRequestDialog");
+const documentRequestForm = document.querySelector("#documentRequestForm");
+const documentRequestDealSelect = document.querySelector("#docRequestDeal");
+const documentRequestError = document.querySelector("#docRequestError");
+const toastHost = document.querySelector("#toastHost");
 const applicationProgramPreview = document.querySelector("#applicationProgramPreview");
 const taskDialog = document.querySelector("#taskDialog");
 const taskForm = document.querySelector("#taskForm");
@@ -100,6 +107,7 @@ const VIEWS = [
   { id: "funnels", label: "Аналитики" },
   { id: "archive", label: "Архив клиентов" },
   { id: "knowledge", label: "База знаний" },
+  { id: "document-requests", label: "Запросы документов", adminOnly: true },
   { id: "users", label: "Пользователи", adminOnly: true }
 ];
 
@@ -560,7 +568,11 @@ const LOAD_DATA_TARGETS = {
   managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; } },
   knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } },
   tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; } },
-  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, adminOnly: true }
+  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, adminOnly: true },
+  documentRequests: {
+    url: "/api/document-requests",
+    apply: (payload) => { applyDocumentRequests(payload.documentRequests || []); }
+  }
 };
 const LOAD_DATA_ALL = Object.keys(LOAD_DATA_TARGETS);
 
@@ -1208,7 +1220,7 @@ function renderClientApplicationCards(applications, emptyText, type) {
               <summary class="application-card-head">
                 <strong>${renderApplicationProgramTitle(deal)}</strong>
                 <span>${money(deal.amountRequested)}</span>
-                <em>${escapeHtml(deal.stageLabel)}</em>
+                <em>${escapeHtml(deal.stageLabel)}${renderDealDocumentBadge(deal)}</em>
                 <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
               </summary>
               <div class="application-card-body">
@@ -1414,9 +1426,13 @@ function renderClientActions(client, settings = {}) {
     return "";
   }
 
+  const dealsForRequest = (client.activeApplications || []).filter((deal) => deal.statusGroup === "current");
+  const canRequestDocs = Boolean(dealsForRequest.length);
+
   return `
     <div class="client-actions">
       ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
+      ${canRequestDocs ? `<button class="ghost-button small-button" data-add-doc-request="${escapeHtml(client.client)}" data-doc-manager="${escapeHtml(client.manager || "")}" type="button">+ Запрос документов</button>` : ""}
       ${
         settings.allowArchive && client.clientId
           ? `<button class="ghost-button small-button" data-archive-client="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">В архив</button>`
@@ -2294,6 +2310,128 @@ function renderKnowledgeView() {
       </div>
       ${renderKnowledgeSectionControls()}
       ${renderKnowledgeSectionContent(items)}
+    </section>
+  `;
+}
+
+// ===== Document requests helpers =====
+
+function showToast(message, { type = "info", durationMs = 4000 } = {}) {
+  if (!toastHost || !message) return;
+  const node = document.createElement("div");
+  node.className = `toast ${type === "success" ? "is-success" : type === "error" ? "is-error" : ""}`.trim();
+  node.textContent = message;
+  toastHost.appendChild(node);
+  setTimeout(() => {
+    if (node.parentNode === toastHost) {
+      toastHost.removeChild(node);
+    }
+  }, durationMs);
+}
+
+function applyDocumentRequests(items) {
+  const previousSet = state.lastSeenFulfilledRequestIds instanceof Set
+    ? state.lastSeenFulfilledRequestIds
+    : new Set();
+  const nextFulfilled = new Set();
+  const newlyFulfilled = [];
+  const myFullName = String(state.user?.fullName || "").trim().toLowerCase();
+  for (const item of items) {
+    if (item.status === "fulfilled" && item.id) {
+      nextFulfilled.add(item.id);
+      if (!previousSet.has(item.id) && previousSet.size > 0 && !isAdmin()) {
+        const ownerMatches = String(item.manager || "").trim().toLowerCase() === myFullName;
+        if (ownerMatches) {
+          newlyFulfilled.push(item);
+        }
+      }
+    }
+  }
+  state.documentRequests = items;
+  state.lastSeenFulfilledRequestIds = nextFulfilled;
+  for (const item of newlyFulfilled) {
+    showToast(`Документы загружены: ${item.clientName} · ${item.program || item.bank}`, { type: "success", durationMs: 7000 });
+  }
+}
+
+function documentRequestsForClient(manager, clientName) {
+  const m = compareKey(manager);
+  const c = compareKey(clientName);
+  return state.documentRequests.filter((req) => compareKey(req.manager) === m && compareKey(req.clientName) === c);
+}
+
+function documentRequestForDeal(dealId) {
+  if (!dealId) return null;
+  const list = state.documentRequests.filter((req) => req.dealId === dealId);
+  if (!list.length) return null;
+  const open = list.find((req) => req.status === "open");
+  if (open) return open;
+  return list.slice().sort((a, b) => (a.fulfilledAt < b.fulfilledAt ? 1 : -1))[0];
+}
+
+function renderDealDocumentBadge(deal) {
+  const req = documentRequestForDeal(deal.id);
+  if (!req) return "";
+  if (req.status === "fulfilled") {
+    const when = req.fulfilledAt ? formatDate(req.fulfilledAt) : "";
+    return `<span class="deal-doc-badge is-fulfilled" title="Документы загружены${when ? ` ${when}` : ""}">✓ Документы загружены</span>`;
+  }
+  const when = req.createdAt ? formatDate(req.createdAt) : "";
+  return `<span class="deal-doc-badge is-requested" title="Запрошены ${when}">● Документы запрошены${when ? ` · ${when}` : ""}</span>`;
+}
+
+function renderDocumentRequestsView() {
+  if (!isAdmin()) {
+    return `<div class="empty">Доступ только для администраторов.</div>`;
+  }
+  const open = state.documentRequests.filter((req) => req.status === "open");
+  if (!open.length) {
+    return `
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Документы</p>
+            <h2>Активных запросов нет</h2>
+          </div>
+        </div>
+        <div class="empty">Когда аналитик создаст запрос, он появится здесь.</div>
+      </section>
+    `;
+  }
+  const sorted = open.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Документы</p>
+          <h2>Активные запросы (${sorted.length})</h2>
+        </div>
+      </div>
+      <div class="doc-request-stack">
+        ${sorted.map((req) => {
+          const drive = req.driveUrl ? `<a href="${escapeHtml(req.driveUrl)}" target="_blank" rel="noopener noreferrer">Диск клиента</a>` : `<span>Ссылка на диск не указана</span>`;
+          return `
+            <article class="doc-request-card">
+              <div class="doc-request-card-head">
+                <div>
+                  <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
+                  <p class="doc-request-meta">
+                    <span>Аналитик: ${escapeHtml(req.manager)}</span>
+                    <span>${escapeHtml(req.bank || "")}</span>
+                    ${drive}
+                  </p>
+                </div>
+                <time>Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}</time>
+              </div>
+              <div class="doc-request-items">${escapeHtml(req.items)}</div>
+              <div class="doc-request-actions">
+                <button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>
+                <button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
     </section>
   `;
 }
@@ -3307,7 +3445,8 @@ function render() {
     archive: renderArchiveView,
     knowledge: renderKnowledgeView,
     summary: renderSummary,
-    users: renderUsersView
+    users: renderUsersView,
+    "document-requests": renderDocumentRequestsView
   };
 
   app.innerHTML = (views[state.view] || renderSummary)();
@@ -3579,6 +3718,33 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       await handleDeleteUser(deleteUserBtn);
+      return;
+    }
+
+    const addDocRequestBtn = target.closest("[data-add-doc-request]");
+    if (addDocRequestBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      openDocumentRequestDialog({
+        clientName: addDocRequestBtn.dataset.addDocRequest || "",
+        manager: addDocRequestBtn.dataset.docManager || ""
+      });
+      return;
+    }
+
+    const fulfillDocRequestBtn = target.closest("[data-fulfill-doc-request]");
+    if (fulfillDocRequestBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleFulfillDocumentRequest(fulfillDocRequestBtn);
+      return;
+    }
+
+    const deleteDocRequestBtn = target.closest("[data-delete-doc-request]");
+    if (deleteDocRequestBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteDocumentRequest(deleteDocRequestBtn);
       return;
     }
 
@@ -4143,6 +4309,90 @@ if (userForm) {
       if (userFormError) {
         userFormError.hidden = false;
         userFormError.textContent = error.message || "Не удалось сохранить";
+      }
+    }
+  });
+}
+
+// ===== Document request dialog & handlers =====
+
+function openDocumentRequestDialog({ clientName, manager }) {
+  if (!documentRequestDialog || !documentRequestForm) {
+    return;
+  }
+  documentRequestForm.reset();
+  if (documentRequestError) {
+    documentRequestError.hidden = true;
+    documentRequestError.textContent = "";
+  }
+  const targetManager = compareKey(manager);
+  const targetClient = compareKey(clientName);
+  const deals = (state.dashboard?.deals || []).filter((deal) =>
+    compareKey(deal.manager) === targetManager &&
+    compareKey(deal.client) === targetClient &&
+    (deal.stage === "planned" || deal.statusGroup === "current")
+  );
+  if (!documentRequestDealSelect) return;
+  if (!deals.length) {
+    documentRequestDealSelect.innerHTML = `<option value="" disabled selected>Нет активных заявок</option>`;
+  } else {
+    documentRequestDealSelect.innerHTML = deals
+      .map((deal) => `<option value="${escapeHtml(deal.id)}">${escapeHtml(deal.bank || "")} · ${escapeHtml(deal.program || "")} (${escapeHtml(deal.stageLabel)})</option>`)
+      .join("");
+  }
+  documentRequestDialog.showModal();
+}
+
+async function handleFulfillDocumentRequest(button) {
+  const reqId = button.dataset.fulfillDocRequest;
+  if (!reqId) return;
+  if (!window.confirm("Подтвердить, что документы загружены?")) return;
+  button.disabled = true;
+  try {
+    await requestJson(`/api/document-requests/${encodeURIComponent(reqId)}/fulfill`, { method: "PATCH" });
+    await loadData({ targets: ["documentRequests"] });
+    showToast("Запрос закрыт. Аналитик увидит «Документы загружены».", { type: "success" });
+  } catch (error) {
+    showToast(error.message || "Не удалось закрыть запрос", { type: "error" });
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleDeleteDocumentRequest(button) {
+  const reqId = button.dataset.deleteDocRequest;
+  if (!reqId) return;
+  if (!window.confirm("Удалить запрос документов?")) return;
+  try {
+    await requestJson(`/api/document-requests/${encodeURIComponent(reqId)}`, { method: "DELETE" });
+    await loadData({ targets: ["documentRequests"] });
+  } catch (error) {
+    showToast(error.message || "Не удалось удалить запрос", { type: "error" });
+  }
+}
+
+if (documentRequestForm) {
+  documentRequestForm.addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") {
+      return;
+    }
+    event.preventDefault();
+    if (!documentRequestForm.reportValidity()) {
+      return;
+    }
+    const payload = Object.fromEntries(new FormData(documentRequestForm).entries());
+    try {
+      await requestJson("/api/document-requests", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      documentRequestDialog.close();
+      await loadData({ targets: ["documentRequests"] });
+      showToast("Запрос отправлен", { type: "success" });
+    } catch (error) {
+      if (documentRequestError) {
+        documentRequestError.hidden = false;
+        documentRequestError.textContent = error.message || "Не удалось отправить запрос";
       }
     }
   });
