@@ -22,9 +22,6 @@ async function hashPassword(password) {
   if (typeof password !== "string" || password.length === 0) {
     throw new Error("Пароль не может быть пустым");
   }
-  if (password.length < 6) {
-    throw new Error("Пароль должен быть не короче 6 символов");
-  }
   const salt = crypto.randomBytes(SALT_BYTES);
   const key = await deriveKey(password, salt);
   return `${HASH_PREFIX}${SCRYPT_PARAMS.N}$${salt.toString("base64")}$${key.toString("base64")}`;
