@@ -80,7 +80,8 @@ const userBadgeRole = document.querySelector("#userBadgeRole");
 const ROLE_LABELS = {
   admin: "Администратор",
   analyst_abram: "Аналитик AbramCorp",
-  partner: "Партнёрский контур"
+  partner: "Партнёрский контур",
+  documents_officer: "Документы"
 };
 
 function currentRole() {
@@ -95,6 +96,9 @@ function isAnalystAbram() {
 function isPartner() {
   return currentRole() === "partner";
 }
+function isDocumentsOfficer() {
+  return currentRole() === "documents_officer";
+}
 function canEditKnowledge() {
   return isAdmin() || isAnalystAbram();
 }
@@ -103,16 +107,17 @@ function partnerManagerName() {
 }
 
 const VIEWS = [
-  { id: "summary", label: "Сводный отчет" },
-  { id: "funnels", label: "Аналитики" },
-  { id: "archive", label: "Архив клиентов" },
-  { id: "knowledge", label: "База знаний" },
-  { id: "document-requests", label: "Запросы документов", adminOnly: true },
-  { id: "users", label: "Пользователи", adminOnly: true }
+  { id: "summary", label: "Сводный отчет", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "funnels", label: "Аналитики", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "document-requests", label: "Запросы документов", allowedRoles: ["admin", "documents_officer"] },
+  { id: "users", label: "Пользователи", allowedRoles: ["admin"] }
 ];
 
 function visibleViews() {
-  return VIEWS.filter((view) => !view.adminOnly || isAdmin());
+  const role = currentRole();
+  return VIEWS.filter((view) => !view.allowedRoles || view.allowedRoles.includes(role));
 }
 
 const REQUIREMENT_LABELS = {
@@ -562,13 +567,13 @@ async function requestJson(url, options) {
 }
 
 const LOAD_DATA_TARGETS = {
-  dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; } },
-  banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; } },
-  clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; } },
-  managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; } },
-  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } },
-  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; } },
-  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, adminOnly: true },
+  dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; }, notForRoles: ["documents_officer"] },
+  banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; }, notForRoles: ["documents_officer"] },
+  clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; }, notForRoles: ["documents_officer"] },
+  managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; }, notForRoles: ["documents_officer"] },
+  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; }, notForRoles: ["documents_officer"] },
+  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; }, notForRoles: ["documents_officer"] },
+  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, allowedRoles: ["admin"] },
   documentRequests: {
     url: "/api/document-requests",
     apply: (payload) => { applyDocumentRequests(payload.documentRequests || []); }
@@ -761,7 +766,13 @@ async function loadData(options = {}) {
   const requestedRaw = Array.isArray(options.targets) && options.targets.length
     ? options.targets.filter((target) => target in LOAD_DATA_TARGETS)
     : LOAD_DATA_ALL;
-  const requested = requestedRaw.filter((target) => !LOAD_DATA_TARGETS[target].adminOnly || isAdmin());
+  const role = currentRole();
+  const requested = requestedRaw.filter((target) => {
+    const def = LOAD_DATA_TARGETS[target];
+    if (def.allowedRoles && !def.allowedRoles.includes(role)) return false;
+    if (def.notForRoles && def.notForRoles.includes(role)) return false;
+    return true;
+  });
   const responses = await Promise.all(requested.map((target) => requestJson(LOAD_DATA_TARGETS[target].url)));
   responses.forEach((payload, index) => {
     LOAD_DATA_TARGETS[requested[index]].apply(payload);
@@ -878,15 +889,16 @@ const TOPBAR_PRIMARY_BY_VIEW = {
 };
 
 function updateActionVisibility() {
-  newManagerButton.hidden = state.view !== "funnels" || !isAdmin();
-  newClientButton.hidden = false;
+  const docsOnly = isDocumentsOfficer();
+  newManagerButton.hidden = docsOnly || state.view !== "funnels" || !isAdmin();
+  newClientButton.hidden = docsOnly;
   if (newDealButton) {
-    newDealButton.hidden = state.view === "knowledge" || state.view === "archive";
+    newDealButton.hidden = docsOnly || state.view === "knowledge" || state.view === "archive";
   }
   if (newTaskButton) {
-    newTaskButton.hidden = false;
+    newTaskButton.hidden = docsOnly;
   }
-  newKnowledgeButton.hidden = !canEditKnowledge();
+  newKnowledgeButton.hidden = docsOnly || !canEditKnowledge();
 
   const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
   [newManagerButton, newClientButton, newDealButton, newTaskButton, newKnowledgeButton].forEach((button) => {
@@ -3517,7 +3529,8 @@ function updatePageHeader() {
 }
 
 function render() {
-  if (!state.dashboard) {
+  // documents_officer не имеет dashboard — рендерим вкладку сразу.
+  if (!state.dashboard && !isDocumentsOfficer()) {
     app.innerHTML = `<div class="loading">Загрузка данных...</div>`;
     return;
   }
@@ -3537,7 +3550,8 @@ function render() {
     "document-requests": renderDocumentRequestsView
   };
 
-  app.innerHTML = (views[state.view] || renderSummary)();
+  const renderer = views[state.view] || (isDocumentsOfficer() ? renderDocumentRequestsView : renderSummary);
+  app.innerHTML = renderer();
   bindDynamicControls();
 }
 
@@ -4574,6 +4588,17 @@ async function fetchCurrentUser() {
   }
 }
 
+function pickInitialView() {
+  if (isDocumentsOfficer()) {
+    state.view = "document-requests";
+    return;
+  }
+  const allowed = visibleViews();
+  if (!allowed.some((view) => view.id === state.view)) {
+    state.view = allowed[0]?.id || "summary";
+  }
+}
+
 async function startApplication() {
   const user = await fetchCurrentUser();
   if (!user) {
@@ -4584,6 +4609,7 @@ async function startApplication() {
   }
   state.user = user;
   applyUserToBadge(user);
+  pickInitialView();
   showAppShell();
   try {
     await loadData();
@@ -4618,6 +4644,7 @@ if (loginForm) {
       }
       state.user = user;
       applyUserToBadge(user);
+      pickInitialView();
       showAppShell();
       await loadData();
     } catch (error) {

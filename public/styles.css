@@ -2395,6 +2395,12 @@ td select {
   border-color: rgba(52, 127, 143, 0.3);
 }
 
+.user-role-documents_officer {
+  background: rgba(182, 106, 19, 0.14);
+  color: var(--amber);
+  border-color: rgba(182, 106, 19, 0.3);
+}
+
 .user-password-hint {
   color: var(--muted);
   font-weight: 400;
