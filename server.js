@@ -183,9 +183,18 @@ function shouldUseSecureCookie(request) {
   return false;
 }
 
+function readBearerToken(request) {
+  const header = request.headers?.authorization || request.headers?.Authorization;
+  if (typeof header !== "string") {
+    return "";
+  }
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
 async function attachUser(request) {
   const cookies = parseCookies(request.headers?.cookie);
-  const token = cookies[SESSION_COOKIE];
+  const token = readBearerToken(request) || cookies[SESSION_COOKIE] || "";
   const session = token ? sessionStore.get(token) : null;
   if (!session) {
     request.user = null;
@@ -288,6 +297,56 @@ function serveStatic(request, response) {
   });
 }
 
+class AuthError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+function requireAuth(request) {
+  if (!request.user) {
+    throw new AuthError(401, "Не авторизовано");
+  }
+  return request.user;
+}
+
+function requireRole(request, allowedRoles) {
+  const user = requireAuth(request);
+  if (!allowedRoles.includes(user.role)) {
+    throw new AuthError(403, "Недостаточно прав");
+  }
+  return user;
+}
+
+function isPartner(request) {
+  return request.user?.role === "partner";
+}
+
+function partnerScope(request) {
+  if (!isPartner(request)) {
+    return null;
+  }
+  return String(request.user?.fullName || "").trim().toLowerCase();
+}
+
+function ensurePartnerOwnsManager(request, managerName) {
+  const scope = partnerScope(request);
+  if (!scope) {
+    return;
+  }
+  if (String(managerName || "").trim().toLowerCase() !== scope) {
+    throw new AuthError(403, "Можно работать только со своими клиентами");
+  }
+}
+
+function filterByManager(items, scope, getter) {
+  if (!scope) {
+    return items;
+  }
+  return items.filter((item) => String(getter(item) || "").trim().toLowerCase() === scope);
+}
+
 async function handleAuth(request, response, pathname) {
   if (request.method === "POST" && pathname === "/api/auth/login") {
     const payload = await readBody(request);
@@ -303,10 +362,13 @@ async function handleAuth(request, response, pathname) {
       return true;
     }
     const session = sessionStore.create(user.id);
+    // Возвращаем токен и в Set-Cookie (HttpOnly), и в JSON-теле:
+    // фронт хранит копию в localStorage и отправляет её как Bearer-фолбэк
+    // на случай если cookie теряются за прокси/настройками браузера.
     sendJson(
       response,
       200,
-      { user: users.publicUser(user) },
+      { user: users.publicUser(user), token: session.token, expiresAt: session.expiresAt },
       { "Set-Cookie": buildSessionCookie(session.token, session.ttlMs, { secure: shouldUseSecureCookie(request) }) }
     );
     return true;
@@ -348,9 +410,15 @@ async function handleApi(request, response) {
     }
   }
 
+  // Все остальные /api/* требуют авторизации.
+  requireAuth(request);
+  const scope = partnerScope(request);
+
   if (request.method === "GET" && pathname === "/api/dashboard") {
     const time = await getMoscowNow();
-    sendJson(response, 200, calculateDashboard(await getDeals(), new Date(time.iso), time));
+    let deals = await getDeals();
+    deals = filterByManager(deals, scope, (deal) => deal.manager);
+    sendJson(response, 200, calculateDashboard(deals, new Date(time.iso), time));
     return;
   }
 
@@ -360,20 +428,31 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/deals") {
-    sendJson(response, 200, { deals: await getDeals() });
+    const deals = filterByManager(await getDeals(), scope, (deal) => deal.manager);
+    sendJson(response, 200, { deals });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/deals") {
     const payload = await readBody(request);
+    ensurePartnerOwnsManager(request, payload.manager);
     sendJson(response, 201, { deal: await createDeal(payload) });
     return;
   }
 
   const dealActionMatch = pathname.match(/^\/api\/deals\/([^/]+)\/actions$/);
   if (request.method === "POST" && dealActionMatch) {
+    const dealId = decodeURIComponent(dealActionMatch[1]);
+    if (scope) {
+      const existing = (await getDeals()).find((deal) => deal.id === dealId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Deal not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+    }
     const payload = await readBody(request);
-    const deal = await addDealAction(decodeURIComponent(dealActionMatch[1]), payload);
+    const deal = await addDealAction(dealId, payload);
     if (!deal) {
       sendJson(response, 404, { error: "Deal not found" });
       return;
@@ -384,8 +463,20 @@ async function handleApi(request, response) {
 
   const dealMatch = pathname.match(/^\/api\/deals\/([^/]+)$/);
   if (request.method === "PATCH" && dealMatch) {
+    const dealId = decodeURIComponent(dealMatch[1]);
     const payload = await readBody(request);
-    const deal = await updateDeal(decodeURIComponent(dealMatch[1]), payload);
+    if (scope) {
+      const existing = (await getDeals()).find((deal) => deal.id === dealId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Deal not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+      if (payload.manager !== undefined) {
+        ensurePartnerOwnsManager(request, payload.manager);
+      }
+    }
+    const deal = await updateDeal(dealId, payload);
     if (!deal) {
       sendJson(response, 404, { error: "Deal not found" });
       return;
@@ -395,7 +486,16 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "DELETE" && dealMatch) {
-    const deal = await deleteDeal(decodeURIComponent(dealMatch[1]));
+    const dealId = decodeURIComponent(dealMatch[1]);
+    if (scope) {
+      const existing = (await getDeals()).find((deal) => deal.id === dealId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Deal not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+    }
+    const deal = await deleteDeal(dealId);
     if (!deal) {
       sendJson(response, 404, { error: "Deal not found" });
       return;
@@ -410,25 +510,37 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/banks") {
+    requireRole(request, ["admin", "analyst_abram"]);
     const payload = await readBody(request);
     sendJson(response, 201, { bank: await createBank(payload) });
     return;
   }
 
   if (request.method === "GET" && pathname === "/api/clients") {
-    sendJson(response, 200, { clients: await getClients() });
+    const clients = filterByManager(await getClients(), scope, (client) => client.manager);
+    sendJson(response, 200, { clients });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/clients") {
     const payload = await readBody(request);
+    ensurePartnerOwnsManager(request, payload.manager);
     sendJson(response, 201, { client: await createClient(payload) });
     return;
   }
 
   const clientArchiveMatch = pathname.match(/^\/api\/clients\/([^/]+)\/archive$/);
   if (request.method === "PATCH" && clientArchiveMatch) {
-    const client = await archiveClient(decodeURIComponent(clientArchiveMatch[1]));
+    const clientId = decodeURIComponent(clientArchiveMatch[1]);
+    if (scope) {
+      const existing = (await getClients()).find((client) => client.id === clientId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Client not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+    }
+    const client = await archiveClient(clientId);
     if (!client) {
       sendJson(response, 404, { error: "Client not found" });
       return;
@@ -439,7 +551,16 @@ async function handleApi(request, response) {
 
   const clientMatch = pathname.match(/^\/api\/clients\/([^/]+)$/);
   if (request.method === "DELETE" && clientMatch) {
-    const client = await deleteClient(decodeURIComponent(clientMatch[1]));
+    const clientId = decodeURIComponent(clientMatch[1]);
+    if (scope) {
+      const existing = (await getClients()).find((client) => client.id === clientId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Client not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+    }
+    const client = await deleteClient(clientId);
     if (!client) {
       sendJson(response, 404, { error: "Client not found" });
       return;
@@ -449,11 +570,13 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/managers") {
-    sendJson(response, 200, { managers: await getManagers() });
+    const managers = await getManagers();
+    sendJson(response, 200, { managers: scope ? filterByManager(managers, scope, (manager) => manager.name) : managers });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/managers") {
+    requireRole(request, ["admin"]);
     const payload = await readBody(request);
     sendJson(response, 201, { manager: await createManager(payload) });
     return;
@@ -461,6 +584,7 @@ async function handleApi(request, response) {
 
   const managerMatch = pathname.match(/^\/api\/managers\/([^/]+)$/);
   if (request.method === "DELETE" && managerMatch) {
+    requireRole(request, ["admin"]);
     const manager = await deleteManager(decodeURIComponent(managerMatch[1]));
     if (!manager) {
       sendJson(response, 404, { error: "Manager not found" });
@@ -476,26 +600,41 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/knowledge") {
+    requireRole(request, ["admin", "analyst_abram"]);
     const payload = await readBody(request);
     sendJson(response, 201, { entry: await createKnowledgeEntry(payload) });
     return;
   }
 
   if (request.method === "GET" && pathname === "/api/tasks") {
-    sendJson(response, 200, { tasks: await getTasks() });
+    const tasks = filterByManager(await getTasks(), scope, (task) => task.manager);
+    sendJson(response, 200, { tasks });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/tasks") {
     const payload = await readBody(request);
+    ensurePartnerOwnsManager(request, payload.manager);
     sendJson(response, 201, { task: await createTask(payload) });
     return;
   }
 
   const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
   if (request.method === "PATCH" && taskMatch) {
+    const taskId = decodeURIComponent(taskMatch[1]);
     const payload = await readBody(request);
-    const task = await updateTask(decodeURIComponent(taskMatch[1]), payload);
+    if (scope) {
+      const existing = (await getTasks()).find((task) => task.id === taskId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Task not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+      if (payload.manager !== undefined) {
+        ensurePartnerOwnsManager(request, payload.manager);
+      }
+    }
+    const task = await updateTask(taskId, payload);
     if (!task) {
       sendJson(response, 404, { error: "Task not found" });
       return;
@@ -505,7 +644,16 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "DELETE" && taskMatch) {
-    const task = await deleteTask(decodeURIComponent(taskMatch[1]));
+    const taskId = decodeURIComponent(taskMatch[1]);
+    if (scope) {
+      const existing = (await getTasks()).find((task) => task.id === taskId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Task not found" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, existing.manager);
+    }
+    const task = await deleteTask(taskId);
     if (!task) {
       sendJson(response, 404, { error: "Task not found" });
       return;
@@ -516,6 +664,7 @@ async function handleApi(request, response) {
 
   const knowledgeProgramMatch = pathname.match(/^\/api\/knowledge\/programs\/([^/]+)$/);
   if (request.method === "PATCH" && knowledgeProgramMatch) {
+    requireRole(request, ["admin", "analyst_abram"]);
     const payload = await readBody(request);
     const entry = await updateKnowledgeProgram(decodeURIComponent(knowledgeProgramMatch[1]), payload);
     if (!entry) {
@@ -538,6 +687,10 @@ const server = http.createServer(async (request, response) => {
     }
     serveStatic(request, response);
   } catch (error) {
+    if (error instanceof AuthError) {
+      sendJson(response, error.statusCode, { error: error.message });
+      return;
+    }
     sendJson(response, 400, { error: error.message });
   }
 });
