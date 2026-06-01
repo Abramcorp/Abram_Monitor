@@ -10,6 +10,7 @@ const { getMoscowNow } = require("./src/time");
 const {
   addDealAction,
   archiveClient,
+  confirmDocumentRequest,
   createBank,
   createClient,
   createDeal,
@@ -416,6 +417,12 @@ async function handleApi(request, response) {
 
   // Все остальные /api/* требуют авторизации.
   requireAuth(request);
+
+  // documents_officer имеет доступ только к запросам документов.
+  if (request.user.role === "documents_officer" && !pathname.startsWith("/api/document-requests")) {
+    throw new AuthError(403, "Доступ только к запросам документов");
+  }
+
   const scope = partnerScope(request);
 
   if (request.method === "GET" && pathname === "/api/dashboard") {
@@ -748,6 +755,9 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/document-requests") {
+    if (request.user.role === "documents_officer") {
+      throw new AuthError(403, "Этой роли нельзя создавать запросы");
+    }
     const payload = await readBody(request);
     if (scope) {
       const dealId = String(payload.dealId || "");
@@ -769,9 +779,43 @@ async function handleApi(request, response) {
 
   const documentRequestFulfillMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/fulfill$/);
   if (request.method === "PATCH" && documentRequestFulfillMatch) {
-    requireRole(request, ["admin"]);
+    requireRole(request, ["admin", "documents_officer"]);
     const reqId = decodeURIComponent(documentRequestFulfillMatch[1]);
     const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
+    if (!updated) {
+      sendJson(response, 404, { error: "Document request not found" });
+      return;
+    }
+    sendJson(response, 200, { documentRequest: updated });
+    return;
+  }
+
+  const documentRequestConfirmMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/confirm$/);
+  if (request.method === "PATCH" && documentRequestConfirmMatch) {
+    if (request.user.role === "documents_officer") {
+      throw new AuthError(403, "Подтверждать может только аналитик-владелец или администратор");
+    }
+    const reqId = decodeURIComponent(documentRequestConfirmMatch[1]);
+    const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Document request not found" });
+      return;
+    }
+    if (existing.status !== "fulfilled") {
+      sendJson(response, 400, { error: "Можно подтверждать только запросы со статусом «Документы загружены»" });
+      return;
+    }
+    if (scope) {
+      ensurePartnerOwnsManager(request, existing.manager);
+    } else if (request.user.role === "analyst_abram") {
+      // analyst_abram может подтверждать только свои
+      const ownerScope = String(existing.manager || "").trim().toLowerCase();
+      const me = String(request.user.fullName || "").trim().toLowerCase();
+      if (ownerScope && me && ownerScope !== me) {
+        throw new AuthError(403, "Можно подтверждать только свои запросы");
+      }
+    }
+    const updated = await confirmDocumentRequest(reqId, { actor: request.user });
     if (!updated) {
       sendJson(response, 404, { error: "Document request not found" });
       return;

@@ -8,7 +8,7 @@ const { hashPassword, verifyPassword } = require("./passwords");
 const DATA_DIR = path.join(__dirname, "..", "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 
-const USER_ROLES = ["admin", "analyst_abram", "partner"];
+const USER_ROLES = ["admin", "analyst_abram", "partner", "documents_officer"];
 const USER_ROLE_SET = new Set(USER_ROLES);
 // Совместимости ради экспортируем шаблон, но больше не применяем его при валидации.
 const LOGIN_PATTERN = /^.+$/;

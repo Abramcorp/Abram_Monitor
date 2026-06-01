@@ -80,7 +80,8 @@ const userBadgeRole = document.querySelector("#userBadgeRole");
 const ROLE_LABELS = {
   admin: "Администратор",
   analyst_abram: "Аналитик AbramCorp",
-  partner: "Партнёрский контур"
+  partner: "Партнёрский контур",
+  documents_officer: "Документы"
 };
 
 function currentRole() {
@@ -95,6 +96,9 @@ function isAnalystAbram() {
 function isPartner() {
   return currentRole() === "partner";
 }
+function isDocumentsOfficer() {
+  return currentRole() === "documents_officer";
+}
 function canEditKnowledge() {
   return isAdmin() || isAnalystAbram();
 }
@@ -103,16 +107,17 @@ function partnerManagerName() {
 }
 
 const VIEWS = [
-  { id: "summary", label: "Сводный отчет" },
-  { id: "funnels", label: "Аналитики" },
-  { id: "archive", label: "Архив клиентов" },
-  { id: "knowledge", label: "База знаний" },
-  { id: "document-requests", label: "Запросы документов", adminOnly: true },
-  { id: "users", label: "Пользователи", adminOnly: true }
+  { id: "summary", label: "Сводный отчет", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "funnels", label: "Аналитики", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "document-requests", label: "Запросы документов", allowedRoles: ["admin", "documents_officer"] },
+  { id: "users", label: "Пользователи", allowedRoles: ["admin"] }
 ];
 
 function visibleViews() {
-  return VIEWS.filter((view) => !view.adminOnly || isAdmin());
+  const role = currentRole();
+  return VIEWS.filter((view) => !view.allowedRoles || view.allowedRoles.includes(role));
 }
 
 const REQUIREMENT_LABELS = {
@@ -562,13 +567,13 @@ async function requestJson(url, options) {
 }
 
 const LOAD_DATA_TARGETS = {
-  dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; } },
-  banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; } },
-  clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; } },
-  managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; } },
-  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } },
-  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; } },
-  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, adminOnly: true },
+  dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; }, notForRoles: ["documents_officer"] },
+  banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; }, notForRoles: ["documents_officer"] },
+  clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; }, notForRoles: ["documents_officer"] },
+  managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; }, notForRoles: ["documents_officer"] },
+  knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; }, notForRoles: ["documents_officer"] },
+  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; }, notForRoles: ["documents_officer"] },
+  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, allowedRoles: ["admin"] },
   documentRequests: {
     url: "/api/document-requests",
     apply: (payload) => { applyDocumentRequests(payload.documentRequests || []); }
@@ -761,7 +766,13 @@ async function loadData(options = {}) {
   const requestedRaw = Array.isArray(options.targets) && options.targets.length
     ? options.targets.filter((target) => target in LOAD_DATA_TARGETS)
     : LOAD_DATA_ALL;
-  const requested = requestedRaw.filter((target) => !LOAD_DATA_TARGETS[target].adminOnly || isAdmin());
+  const role = currentRole();
+  const requested = requestedRaw.filter((target) => {
+    const def = LOAD_DATA_TARGETS[target];
+    if (def.allowedRoles && !def.allowedRoles.includes(role)) return false;
+    if (def.notForRoles && def.notForRoles.includes(role)) return false;
+    return true;
+  });
   const responses = await Promise.all(requested.map((target) => requestJson(LOAD_DATA_TARGETS[target].url)));
   responses.forEach((payload, index) => {
     LOAD_DATA_TARGETS[requested[index]].apply(payload);
@@ -878,15 +889,16 @@ const TOPBAR_PRIMARY_BY_VIEW = {
 };
 
 function updateActionVisibility() {
-  newManagerButton.hidden = state.view !== "funnels" || !isAdmin();
-  newClientButton.hidden = false;
+  const docsOnly = isDocumentsOfficer();
+  newManagerButton.hidden = docsOnly || state.view !== "funnels" || !isAdmin();
+  newClientButton.hidden = docsOnly;
   if (newDealButton) {
-    newDealButton.hidden = state.view === "knowledge" || state.view === "archive";
+    newDealButton.hidden = docsOnly || state.view === "knowledge" || state.view === "archive";
   }
   if (newTaskButton) {
-    newTaskButton.hidden = false;
+    newTaskButton.hidden = docsOnly;
   }
-  newKnowledgeButton.hidden = !canEditKnowledge();
+  newKnowledgeButton.hidden = docsOnly || !canEditKnowledge();
 
   const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
   [newManagerButton, newClientButton, newDealButton, newTaskButton, newKnowledgeButton].forEach((button) => {
@@ -1478,6 +1490,7 @@ function renderClientSummary(client, options = {}) {
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
   return `
     ${renderClientTaskBadge(client)}
+    ${renderClientDocStrip(client)}
     <div class="client-summary-main">
       <strong class="client-title">${escapeHtml(client.client)}</strong>
       <div class="client-summary-amounts">
@@ -1514,6 +1527,7 @@ function renderManagerGroups(deals) {
             <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("current-manager", manager.manager))}">
               <summary class="manager-head">
                 ${renderManagerTaskBadge(manager)}
+                ${renderManagerDocStrip(manager)}
                 <div>
                   <p class="eyebrow">Аналитик</p>
                   <h3>${escapeHtml(manager.manager)}</h3>
@@ -1753,6 +1767,7 @@ function renderManagerClientView() {
                     <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
                       <summary class="manager-head">
                         ${renderManagerTaskBadge(manager)}
+                        ${renderManagerDocStrip(manager)}
                         <div>
                           <p class="eyebrow">Аналитик</p>
                           <h3>${escapeHtml(manager.manager)}</h3>
@@ -2360,32 +2375,95 @@ function documentRequestsForClient(manager, clientName) {
   return state.documentRequests.filter((req) => compareKey(req.manager) === m && compareKey(req.clientName) === c);
 }
 
+function documentRequestsForManager(managerName) {
+  const m = compareKey(managerName);
+  return state.documentRequests.filter((req) => compareKey(req.manager) === m);
+}
+
+function summarizeDocRequests(items) {
+  const summary = { total: items.length, open: 0, fulfilled: 0, delivered: 0 };
+  for (const item of items) {
+    if (item.status === "open") summary.open += 1;
+    else if (item.status === "fulfilled") summary.fulfilled += 1;
+    else if (item.status === "delivered") summary.delivered += 1;
+  }
+  return summary;
+}
+
 function documentRequestForDeal(dealId) {
   if (!dealId) return null;
   const list = state.documentRequests.filter((req) => req.dealId === dealId);
   if (!list.length) return null;
-  const open = list.find((req) => req.status === "open");
-  if (open) return open;
-  return list.slice().sort((a, b) => (a.fulfilledAt < b.fulfilledAt ? 1 : -1))[0];
+  return list.find((req) => req.status === "open")
+    || list.find((req) => req.status === "fulfilled")
+    || list.slice().sort((a, b) => (a.deliveredAt < b.deliveredAt ? 1 : -1))[0];
+}
+
+function canConfirmRequest(req) {
+  if (!req || req.status !== "fulfilled") return false;
+  if (isAdmin()) return true;
+  const me = String(state.user?.fullName || "").trim().toLowerCase();
+  const owner = String(req.manager || "").trim().toLowerCase();
+  return me && owner && me === owner;
 }
 
 function renderDealDocumentBadge(deal) {
   const req = documentRequestForDeal(deal.id);
   if (!req) return "";
+  if (req.status === "delivered") {
+    const when = req.deliveredAt ? formatDate(req.deliveredAt) : "";
+    return `<span class="deal-doc-badge is-delivered" title="Документы получены${when ? ` ${when}` : ""}">✓ Документы получены</span>`;
+  }
   if (req.status === "fulfilled") {
     const when = req.fulfilledAt ? formatDate(req.fulfilledAt) : "";
-    return `<span class="deal-doc-badge is-fulfilled" title="Документы загружены${when ? ` ${when}` : ""}">✓ Документы загружены</span>`;
+    const confirmBtn = canConfirmRequest(req)
+      ? `<button class="ghost-button small-button doc-confirm-button" data-confirm-doc-request="${escapeHtml(req.id)}" type="button">Я забрал</button>`
+      : "";
+    return `<span class="deal-doc-badge is-fulfilled" title="Документы загружены${when ? ` ${when}` : ""}">⚠ Документы на отправку${when ? ` · ${when}` : ""}</span>${confirmBtn}`;
   }
   const when = req.createdAt ? formatDate(req.createdAt) : "";
   return `<span class="deal-doc-badge is-requested" title="Запрошены ${when}">● Документы запрошены${when ? ` · ${when}` : ""}</span>`;
+}
+
+function renderClientDocStrip(client) {
+  const reqs = documentRequestsForClient(client.manager || "", client.client);
+  const summary = summarizeDocRequests(reqs);
+  if (!summary.open && !summary.fulfilled) {
+    return "";
+  }
+  const parts = [];
+  if (summary.open) {
+    parts.push(`<span class="doc-strip is-pending">Запросов: ${summary.open}</span>`);
+  }
+  if (summary.fulfilled) {
+    parts.push(`<span class="doc-strip is-delivery">ДОКУМЕНТЫ НА ОТПРАВКУ: ${summary.fulfilled}</span>`);
+  }
+  return `<div class="client-doc-strip">${parts.join("")}</div>`;
+}
+
+function renderManagerDocStrip(manager) {
+  const name = manager?.manager || "";
+  const reqs = documentRequestsForManager(name);
+  const summary = summarizeDocRequests(reqs);
+  if (!summary.open && !summary.fulfilled) {
+    return "";
+  }
+  const parts = [];
+  if (summary.open) {
+    parts.push(`<span class="doc-strip is-pending">Запросов: ${summary.open}</span>`);
+  }
+  if (summary.fulfilled) {
+    parts.push(`<span class="doc-strip is-delivery">ДОКУМЕНТЫ НА ОТПРАВКУ: ${summary.fulfilled}</span>`);
+  }
+  return `<div class="manager-doc-strip">${parts.join("")}</div>`;
 }
 
 function renderDocumentRequestsView() {
   if (!isAdmin()) {
     return `<div class="empty">Доступ только для администраторов.</div>`;
   }
-  const open = state.documentRequests.filter((req) => req.status === "open");
-  if (!open.length) {
+  const active = state.documentRequests.filter((req) => req.status !== "delivered");
+  if (!active.length) {
     return `
       <section class="panel">
         <div class="panel-head">
@@ -2398,40 +2476,62 @@ function renderDocumentRequestsView() {
       </section>
     `;
   }
-  const sorted = open.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  const open = active.filter((req) => req.status === "open").sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  const fulfilled = active.filter((req) => req.status === "fulfilled").sort((a, b) => (a.fulfilledAt < b.fulfilledAt ? -1 : 1));
+
+  const renderCard = (req) => {
+    const drive = req.driveUrl
+      ? `<a href="${escapeHtml(req.driveUrl)}" target="_blank" rel="noopener noreferrer">Диск клиента</a>`
+      : `<span>Ссылка на диск не указана</span>`;
+    const isFulfilled = req.status === "fulfilled";
+    const headTime = isFulfilled
+      ? `Загружено ${formatDate(req.fulfilledAt)}${req.fulfilledBy ? ` · ${escapeHtml(req.fulfilledBy)}` : ""}`
+      : `Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}`;
+    const cta = isFulfilled
+      ? `<span class="doc-request-pending-note">Ждём подтверждения от ${escapeHtml(req.manager)}</span>`
+      : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>`;
+    return `
+      <article class="doc-request-card ${isFulfilled ? "is-fulfilled" : ""}">
+        <div class="doc-request-card-head">
+          <div>
+            <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
+            <p class="doc-request-meta">
+              <span>Аналитик: ${escapeHtml(req.manager)}</span>
+              <span>${escapeHtml(req.bank || "")}</span>
+              ${drive}
+            </p>
+          </div>
+          <time>${headTime}</time>
+        </div>
+        <div class="doc-request-items">${escapeHtml(req.items)}</div>
+        <div class="doc-request-actions">
+          <button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>
+          ${cta}
+        </div>
+      </article>
+    `;
+  };
+
   return `
     <section class="panel">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Документы</p>
-          <h2>Активные запросы (${sorted.length})</h2>
+          <h2>Активные запросы (${active.length})</h2>
         </div>
       </div>
-      <div class="doc-request-stack">
-        ${sorted.map((req) => {
-          const drive = req.driveUrl ? `<a href="${escapeHtml(req.driveUrl)}" target="_blank" rel="noopener noreferrer">Диск клиента</a>` : `<span>Ссылка на диск не указана</span>`;
-          return `
-            <article class="doc-request-card">
-              <div class="doc-request-card-head">
-                <div>
-                  <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
-                  <p class="doc-request-meta">
-                    <span>Аналитик: ${escapeHtml(req.manager)}</span>
-                    <span>${escapeHtml(req.bank || "")}</span>
-                    ${drive}
-                  </p>
-                </div>
-                <time>Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}</time>
-              </div>
-              <div class="doc-request-items">${escapeHtml(req.items)}</div>
-              <div class="doc-request-actions">
-                <button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>
-                <button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>
-              </div>
-            </article>
-          `;
-        }).join("")}
-      </div>
+      ${open.length ? `
+        <h3 class="doc-section-title">Ждут загрузки (${open.length})</h3>
+        <div class="doc-request-stack">
+          ${open.map(renderCard).join("")}
+        </div>
+      ` : ""}
+      ${fulfilled.length ? `
+        <h3 class="doc-section-title">Загружены, ждут подтверждения аналитика (${fulfilled.length})</h3>
+        <div class="doc-request-stack">
+          ${fulfilled.map(renderCard).join("")}
+        </div>
+      ` : ""}
     </section>
   `;
 }
@@ -3429,7 +3529,8 @@ function updatePageHeader() {
 }
 
 function render() {
-  if (!state.dashboard) {
+  // documents_officer не имеет dashboard — рендерим вкладку сразу.
+  if (!state.dashboard && !isDocumentsOfficer()) {
     app.innerHTML = `<div class="loading">Загрузка данных...</div>`;
     return;
   }
@@ -3449,7 +3550,8 @@ function render() {
     "document-requests": renderDocumentRequestsView
   };
 
-  app.innerHTML = (views[state.view] || renderSummary)();
+  const renderer = views[state.view] || (isDocumentsOfficer() ? renderDocumentRequestsView : renderSummary);
+  app.innerHTML = renderer();
   bindDynamicControls();
 }
 
@@ -3745,6 +3847,14 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       await handleDeleteDocumentRequest(deleteDocRequestBtn);
+      return;
+    }
+
+    const confirmDocRequestBtn = target.closest("[data-confirm-doc-request]");
+    if (confirmDocRequestBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleConfirmDocumentRequest(confirmDocRequestBtn);
       return;
     }
 
@@ -4371,6 +4481,22 @@ async function handleDeleteDocumentRequest(button) {
   }
 }
 
+async function handleConfirmDocumentRequest(button) {
+  const reqId = button.dataset.confirmDocRequest;
+  if (!reqId) return;
+  if (!window.confirm("Подтвердить, что документы получены?")) return;
+  button.disabled = true;
+  try {
+    await requestJson(`/api/document-requests/${encodeURIComponent(reqId)}/confirm`, { method: "PATCH" });
+    await loadData({ targets: ["documentRequests"] });
+    showToast("Спасибо! Запрос закрыт.", { type: "success" });
+  } catch (error) {
+    showToast(error.message || "Не удалось подтвердить", { type: "error" });
+  } finally {
+    button.disabled = false;
+  }
+}
+
 if (documentRequestForm) {
   documentRequestForm.addEventListener("submit", async (event) => {
     if (event.submitter?.value === "cancel") {
@@ -4462,6 +4588,17 @@ async function fetchCurrentUser() {
   }
 }
 
+function pickInitialView() {
+  if (isDocumentsOfficer()) {
+    state.view = "document-requests";
+    return;
+  }
+  const allowed = visibleViews();
+  if (!allowed.some((view) => view.id === state.view)) {
+    state.view = allowed[0]?.id || "summary";
+  }
+}
+
 async function startApplication() {
   const user = await fetchCurrentUser();
   if (!user) {
@@ -4472,6 +4609,7 @@ async function startApplication() {
   }
   state.user = user;
   applyUserToBadge(user);
+  pickInitialView();
   showAppShell();
   try {
     await loadData();
@@ -4506,6 +4644,7 @@ if (loginForm) {
       }
       state.user = user;
       applyUserToBadge(user);
+      pickInitialView();
       showAppShell();
       await loadData();
     } catch (error) {

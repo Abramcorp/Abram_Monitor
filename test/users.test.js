@@ -54,5 +54,5 @@ test("LOGIN_PATTERN allows latin letters, digits, dot, dash, underscore", () => 
 });
 
 test("USER_ROLES enumerates known roles", () => {
-  assert.deepEqual(USER_ROLES, ["admin", "analyst_abram", "partner"]);
+  assert.deepEqual(USER_ROLES, ["admin", "analyst_abram", "partner", "documents_officer"]);
 });
