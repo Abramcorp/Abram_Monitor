@@ -6,10 +6,10 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260521-overlay-charts">
+    <link rel="stylesheet" href="/styles.css?v=20260601-auth-users">
   </head>
   <body>
-    <div class="login-shell" id="loginShell" hidden>
+    <div class="login-shell is-visible" id="loginShell">
       <form class="login-card" id="loginForm" autocomplete="on">
         <div class="login-head">
           <p class="eyebrow">Deal Monitor</p>
@@ -27,7 +27,7 @@
         <button class="primary-button" id="loginSubmit" type="submit">Войти</button>
       </form>
     </div>
-    <div class="app-shell" id="appShell" hidden>
+    <div class="app-shell" id="appShell">
       <header class="topbar">
         <div>
           <p class="eyebrow">Deal Monitor</p>
@@ -212,6 +212,51 @@
       </form>
     </dialog>
 
+    <dialog class="deal-dialog" id="userDialog">
+      <form method="dialog" class="deal-form" id="userForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Учётная запись</p>
+            <h2 id="userDialogTitle">Новый пользователь</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <input name="userId" type="hidden">
+
+        <label>
+          Логин
+          <input name="login" id="userLogin" type="text" required pattern="[a-z0-9_.\-]{3,40}" autocomplete="off" placeholder="ivan_petrov">
+        </label>
+
+        <label>
+          ФИО
+          <input name="fullName" type="text" required autocomplete="off" placeholder="Иван Петров">
+        </label>
+
+        <label>
+          Роль
+          <select name="role" required>
+            <option value="admin">Администратор</option>
+            <option value="analyst_abram">Аналитик AbramCorp</option>
+            <option value="partner">Партнёрский контур</option>
+          </select>
+        </label>
+
+        <label>
+          Пароль <span class="user-password-hint" id="userPasswordHint">(минимум 6 символов)</span>
+          <input name="password" type="password" autocomplete="new-password" placeholder="••••••••">
+        </label>
+
+        <p class="login-error" id="userFormError" hidden></p>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="deal-dialog" id="taskDialog">
       <form method="dialog" class="deal-form" id="taskForm">
         <div class="dialog-head">
@@ -374,6 +419,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260521-overlay-charts" defer></script>
+    <script src="/app.js?v=20260601-auth-users" defer></script>
   </body>
 </html>

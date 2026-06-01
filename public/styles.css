@@ -45,11 +45,25 @@ button {
 }
 
 .login-shell {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: linear-gradient(180deg, #f3f5f7 0%, #e8ecf1 100%);
+  background: linear-gradient(180deg, rgba(243, 245, 247, 0.97) 0%, rgba(232, 236, 241, 0.97) 100%);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, visibility 0s linear 180ms;
+}
+
+.login-shell.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 180ms ease, visibility 0s;
 }
 
 .login-card {
@@ -2293,4 +2307,98 @@ td select {
   .donut-visual {
     justify-self: center;
   }
+}
+
+/* ===== Users management ===== */
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.users-table th,
+.users-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.users-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.users-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.users-table code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  background: #f3f5f7;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.users-table time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.users-row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.users-row-actions > * + * {
+  margin-left: 6px;
+}
+
+.user-row-self {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.user-role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: #eef2f7;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.user-role-admin {
+  background: rgba(182, 65, 74, 0.12);
+  color: var(--red);
+  border-color: rgba(182, 65, 74, 0.3);
+}
+
+.user-role-analyst_abram {
+  background: rgba(49, 95, 156, 0.12);
+  color: var(--blue);
+  border-color: rgba(49, 95, 156, 0.3);
+}
+
+.user-role-partner {
+  background: rgba(52, 127, 143, 0.14);
+  color: var(--teal);
+  border-color: rgba(52, 127, 143, 0.3);
+}
+
+.user-password-hint {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
 }
