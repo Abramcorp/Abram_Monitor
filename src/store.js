@@ -13,6 +13,7 @@ const CLIENTS_FILE = path.join(DATA_DIR, "clients.json");
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
 const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
+const DOCUMENT_REQUESTS_FILE = path.join(DATA_DIR, "document_requests.json");
 const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
 const PROGRAM_CATEGORIES = [
   "1 КАТЕГОРИЯ",
@@ -426,6 +427,7 @@ async function deleteClient(id) {
     const deleted = await postgresStore.deleteRow("clients", id);
     if (deleted) {
       await postgresStore.deleteTasksByClient(deleted.manager || "", deleted.name || "");
+      await postgresStore.deleteDocumentRequestsByClient(deleted.manager || "", deleted.name || "");
     }
     return deleted;
   }
@@ -437,6 +439,7 @@ async function deleteClient(id) {
   const [deleted] = clients.splice(index, 1);
   writeJson(CLIENTS_FILE, clients);
   cascadeDeleteTasksByClient(deleted.manager, deleted.name);
+  cascadeDeleteDocumentRequestsByClient(deleted.manager, deleted.name);
   return deleted;
 }
 
@@ -457,9 +460,43 @@ function cascadeDeleteTasksByClient(managerName, clientName) {
   }
 }
 
-function deleteDeal(id) {
+function cascadeDeleteDocumentRequestsByClient(managerName, clientName) {
+  const targetManager = cleanText(managerName).toLowerCase();
+  const targetClient = cleanText(clientName).toLowerCase();
+  if (!targetManager || !targetClient) {
+    return;
+  }
+  const list = readJson(DOCUMENT_REQUESTS_FILE, []);
+  const remaining = list.filter((req) => {
+    const m = cleanText(req.manager).toLowerCase();
+    const c = cleanText(req.clientName).toLowerCase();
+    return !(m === targetManager && c === targetClient);
+  });
+  if (remaining.length !== list.length) {
+    saveDocumentRequests(remaining);
+  }
+}
+
+function cascadeDeleteDocumentRequestsByDeal(dealId) {
+  const target = cleanText(dealId);
+  if (!target) {
+    return;
+  }
+  const list = readJson(DOCUMENT_REQUESTS_FILE, []);
+  const remaining = list.filter((req) => cleanText(req.dealId) !== target);
+  if (remaining.length !== list.length) {
+    saveDocumentRequests(remaining);
+  }
+}
+
+async function deleteDeal(id) {
   if (postgresStore.isEnabled()) {
-    return initStore().then(() => postgresStore.deleteRow("deals", id));
+    await initStore();
+    const deleted = await postgresStore.deleteRow("deals", id);
+    if (deleted) {
+      await postgresStore.deleteDocumentRequestsByDeal(id);
+    }
+    return deleted;
   }
   const deals = getDeals();
   const index = deals.findIndex((deal) => deal.id === id);
@@ -468,6 +505,7 @@ function deleteDeal(id) {
   }
   const [deleted] = deals.splice(index, 1);
   saveDeals(deals);
+  cascadeDeleteDocumentRequestsByDeal(id);
   return deleted;
 }
 
@@ -593,6 +631,141 @@ function deleteTask(id) {
   }
   const [deleted] = tasks.splice(index, 1);
   saveTasks(tasks);
+  return deleted;
+}
+
+// ===== Document requests =====
+
+function normalizeDocumentRequest(raw = {}) {
+  const createdAt = toIsoDate(raw.createdAt);
+  const updatedAt = toIsoDate(raw.updatedAt);
+  const fulfilledAt = toIsoDate(raw.fulfilledAt);
+  return {
+    id: cleanText(raw.id) || `docreq-${Date.now()}`,
+    dealId: cleanText(raw.dealId),
+    clientId: cleanText(raw.clientId),
+    clientName: cleanText(raw.clientName || raw.client),
+    manager: cleanText(raw.manager),
+    program: cleanText(raw.program),
+    bank: cleanText(raw.bank),
+    driveUrl: cleanText(raw.driveUrl),
+    items: cleanText(raw.items),
+    status: fulfilledAt ? "fulfilled" : (cleanText(raw.status) || "open"),
+    createdBy: cleanText(raw.createdBy),
+    createdByLogin: cleanText(raw.createdByLogin),
+    fulfilledBy: cleanText(raw.fulfilledBy),
+    fulfilledByLogin: cleanText(raw.fulfilledByLogin),
+    createdAt,
+    updatedAt: updatedAt || createdAt,
+    fulfilledAt
+  };
+}
+
+function getDocumentRequests() {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.listRows("document_requests")).then((rows) => rows.map(normalizeDocumentRequest));
+  }
+  return readJson(DOCUMENT_REQUESTS_FILE, []).map(normalizeDocumentRequest);
+}
+
+function saveDocumentRequests(items) {
+  writeJson(DOCUMENT_REQUESTS_FILE, items.map(normalizeDocumentRequest));
+}
+
+function validateDocumentRequest(req) {
+  if (!req.dealId) {
+    throw new Error("Заявка обязательна");
+  }
+  if (!req.manager) {
+    throw new Error("Аналитик обязателен");
+  }
+  if (!req.clientName) {
+    throw new Error("Клиент обязателен");
+  }
+  if (!req.items) {
+    throw new Error("Список документов обязателен");
+  }
+}
+
+async function createDocumentRequest(payload, { author } = {}) {
+  const now = await getMoscowNowIso();
+  const dealId = cleanText(payload.dealId);
+  if (!dealId) {
+    throw new Error("Заявка обязательна");
+  }
+  const deals = await getDeals();
+  const deal = deals.find((item) => item.id === dealId);
+  if (!deal) {
+    throw new Error("Заявка не найдена");
+  }
+  const clients = await getClients();
+  const client = clients.find((item) =>
+    cleanText(item.name).toLowerCase() === cleanText(deal.client).toLowerCase() &&
+    cleanText(item.manager).toLowerCase() === cleanText(deal.manager).toLowerCase()
+  );
+  const req = normalizeDocumentRequest({
+    id: payload.id || `docreq-${new Date(now).getTime()}`,
+    dealId: deal.id,
+    clientId: client?.id || "",
+    clientName: deal.client,
+    manager: deal.manager,
+    program: deal.program || deal.bank,
+    bank: deal.bank,
+    driveUrl: client?.driveUrl || "",
+    items: payload.items,
+    status: "open",
+    createdBy: cleanText(author?.fullName),
+    createdByLogin: cleanText(author?.login),
+    createdAt: now,
+    updatedAt: now,
+    fulfilledAt: ""
+  });
+  validateDocumentRequest(req);
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.insertRow("document_requests", req)).then(normalizeDocumentRequest);
+  }
+  const list = getDocumentRequests();
+  list.push(req);
+  saveDocumentRequests(list);
+  return req;
+}
+
+async function fulfillDocumentRequest(id, { actor } = {}) {
+  const now = await getMoscowNowIso();
+  const patch = (current) => normalizeDocumentRequest({
+    ...current,
+    status: "fulfilled",
+    fulfilledAt: now,
+    fulfilledBy: cleanText(actor?.fullName),
+    fulfilledByLogin: cleanText(actor?.login),
+    updatedAt: now
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return null;
+  }
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+function deleteDocumentRequest(id) {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.deleteRow("document_requests", id));
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return null;
+  }
+  const [deleted] = list.splice(index, 1);
+  saveDocumentRequests(list);
   return deleted;
 }
 
@@ -849,25 +1022,31 @@ module.exports = {
   createBank,
   createClient,
   createDeal,
+  createDocumentRequest,
   createKnowledgeEntry,
   createManager,
   createTask,
   deleteClient,
   deleteDeal,
+  deleteDocumentRequest,
   deleteManager,
   deleteTask,
+  fulfillDocumentRequest,
   getBanks,
   getClients,
   getDeals,
+  getDocumentRequests,
   getKnowledge,
   getManagers,
   getTasks,
   initStore,
   normalizeClient,
+  normalizeDocumentRequest,
   normalizeManager,
   normalizeKnowledgeProgram,
   normalizeTask,
   validateDealDates,
+  validateDocumentRequest,
   validateTask,
   updateDeal,
   updateKnowledgeProgram,

@@ -8,10 +8,12 @@ const {
   buildStatusChangeAction,
   initStore,
   normalizeClient,
+  normalizeDocumentRequest,
   normalizeKnowledgeProgram,
   normalizeManager,
   normalizeTask,
   validateDealDates,
+  validateDocumentRequest,
   validateTask
 } = require("../src/store");
 
@@ -291,4 +293,35 @@ test("validateTask requires manager, client, title and dueAt", () => {
   assert.throws(() => validateTask({ manager: "A", client: "X", dueAt: "2026-05-22T10:00:00.000Z" }), /Описание задачи/);
   assert.throws(() => validateTask({ manager: "A", client: "X", title: "Y" }), /Срок исполнения/);
   assert.doesNotThrow(() => validateTask({ manager: "A", client: "X", title: "Y", dueAt: "2026-05-22T10:00:00.000Z" }));
+});
+
+test("normalizeDocumentRequest sets defaults and derives status from fulfilledAt", () => {
+  const open = normalizeDocumentRequest({
+    dealId: "deal-1",
+    manager: " Иван ",
+    clientName: "ООО Альфа",
+    items: "Выписка за 12 месяцев",
+    createdAt: "2026-06-01T10:00:00+03:00"
+  });
+  assert.equal(open.status, "open");
+  assert.equal(open.manager, "Иван");
+  assert.equal(open.fulfilledAt, "");
+  assert.equal(open.createdAt, "2026-06-01T07:00:00.000Z");
+
+  const fulfilled = normalizeDocumentRequest({
+    dealId: "deal-1",
+    manager: "Иван",
+    clientName: "ООО Альфа",
+    items: "Выписка",
+    fulfilledAt: "2026-06-02T10:00:00+03:00"
+  });
+  assert.equal(fulfilled.status, "fulfilled");
+});
+
+test("validateDocumentRequest enforces required fields", () => {
+  assert.throws(() => validateDocumentRequest({ manager: "A", clientName: "X", items: "doc" }), /Заявка/);
+  assert.throws(() => validateDocumentRequest({ dealId: "d", clientName: "X", items: "doc" }), /Аналитик/);
+  assert.throws(() => validateDocumentRequest({ dealId: "d", manager: "A", items: "doc" }), /Клиент/);
+  assert.throws(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X" }), /документов/);
+  assert.doesNotThrow(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X", items: "doc" }));
 });

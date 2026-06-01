@@ -13,16 +13,20 @@ const {
   createBank,
   createClient,
   createDeal,
+  createDocumentRequest,
   createKnowledgeEntry,
   createManager,
   createTask,
   deleteClient,
   deleteDeal,
+  deleteDocumentRequest,
   deleteManager,
   deleteTask,
+  fulfillDocumentRequest,
   getBanks,
   getClients,
   getDeals,
+  getDocumentRequests,
   getKnowledge,
   getManagers,
   getTasks,
@@ -734,6 +738,61 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { user: removed });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/document-requests") {
+    const items = filterByManager(await getDocumentRequests(), scope, (req) => req.manager);
+    sendJson(response, 200, { documentRequests: items });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/document-requests") {
+    const payload = await readBody(request);
+    if (scope) {
+      const dealId = String(payload.dealId || "");
+      const deal = (await getDeals()).find((item) => item.id === dealId);
+      if (!deal) {
+        sendJson(response, 404, { error: "Заявка не найдена" });
+        return;
+      }
+      ensurePartnerOwnsManager(request, deal.manager);
+    }
+    try {
+      const req = await createDocumentRequest(payload, { author: request.user });
+      sendJson(response, 201, { documentRequest: req });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+
+  const documentRequestFulfillMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/fulfill$/);
+  if (request.method === "PATCH" && documentRequestFulfillMatch) {
+    requireRole(request, ["admin"]);
+    const reqId = decodeURIComponent(documentRequestFulfillMatch[1]);
+    const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
+    if (!updated) {
+      sendJson(response, 404, { error: "Document request not found" });
+      return;
+    }
+    sendJson(response, 200, { documentRequest: updated });
+    return;
+  }
+
+  const documentRequestMatch = pathname.match(/^\/api\/document-requests\/([^/]+)$/);
+  if (request.method === "DELETE" && documentRequestMatch) {
+    const reqId = decodeURIComponent(documentRequestMatch[1]);
+    const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Document request not found" });
+      return;
+    }
+    if (scope) {
+      ensurePartnerOwnsManager(request, existing.manager);
+    }
+    const removed = await deleteDocumentRequest(reqId);
+    sendJson(response, 200, { documentRequest: removed });
     return;
   }
 
