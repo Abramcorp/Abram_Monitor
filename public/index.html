@@ -9,7 +9,25 @@
     <link rel="stylesheet" href="/styles.css?v=20260521-overlay-charts">
   </head>
   <body>
-    <div class="app-shell">
+    <div class="login-shell" id="loginShell" hidden>
+      <form class="login-card" id="loginForm" autocomplete="on">
+        <div class="login-head">
+          <p class="eyebrow">Deal Monitor</p>
+          <h1>Вход в систему</h1>
+        </div>
+        <label>
+          Логин
+          <input name="login" type="text" autocomplete="username" autofocus required>
+        </label>
+        <label>
+          Пароль
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="login-error" id="loginError" hidden></p>
+        <button class="primary-button" id="loginSubmit" type="submit">Войти</button>
+      </form>
+    </div>
+    <div class="app-shell" id="appShell" hidden>
       <header class="topbar">
         <div>
           <p class="eyebrow">Deal Monitor</p>
@@ -22,6 +40,11 @@
           <button class="ghost-button" id="newDealButton" type="button">+ Заявка</button>
           <button class="ghost-button" id="newTaskButton" type="button">+ Задача</button>
           <button class="ghost-button" id="newKnowledgeButton" type="button">+ Запись БЗ</button>
+          <span class="user-badge" id="userBadge" hidden>
+            <span class="user-badge-name" id="userBadgeName"></span>
+            <span class="user-badge-role" id="userBadgeRole"></span>
+          </span>
+          <button class="ghost-button" id="logoutButton" type="button" hidden>Выйти</button>
         </div>
       </header>
 
