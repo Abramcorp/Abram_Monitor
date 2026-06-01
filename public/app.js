@@ -4091,7 +4091,7 @@ function openUserDialog(entry) {
   if (userPasswordHint) {
     userPasswordHint.textContent = entry
       ? "(оставьте пустым, чтобы не менять)"
-      : "(минимум 6 символов)";
+      : "";
   }
   userDialog.showModal();
 }

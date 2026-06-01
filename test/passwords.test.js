@@ -35,7 +35,8 @@ test("verifyPassword rejects malformed payloads", async () => {
   assert.equal(await verifyPassword("any", "scrypt$16384$AAAA"), false);
 });
 
-test("hashPassword refuses empty or too-short passwords", async () => {
+test("hashPassword refuses an empty password but accepts short ones", async () => {
   await assert.rejects(() => hashPassword(""), /пустым/);
-  await assert.rejects(() => hashPassword("abc"), /не короче 6/);
+  const stored = await hashPassword("abc");
+  assert.equal(await verifyPassword("abc", stored), true);
 });

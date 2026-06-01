@@ -10,7 +10,8 @@ const USERS_FILE = path.join(DATA_DIR, "users.json");
 
 const USER_ROLES = ["admin", "analyst_abram", "partner"];
 const USER_ROLE_SET = new Set(USER_ROLES);
-const LOGIN_PATTERN = /^[a-z0-9_.-]{3,40}$/;
+// Совместимости ради экспортируем шаблон, но больше не применяем его при валидации.
+const LOGIN_PATTERN = /^.+$/;
 
 function cleanText(value) {
   return String(value ?? "").trim();
@@ -74,9 +75,6 @@ function validateLogin(login) {
   const normalized = normalizeLogin(login);
   if (!normalized) {
     throw new Error("Логин обязателен");
-  }
-  if (!LOGIN_PATTERN.test(normalized)) {
-    throw new Error("Логин может содержать только латиницу, цифры, точку, дефис и подчёркивание (3–40 символов)");
   }
   return normalized;
 }
@@ -208,10 +206,6 @@ async function ensureBootstrapAdmin({ logger = console } = {}) {
   }
   const existing = await findUserByLogin(login);
   if (existing) {
-    return null;
-  }
-  if (!LOGIN_PATTERN.test(login)) {
-    logger.warn?.(`[users] ADMIN_LOGIN "${login}" не соответствует формату — bootstrap пропущен`);
     return null;
   }
   try {
