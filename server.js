@@ -183,9 +183,18 @@ function shouldUseSecureCookie(request) {
   return false;
 }
 
+function readBearerToken(request) {
+  const header = request.headers?.authorization || request.headers?.Authorization;
+  if (typeof header !== "string") {
+    return "";
+  }
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
 async function attachUser(request) {
   const cookies = parseCookies(request.headers?.cookie);
-  const token = cookies[SESSION_COOKIE];
+  const token = readBearerToken(request) || cookies[SESSION_COOKIE] || "";
   const session = token ? sessionStore.get(token) : null;
   if (!session) {
     request.user = null;
@@ -353,10 +362,13 @@ async function handleAuth(request, response, pathname) {
       return true;
     }
     const session = sessionStore.create(user.id);
+    // Возвращаем токен и в Set-Cookie (HttpOnly), и в JSON-теле:
+    // фронт хранит копию в localStorage и отправляет её как Bearer-фолбэк
+    // на случай если cookie теряются за прокси/настройками браузера.
     sendJson(
       response,
       200,
-      { user: users.publicUser(user) },
+      { user: users.publicUser(user), token: session.token, expiresAt: session.expiresAt },
       { "Set-Cookie": buildSessionCookie(session.token, session.ttlMs, { secure: shouldUseSecureCookie(request) }) }
     );
     return true;

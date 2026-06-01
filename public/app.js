@@ -469,10 +469,39 @@ class UnauthorizedError extends Error {
   }
 }
 
+const AUTH_TOKEN_KEY = "am_session_token";
+
+function readStoredToken() {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch {
+    // localStorage недоступен — продолжаем только с cookie
+  }
+}
+
 async function requestJson(url, options) {
+  const headers = { "Content-Type": "application/json", ...(options?.headers || {}) };
+  const token = readStoredToken();
+  if (token && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    ...options
+    credentials: "same-origin",
+    ...options,
+    headers
   });
 
   let payload;
@@ -3963,6 +3992,7 @@ function applyUserToBadge(user) {
 }
 
 function handleSessionExpired() {
+  storeToken("");
   state.user = null;
   applyUserToBadge(null);
   showLoginScreen();
@@ -4015,10 +4045,13 @@ if (loginForm) {
       password: String(formData.get("password") || "")
     };
     try {
-      const { user } = await requestJson("/api/auth/login", {
+      const { user, token } = await requestJson("/api/auth/login", {
         method: "POST",
         body: JSON.stringify(payload)
       });
+      if (token) {
+        storeToken(token);
+      }
       state.user = user;
       applyUserToBadge(user);
       showAppShell();
@@ -4044,6 +4077,7 @@ if (logoutButton) {
     } finally {
       logoutButton.disabled = false;
     }
+    storeToken("");
     state.user = null;
     applyUserToBadge(null);
     state.dashboard = null;
