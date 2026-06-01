@@ -640,6 +640,15 @@ function normalizeDocumentRequest(raw = {}) {
   const createdAt = toIsoDate(raw.createdAt);
   const updatedAt = toIsoDate(raw.updatedAt);
   const fulfilledAt = toIsoDate(raw.fulfilledAt);
+  const deliveredAt = toIsoDate(raw.deliveredAt);
+  let status;
+  if (deliveredAt) {
+    status = "delivered";
+  } else if (fulfilledAt) {
+    status = "fulfilled";
+  } else {
+    status = cleanText(raw.status) || "open";
+  }
   return {
     id: cleanText(raw.id) || `docreq-${Date.now()}`,
     dealId: cleanText(raw.dealId),
@@ -650,14 +659,17 @@ function normalizeDocumentRequest(raw = {}) {
     bank: cleanText(raw.bank),
     driveUrl: cleanText(raw.driveUrl),
     items: cleanText(raw.items),
-    status: fulfilledAt ? "fulfilled" : (cleanText(raw.status) || "open"),
+    status,
     createdBy: cleanText(raw.createdBy),
     createdByLogin: cleanText(raw.createdByLogin),
     fulfilledBy: cleanText(raw.fulfilledBy),
     fulfilledByLogin: cleanText(raw.fulfilledByLogin),
+    deliveredBy: cleanText(raw.deliveredBy),
+    deliveredByLogin: cleanText(raw.deliveredByLogin),
     createdAt,
     updatedAt: updatedAt || createdAt,
-    fulfilledAt
+    fulfilledAt,
+    deliveredAt
   };
 }
 
@@ -738,6 +750,31 @@ async function fulfillDocumentRequest(id, { actor } = {}) {
     fulfilledAt: now,
     fulfilledBy: cleanText(actor?.fullName),
     fulfilledByLogin: cleanText(actor?.login),
+    updatedAt: now
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return null;
+  }
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+async function confirmDocumentRequest(id, { actor } = {}) {
+  const now = await getMoscowNowIso();
+  const patch = (current) => normalizeDocumentRequest({
+    ...current,
+    status: "delivered",
+    deliveredAt: now,
+    deliveredBy: cleanText(actor?.fullName),
+    deliveredByLogin: cleanText(actor?.login),
     updatedAt: now
   });
   if (postgresStore.isEnabled()) {
@@ -1022,6 +1059,7 @@ module.exports = {
   createBank,
   createClient,
   createDeal,
+  confirmDocumentRequest,
   createDocumentRequest,
   createKnowledgeEntry,
   createManager,

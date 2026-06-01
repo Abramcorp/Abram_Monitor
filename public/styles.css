@@ -2427,9 +2427,20 @@ td select {
 }
 
 .deal-doc-badge.is-fulfilled {
+  border-color: rgba(182, 106, 19, 0.55);
+  background: rgba(182, 106, 19, 0.14);
+  color: var(--amber);
+  animation: doc-badge-pulse-amber 1.6s ease-in-out infinite;
+}
+
+.deal-doc-badge.is-delivered {
   border-color: rgba(18, 128, 108, 0.5);
   background: rgba(18, 128, 108, 0.12);
   color: var(--green);
+}
+
+.doc-confirm-button {
+  margin-left: 6px;
 }
 
 @keyframes doc-badge-pulse {
@@ -2437,8 +2448,65 @@ td select {
   50%      { box-shadow: 0 0 0 3px rgba(49, 95, 156, 0.35); }
 }
 
+@keyframes doc-badge-pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(182, 106, 19, 0); }
+  50%      { box-shadow: 0 0 0 3px rgba(182, 106, 19, 0.35); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .deal-doc-badge.is-requested { animation: none; }
+  .deal-doc-badge.is-requested,
+  .deal-doc-badge.is-fulfilled { animation: none; }
+}
+
+/* Strips for client/manager cards */
+.client-doc-strip,
+.manager-doc-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.client-doc-strip {
+  grid-column: 1 / -1;
+}
+
+.manager-doc-strip {
+  flex: 1 1 100%;
+  order: -1;
+  margin-bottom: 0;
+}
+
+.doc-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+}
+
+.doc-strip.is-pending {
+  border-color: rgba(49, 95, 156, 0.5);
+  background: rgba(49, 95, 156, 0.12);
+  color: var(--blue);
+  animation: doc-badge-pulse 1.6s ease-in-out infinite;
+}
+
+.doc-strip.is-delivery {
+  border-color: rgba(182, 106, 19, 0.55);
+  background: rgba(182, 106, 19, 0.16);
+  color: var(--amber);
+  animation: doc-badge-pulse-amber 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-strip.is-pending,
+  .doc-strip.is-delivery { animation: none; }
 }
 
 .doc-request-stack {
@@ -2500,6 +2568,26 @@ td select {
   gap: 8px;
   justify-content: flex-end;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.doc-section-title {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.doc-request-card.is-fulfilled {
+  border-left: 3px solid var(--amber);
+}
+
+.doc-request-pending-note {
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Toast */

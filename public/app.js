@@ -1478,6 +1478,7 @@ function renderClientSummary(client, options = {}) {
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
   return `
     ${renderClientTaskBadge(client)}
+    ${renderClientDocStrip(client)}
     <div class="client-summary-main">
       <strong class="client-title">${escapeHtml(client.client)}</strong>
       <div class="client-summary-amounts">
@@ -1514,6 +1515,7 @@ function renderManagerGroups(deals) {
             <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("current-manager", manager.manager))}">
               <summary class="manager-head">
                 ${renderManagerTaskBadge(manager)}
+                ${renderManagerDocStrip(manager)}
                 <div>
                   <p class="eyebrow">Аналитик</p>
                   <h3>${escapeHtml(manager.manager)}</h3>
@@ -1753,6 +1755,7 @@ function renderManagerClientView() {
                     <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
                       <summary class="manager-head">
                         ${renderManagerTaskBadge(manager)}
+                        ${renderManagerDocStrip(manager)}
                         <div>
                           <p class="eyebrow">Аналитик</p>
                           <h3>${escapeHtml(manager.manager)}</h3>
@@ -2360,32 +2363,95 @@ function documentRequestsForClient(manager, clientName) {
   return state.documentRequests.filter((req) => compareKey(req.manager) === m && compareKey(req.clientName) === c);
 }
 
+function documentRequestsForManager(managerName) {
+  const m = compareKey(managerName);
+  return state.documentRequests.filter((req) => compareKey(req.manager) === m);
+}
+
+function summarizeDocRequests(items) {
+  const summary = { total: items.length, open: 0, fulfilled: 0, delivered: 0 };
+  for (const item of items) {
+    if (item.status === "open") summary.open += 1;
+    else if (item.status === "fulfilled") summary.fulfilled += 1;
+    else if (item.status === "delivered") summary.delivered += 1;
+  }
+  return summary;
+}
+
 function documentRequestForDeal(dealId) {
   if (!dealId) return null;
   const list = state.documentRequests.filter((req) => req.dealId === dealId);
   if (!list.length) return null;
-  const open = list.find((req) => req.status === "open");
-  if (open) return open;
-  return list.slice().sort((a, b) => (a.fulfilledAt < b.fulfilledAt ? 1 : -1))[0];
+  return list.find((req) => req.status === "open")
+    || list.find((req) => req.status === "fulfilled")
+    || list.slice().sort((a, b) => (a.deliveredAt < b.deliveredAt ? 1 : -1))[0];
+}
+
+function canConfirmRequest(req) {
+  if (!req || req.status !== "fulfilled") return false;
+  if (isAdmin()) return true;
+  const me = String(state.user?.fullName || "").trim().toLowerCase();
+  const owner = String(req.manager || "").trim().toLowerCase();
+  return me && owner && me === owner;
 }
 
 function renderDealDocumentBadge(deal) {
   const req = documentRequestForDeal(deal.id);
   if (!req) return "";
+  if (req.status === "delivered") {
+    const when = req.deliveredAt ? formatDate(req.deliveredAt) : "";
+    return `<span class="deal-doc-badge is-delivered" title="Документы получены${when ? ` ${when}` : ""}">✓ Документы получены</span>`;
+  }
   if (req.status === "fulfilled") {
     const when = req.fulfilledAt ? formatDate(req.fulfilledAt) : "";
-    return `<span class="deal-doc-badge is-fulfilled" title="Документы загружены${when ? ` ${when}` : ""}">✓ Документы загружены</span>`;
+    const confirmBtn = canConfirmRequest(req)
+      ? `<button class="ghost-button small-button doc-confirm-button" data-confirm-doc-request="${escapeHtml(req.id)}" type="button">Я забрал</button>`
+      : "";
+    return `<span class="deal-doc-badge is-fulfilled" title="Документы загружены${when ? ` ${when}` : ""}">⚠ Документы на отправку${when ? ` · ${when}` : ""}</span>${confirmBtn}`;
   }
   const when = req.createdAt ? formatDate(req.createdAt) : "";
   return `<span class="deal-doc-badge is-requested" title="Запрошены ${when}">● Документы запрошены${when ? ` · ${when}` : ""}</span>`;
+}
+
+function renderClientDocStrip(client) {
+  const reqs = documentRequestsForClient(client.manager || "", client.client);
+  const summary = summarizeDocRequests(reqs);
+  if (!summary.open && !summary.fulfilled) {
+    return "";
+  }
+  const parts = [];
+  if (summary.open) {
+    parts.push(`<span class="doc-strip is-pending">Запросов: ${summary.open}</span>`);
+  }
+  if (summary.fulfilled) {
+    parts.push(`<span class="doc-strip is-delivery">ДОКУМЕНТЫ НА ОТПРАВКУ: ${summary.fulfilled}</span>`);
+  }
+  return `<div class="client-doc-strip">${parts.join("")}</div>`;
+}
+
+function renderManagerDocStrip(manager) {
+  const name = manager?.manager || "";
+  const reqs = documentRequestsForManager(name);
+  const summary = summarizeDocRequests(reqs);
+  if (!summary.open && !summary.fulfilled) {
+    return "";
+  }
+  const parts = [];
+  if (summary.open) {
+    parts.push(`<span class="doc-strip is-pending">Запросов: ${summary.open}</span>`);
+  }
+  if (summary.fulfilled) {
+    parts.push(`<span class="doc-strip is-delivery">ДОКУМЕНТЫ НА ОТПРАВКУ: ${summary.fulfilled}</span>`);
+  }
+  return `<div class="manager-doc-strip">${parts.join("")}</div>`;
 }
 
 function renderDocumentRequestsView() {
   if (!isAdmin()) {
     return `<div class="empty">Доступ только для администраторов.</div>`;
   }
-  const open = state.documentRequests.filter((req) => req.status === "open");
-  if (!open.length) {
+  const active = state.documentRequests.filter((req) => req.status !== "delivered");
+  if (!active.length) {
     return `
       <section class="panel">
         <div class="panel-head">
@@ -2398,40 +2464,62 @@ function renderDocumentRequestsView() {
       </section>
     `;
   }
-  const sorted = open.slice().sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  const open = active.filter((req) => req.status === "open").sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  const fulfilled = active.filter((req) => req.status === "fulfilled").sort((a, b) => (a.fulfilledAt < b.fulfilledAt ? -1 : 1));
+
+  const renderCard = (req) => {
+    const drive = req.driveUrl
+      ? `<a href="${escapeHtml(req.driveUrl)}" target="_blank" rel="noopener noreferrer">Диск клиента</a>`
+      : `<span>Ссылка на диск не указана</span>`;
+    const isFulfilled = req.status === "fulfilled";
+    const headTime = isFulfilled
+      ? `Загружено ${formatDate(req.fulfilledAt)}${req.fulfilledBy ? ` · ${escapeHtml(req.fulfilledBy)}` : ""}`
+      : `Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}`;
+    const cta = isFulfilled
+      ? `<span class="doc-request-pending-note">Ждём подтверждения от ${escapeHtml(req.manager)}</span>`
+      : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>`;
+    return `
+      <article class="doc-request-card ${isFulfilled ? "is-fulfilled" : ""}">
+        <div class="doc-request-card-head">
+          <div>
+            <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
+            <p class="doc-request-meta">
+              <span>Аналитик: ${escapeHtml(req.manager)}</span>
+              <span>${escapeHtml(req.bank || "")}</span>
+              ${drive}
+            </p>
+          </div>
+          <time>${headTime}</time>
+        </div>
+        <div class="doc-request-items">${escapeHtml(req.items)}</div>
+        <div class="doc-request-actions">
+          <button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>
+          ${cta}
+        </div>
+      </article>
+    `;
+  };
+
   return `
     <section class="panel">
       <div class="panel-head">
         <div>
           <p class="eyebrow">Документы</p>
-          <h2>Активные запросы (${sorted.length})</h2>
+          <h2>Активные запросы (${active.length})</h2>
         </div>
       </div>
-      <div class="doc-request-stack">
-        ${sorted.map((req) => {
-          const drive = req.driveUrl ? `<a href="${escapeHtml(req.driveUrl)}" target="_blank" rel="noopener noreferrer">Диск клиента</a>` : `<span>Ссылка на диск не указана</span>`;
-          return `
-            <article class="doc-request-card">
-              <div class="doc-request-card-head">
-                <div>
-                  <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
-                  <p class="doc-request-meta">
-                    <span>Аналитик: ${escapeHtml(req.manager)}</span>
-                    <span>${escapeHtml(req.bank || "")}</span>
-                    ${drive}
-                  </p>
-                </div>
-                <time>Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}</time>
-              </div>
-              <div class="doc-request-items">${escapeHtml(req.items)}</div>
-              <div class="doc-request-actions">
-                <button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>
-                <button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>
-              </div>
-            </article>
-          `;
-        }).join("")}
-      </div>
+      ${open.length ? `
+        <h3 class="doc-section-title">Ждут загрузки (${open.length})</h3>
+        <div class="doc-request-stack">
+          ${open.map(renderCard).join("")}
+        </div>
+      ` : ""}
+      ${fulfilled.length ? `
+        <h3 class="doc-section-title">Загружены, ждут подтверждения аналитика (${fulfilled.length})</h3>
+        <div class="doc-request-stack">
+          ${fulfilled.map(renderCard).join("")}
+        </div>
+      ` : ""}
     </section>
   `;
 }
@@ -3748,6 +3836,14 @@ function initDynamicControls() {
       return;
     }
 
+    const confirmDocRequestBtn = target.closest("[data-confirm-doc-request]");
+    if (confirmDocRequestBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleConfirmDocumentRequest(confirmDocRequestBtn);
+      return;
+    }
+
     const deleteClient = target.closest("[data-delete-client]");
     if (deleteClient) {
       event.preventDefault();
@@ -4368,6 +4464,22 @@ async function handleDeleteDocumentRequest(button) {
     await loadData({ targets: ["documentRequests"] });
   } catch (error) {
     showToast(error.message || "Не удалось удалить запрос", { type: "error" });
+  }
+}
+
+async function handleConfirmDocumentRequest(button) {
+  const reqId = button.dataset.confirmDocRequest;
+  if (!reqId) return;
+  if (!window.confirm("Подтвердить, что документы получены?")) return;
+  button.disabled = true;
+  try {
+    await requestJson(`/api/document-requests/${encodeURIComponent(reqId)}/confirm`, { method: "PATCH" });
+    await loadData({ targets: ["documentRequests"] });
+    showToast("Спасибо! Запрос закрыт.", { type: "success" });
+  } catch (error) {
+    showToast(error.message || "Не удалось подтвердить", { type: "error" });
+  } finally {
+    button.disabled = false;
   }
 }
 
