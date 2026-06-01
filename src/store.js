@@ -275,6 +275,7 @@ function createManager(payload) {
   const manager = normalizeManager({
     id: payload.id || `manager-${Date.now()}`,
     name: payload.name,
+    userId: payload.userId,
     createdAt: payload.createdAt || now,
     updatedAt: now
   });
@@ -760,13 +761,25 @@ async function createDocumentRequest(payload, { author } = {}) {
     fulfilledAt: ""
   });
   validateDocumentRequest(req);
+  let saved;
   if (postgresStore.isEnabled()) {
-    return initStore().then(() => postgresStore.insertRow("document_requests", req)).then(normalizeDocumentRequest);
+    saved = await initStore().then(() => postgresStore.insertRow("document_requests", req)).then(normalizeDocumentRequest);
+  } else {
+    const list = getDocumentRequests();
+    list.push(req);
+    saveDocumentRequests(list);
+    saved = req;
   }
-  const list = getDocumentRequests();
-  list.push(req);
-  saveDocumentRequests(list);
-  return req;
+  // Логируем в хронологию сделки.
+  try {
+    const itemsCount = Array.isArray(saved.items) ? saved.items.length : 0;
+    const itemsTail = itemsCount ? ` — ${itemsCount} ${itemsCount === 1 ? "позиция" : itemsCount < 5 ? "позиции" : "позиций"}` : "";
+    const byTail = author?.fullName ? ` (${author.fullName})` : "";
+    await addDealAction(saved.dealId, { action: `Запрошены документы${itemsTail}${byTail}`, actionAt: saved.createdAt });
+  } catch {
+    // если хронология не пишется — не валим основной поток
+  }
+  return saved;
 }
 
 async function fulfillDocumentRequest(id, { actor } = {}) {
@@ -779,19 +792,28 @@ async function fulfillDocumentRequest(id, { actor } = {}) {
     fulfilledByLogin: cleanText(actor?.login),
     updatedAt: now
   });
+  let updated;
   if (postgresStore.isEnabled()) {
     await initStore();
-    const updated = await postgresStore.updateRow("document_requests", id, patch);
-    return updated ? normalizeDocumentRequest(updated) : null;
+    const raw = await postgresStore.updateRow("document_requests", id, patch);
+    updated = raw ? normalizeDocumentRequest(raw) : null;
+  } else {
+    const list = getDocumentRequests();
+    const index = list.findIndex((item) => item.id === id);
+    if (index === -1) {
+      return null;
+    }
+    list[index] = patch(list[index]);
+    saveDocumentRequests(list);
+    updated = list[index];
   }
-  const list = getDocumentRequests();
-  const index = list.findIndex((item) => item.id === id);
-  if (index === -1) {
-    return null;
+  if (updated?.dealId) {
+    try {
+      const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
+      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${byTail}`, actionAt: updated.fulfilledAt });
+    } catch { /* skip */ }
   }
-  list[index] = patch(list[index]);
-  saveDocumentRequests(list);
-  return list[index];
+  return updated;
 }
 
 async function confirmDocumentRequest(id, { actor } = {}) {
@@ -804,19 +826,28 @@ async function confirmDocumentRequest(id, { actor } = {}) {
     deliveredByLogin: cleanText(actor?.login),
     updatedAt: now
   });
+  let updated;
   if (postgresStore.isEnabled()) {
     await initStore();
-    const updated = await postgresStore.updateRow("document_requests", id, patch);
-    return updated ? normalizeDocumentRequest(updated) : null;
+    const raw = await postgresStore.updateRow("document_requests", id, patch);
+    updated = raw ? normalizeDocumentRequest(raw) : null;
+  } else {
+    const list = getDocumentRequests();
+    const index = list.findIndex((item) => item.id === id);
+    if (index === -1) {
+      return null;
+    }
+    list[index] = patch(list[index]);
+    saveDocumentRequests(list);
+    updated = list[index];
   }
-  const list = getDocumentRequests();
-  const index = list.findIndex((item) => item.id === id);
-  if (index === -1) {
-    return null;
+  if (updated?.dealId) {
+    try {
+      const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
+      await addDealAction(updated.dealId, { action: `Документы получены аналитиком${byTail}`, actionAt: updated.deliveredAt });
+    } catch { /* skip */ }
   }
-  list[index] = patch(list[index]);
-  saveDocumentRequests(list);
-  return list[index];
+  return updated;
 }
 
 function deleteDocumentRequest(id) {

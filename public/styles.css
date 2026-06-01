@@ -2556,6 +2556,23 @@ td select {
   .doc-strip.is-delivery { animation: none; }
 }
 
+/* Жёлтая мигающая рамка вокруг карточки клиента/аналитика при наличии fulfilled-запросов */
+.client-card.has-doc-delivery,
+.manager-section.has-doc-delivery {
+  border-color: rgba(182, 106, 19, 0.55);
+  animation: doc-card-pulse-amber 1.6s ease-in-out infinite;
+}
+
+@keyframes doc-card-pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(182, 106, 19, 0); border-color: rgba(182, 106, 19, 0.55); }
+  50%      { box-shadow: 0 0 0 4px rgba(182, 106, 19, 0.30); border-color: rgba(182, 106, 19, 0.9); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .client-card.has-doc-delivery,
+  .manager-section.has-doc-delivery { animation: none; }
+}
+
 .doc-request-stack {
   display: grid;
   gap: 12px;
