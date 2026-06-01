@@ -2596,6 +2596,39 @@ td select {
   font-weight: 700;
 }
 
+.doc-request-card.is-delivered {
+  border-left: 3px solid var(--green);
+  opacity: 0.85;
+  background: #fbfdfc;
+}
+
+.doc-request-archive {
+  margin-top: 20px;
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+}
+
+.doc-request-archive > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.doc-request-archive > summary::-webkit-details-marker {
+  display: none;
+}
+
+.doc-request-archive > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.doc-request-archive[open] > summary::before {
+  transform: rotate(90deg);
+}
+
 /* Toast */
 .toast-host {
   position: fixed;

@@ -2459,39 +2459,42 @@ function renderManagerDocStrip(manager) {
 }
 
 function renderDocumentRequestsView() {
-  if (!isAdmin()) {
-    return `<div class="empty">Доступ только для администраторов.</div>`;
+  if (!isAdmin() && !isDocumentsOfficer()) {
+    return `<div class="empty">Доступ только для администраторов и обработчиков документов.</div>`;
   }
-  const active = state.documentRequests.filter((req) => req.status !== "delivered");
-  if (!active.length) {
-    return `
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Документы</p>
-            <h2>Активных запросов нет</h2>
-          </div>
-        </div>
-        <div class="empty">Когда аналитик создаст запрос, он появится здесь.</div>
-      </section>
-    `;
-  }
+  const all = state.documentRequests;
+  const active = all.filter((req) => req.status !== "delivered");
+  const archive = all.filter((req) => req.status === "delivered");
   const open = active.filter((req) => req.status === "open").sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
   const fulfilled = active.filter((req) => req.status === "fulfilled").sort((a, b) => (a.fulfilledAt < b.fulfilledAt ? -1 : 1));
+  const archiveSorted = archive.slice().sort((a, b) => (a.deliveredAt < b.deliveredAt ? 1 : -1));
 
-  const renderCard = (req) => {
+  const renderCard = (req, { archived = false } = {}) => {
     const drive = req.driveUrl
       ? `<a href="${escapeHtml(req.driveUrl)}" target="_blank" rel="noopener noreferrer">Диск клиента</a>`
       : `<span>Ссылка на диск не указана</span>`;
     const isFulfilled = req.status === "fulfilled";
-    const headTime = isFulfilled
-      ? `Загружено ${formatDate(req.fulfilledAt)}${req.fulfilledBy ? ` · ${escapeHtml(req.fulfilledBy)}` : ""}`
-      : `Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}`;
-    const cta = isFulfilled
-      ? `<span class="doc-request-pending-note">Ждём подтверждения от ${escapeHtml(req.manager)}</span>`
-      : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>`;
+    const isDelivered = req.status === "delivered";
+    let headTime;
+    if (isDelivered) {
+      headTime = `Получено ${formatDate(req.deliveredAt)}${req.deliveredBy ? ` · ${escapeHtml(req.deliveredBy)}` : ""}`;
+    } else if (isFulfilled) {
+      headTime = `Загружено ${formatDate(req.fulfilledAt)}${req.fulfilledBy ? ` · ${escapeHtml(req.fulfilledBy)}` : ""}`;
+    } else {
+      headTime = `Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}`;
+    }
+    let cta = "";
+    if (!archived) {
+      cta = isFulfilled
+        ? `<span class="doc-request-pending-note">Ждём подтверждения от ${escapeHtml(req.manager)}</span>`
+        : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>`;
+    }
+    const deleteBtn = isAdmin()
+      ? `<button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>`
+      : "";
+    const stateClass = isDelivered ? "is-delivered" : (isFulfilled ? "is-fulfilled" : "");
     return `
-      <article class="doc-request-card ${isFulfilled ? "is-fulfilled" : ""}">
+      <article class="doc-request-card ${stateClass}">
         <div class="doc-request-card-head">
           <div>
             <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
@@ -2504,13 +2507,24 @@ function renderDocumentRequestsView() {
           <time>${headTime}</time>
         </div>
         <div class="doc-request-items">${escapeHtml(req.items)}</div>
-        <div class="doc-request-actions">
-          <button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>
-          ${cta}
-        </div>
+        ${(deleteBtn || cta) ? `<div class="doc-request-actions">${deleteBtn}${cta}</div>` : ""}
       </article>
     `;
   };
+
+  if (!active.length && !archive.length) {
+    return `
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Документы</p>
+            <h2>Запросов нет</h2>
+          </div>
+        </div>
+        <div class="empty">Когда аналитик создаст запрос, он появится здесь.</div>
+      </section>
+    `;
+  }
 
   return `
     <section class="panel">
@@ -2523,14 +2537,23 @@ function renderDocumentRequestsView() {
       ${open.length ? `
         <h3 class="doc-section-title">Ждут загрузки (${open.length})</h3>
         <div class="doc-request-stack">
-          ${open.map(renderCard).join("")}
+          ${open.map((req) => renderCard(req)).join("")}
         </div>
       ` : ""}
       ${fulfilled.length ? `
         <h3 class="doc-section-title">Загружены, ждут подтверждения аналитика (${fulfilled.length})</h3>
         <div class="doc-request-stack">
-          ${fulfilled.map(renderCard).join("")}
+          ${fulfilled.map((req) => renderCard(req)).join("")}
         </div>
+      ` : ""}
+      ${!active.length ? `<div class="empty">Активных запросов нет.</div>` : ""}
+      ${archive.length ? `
+        <details class="doc-request-archive">
+          <summary class="doc-section-title">Архив запросов (${archive.length})</summary>
+          <div class="doc-request-stack">
+            ${archiveSorted.map((req) => renderCard(req, { archived: true })).join("")}
+          </div>
+        </details>
       ` : ""}
     </section>
   `;
