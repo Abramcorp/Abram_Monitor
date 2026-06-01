@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { acceptsGzip, computeEtag, sendCompressed, sendJson, staticCacheControl } = require("../server");
+const { acceptsGzip, buildSessionCookie, clearSessionCookie, computeEtag, parseCookies, sendCompressed, sendJson, staticCacheControl } = require("../server");
 
 function makeResponse() {
   return {
@@ -170,4 +170,38 @@ test("staticCacheControl picks per-extension cache headers", () => {
   assert.equal(staticCacheControl(".css"), "no-cache");
   assert.equal(staticCacheControl(".svg"), "public, max-age=3600, must-revalidate");
   assert.equal(staticCacheControl(".png"), "public, max-age=300");
+});
+
+test("parseCookies extracts named values from a Cookie header", () => {
+  const cookies = parseCookies("am_session=abc.def; foo=bar; baz=q%C3%BCx");
+  assert.equal(cookies.am_session, "abc.def");
+  assert.equal(cookies.foo, "bar");
+  assert.equal(cookies.baz, "qüx");
+});
+
+test("parseCookies returns an empty object for missing or invalid headers", () => {
+  assert.deepEqual(parseCookies(""), {});
+  assert.deepEqual(parseCookies(undefined), {});
+  assert.deepEqual(parseCookies("nokey"), {});
+});
+
+test("buildSessionCookie produces HttpOnly cookie with SameSite Lax and TTL", () => {
+  const cookie = buildSessionCookie("abc.def", 60_000, { secure: false });
+  assert.match(cookie, /^am_session=abc\.def;/);
+  assert.match(cookie, /Path=\//);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=Lax/);
+  assert.match(cookie, /Max-Age=60/);
+  assert.doesNotMatch(cookie, /Secure/);
+});
+
+test("buildSessionCookie adds Secure when requested", () => {
+  const cookie = buildSessionCookie("abc.def", 60_000, { secure: true });
+  assert.match(cookie, /Secure/);
+});
+
+test("clearSessionCookie sets empty value with Max-Age 0", () => {
+  const cookie = clearSessionCookie({ secure: false });
+  assert.match(cookie, /^am_session=;/);
+  assert.match(cookie, /Max-Age=0/);
 });

@@ -31,8 +31,11 @@ const {
   updateTask,
   initStore
 } = require("./src/store");
+const users = require("./src/users");
+const { defaultStore: sessionStore } = require("./src/sessions");
 
 const PORT = Number(process.env.PORT || 3000);
+const SESSION_COOKIE = "am_session";
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const MIME_TYPES = {
@@ -103,17 +106,101 @@ function sendCompressed(request, response, statusCode, headers, body) {
   });
 }
 
-function sendJson(response, statusCode, payload) {
+function sendJson(response, statusCode, payload, extraHeaders) {
   const body = JSON.stringify(payload);
   const headers = {
     "Cache-Control": "no-cache",
     "Content-Type": "application/json; charset=utf-8",
     "Pragma": "no-cache"
   };
+  if (extraHeaders) {
+    Object.assign(headers, extraHeaders);
+  }
   if (statusCode === 200 && Buffer.byteLength(body) >= API_ETAG_MIN_BYTES) {
     headers.ETag = computeEtag(body);
   }
   sendCompressed(response.req, response, statusCode, headers, body);
+}
+
+function parseCookies(header) {
+  const result = {};
+  if (!header || typeof header !== "string") {
+    return result;
+  }
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) {
+      continue;
+    }
+    const name = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (!name) {
+      continue;
+    }
+    try {
+      result[name] = decodeURIComponent(value);
+    } catch {
+      result[name] = value;
+    }
+  }
+  return result;
+}
+
+function buildSessionCookie(token, ttlMs, { secure = false } = {}) {
+  const maxAge = Math.floor(ttlMs / 1000);
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAge}`
+  ];
+  if (secure) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
+}
+
+function clearSessionCookie({ secure = false } = {}) {
+  const parts = [`${SESSION_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
+  if (secure) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
+}
+
+function shouldUseSecureCookie(request) {
+  if (process.env.COOKIE_SECURE === "true") {
+    return true;
+  }
+  if (process.env.COOKIE_SECURE === "false") {
+    return false;
+  }
+  const forwardedProto = request?.headers?.["x-forwarded-proto"];
+  if (typeof forwardedProto === "string" && forwardedProto.split(",")[0].trim() === "https") {
+    return true;
+  }
+  return false;
+}
+
+async function attachUser(request) {
+  const cookies = parseCookies(request.headers?.cookie);
+  const token = cookies[SESSION_COOKIE];
+  const session = token ? sessionStore.get(token) : null;
+  if (!session) {
+    request.user = null;
+    request.sessionToken = "";
+    return;
+  }
+  const user = await users.findUserById(session.userId);
+  if (!user) {
+    sessionStore.destroy(token);
+    request.user = null;
+    request.sessionToken = "";
+    return;
+  }
+  request.user = users.publicUser(user);
+  request.sessionToken = token;
 }
 
 function readBody(request) {
@@ -201,9 +288,65 @@ function serveStatic(request, response) {
   });
 }
 
+async function handleAuth(request, response, pathname) {
+  if (request.method === "POST" && pathname === "/api/auth/login") {
+    const payload = await readBody(request);
+    const login = String(payload.login || "").trim();
+    const password = String(payload.password || "");
+    if (!login || !password) {
+      sendJson(response, 400, { error: "Логин и пароль обязательны" });
+      return true;
+    }
+    const user = await users.authenticate(login, password);
+    if (!user) {
+      sendJson(response, 401, { error: "Неверный логин или пароль" });
+      return true;
+    }
+    const session = sessionStore.create(user.id);
+    sendJson(
+      response,
+      200,
+      { user: users.publicUser(user) },
+      { "Set-Cookie": buildSessionCookie(session.token, session.ttlMs, { secure: shouldUseSecureCookie(request) }) }
+    );
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/auth/logout") {
+    if (request.sessionToken) {
+      sessionStore.destroy(request.sessionToken);
+    }
+    sendJson(
+      response,
+      200,
+      { ok: true },
+      { "Set-Cookie": clearSessionCookie({ secure: shouldUseSecureCookie(request) }) }
+    );
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/auth/me") {
+    if (!request.user) {
+      sendJson(response, 401, { error: "Не авторизовано" });
+      return true;
+    }
+    sendJson(response, 200, { user: request.user });
+    return true;
+  }
+
+  return false;
+}
+
 async function handleApi(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = url.pathname;
+
+  if (pathname.startsWith("/api/auth/")) {
+    const handled = await handleAuth(request, response, pathname);
+    if (handled) {
+      return;
+    }
+  }
 
   if (request.method === "GET" && pathname === "/api/dashboard") {
     const time = await getMoscowNow();
@@ -389,6 +532,7 @@ async function handleApi(request, response) {
 const server = http.createServer(async (request, response) => {
   try {
     if (request.url.startsWith("/api/")) {
+      await attachUser(request);
       await handleApi(request, response);
       return;
     }
@@ -400,6 +544,7 @@ const server = http.createServer(async (request, response) => {
 
 async function start() {
   await initStore();
+  await users.ensureBootstrapAdmin({ logger: console });
   server.listen(PORT, () => {
     console.log(`Deal Monitor is running at http://localhost:${PORT}`);
   });
@@ -414,7 +559,10 @@ if (require.main === module) {
 
 module.exports = {
   acceptsGzip,
+  buildSessionCookie,
+  clearSessionCookie,
   computeEtag,
+  parseCookies,
   sendCompressed,
   sendJson,
   server,

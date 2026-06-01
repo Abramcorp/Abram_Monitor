@@ -24,6 +24,10 @@ const COLLECTIONS = {
   tasks: {
     file: path.join(DATA_DIR, "tasks.json"),
     table: "app_tasks"
+  },
+  users: {
+    file: path.join(DATA_DIR, "users.json"),
+    table: "app_users"
   }
 };
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
@@ -177,6 +181,16 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
 
         CREATE INDEX IF NOT EXISTS app_tasks_client_idx
           ON app_tasks (lower(data->>'manager'), lower(data->>'client'));
+
+        CREATE TABLE IF NOT EXISTS app_users (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS app_users_login_idx
+          ON app_users (lower(data->>'login'));
 
         CREATE TABLE IF NOT EXISTS app_knowledge_programs (
           id text PRIMARY KEY,
