@@ -747,13 +747,23 @@ async function handleApi(request, response) {
         fullName: payload.fullName,
         role: payload.role
       });
-      // Авто-создаём manager для ролей-аналитиков, если такого ещё нет.
-      if (created && (created.role === "partner" || created.role === "analyst_abram") && created.fullName) {
+      // Авто-создаём manager для ролей-аналитиков (admin/analyst_abram/partner), если такого ещё нет.
+      // Если manager с таким именем уже есть — сразу привязываем его к учётке через userId.
+      if (created && (created.role === "admin" || created.role === "partner" || created.role === "analyst_abram") && created.fullName) {
         const existingManagers = await getManagers();
-        const exists = existingManagers.some((m) => String(m.name || "").trim().toLowerCase() === created.fullName.trim().toLowerCase());
-        if (!exists) {
+        const fullNameKey = created.fullName.trim().toLowerCase();
+        const existing = existingManagers.find((m) => String(m.name || "").trim().toLowerCase() === fullNameKey);
+        if (existing) {
+          if (!existing.userId) {
+            try {
+              await updateManager(existing.id, { userId: created.id });
+            } catch {
+              // если не удалось привязать — пусть админ сделает руками
+            }
+          }
+        } else {
           try {
-            await createManager({ name: created.fullName });
+            await createManager({ name: created.fullName, userId: created.id });
           } catch {
             // конфликт по имени или ошибка валидации — игнорируем; админ может создать вручную
           }

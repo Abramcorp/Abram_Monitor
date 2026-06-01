@@ -1526,9 +1526,10 @@ function renderManagerGroups(deals) {
   return `
     <div class="manager-stack">
       ${managers
-        .map(
-          (manager) => `
-            <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("current-manager", manager.manager))}">
+        .map((manager) => {
+          const managerDeliveryClass = managerHasDocDelivery(manager) ? " has-doc-delivery" : "";
+          return `
+            <details class="manager-section manager-accordion${managerDeliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("current-manager", manager.manager))}">
               <summary class="manager-head">
                 ${renderManagerTaskBadge(manager)}
                 ${renderManagerDocStrip(manager)}
@@ -1544,9 +1545,10 @@ function renderManagerGroups(deals) {
               </summary>
               <div class="client-stack">
                 ${manager.clients
-                  .map(
-                    (client) => `
-                      <details class="client-card" data-ui-state-key="${escapeHtml(uiStateKey("current-client", manager.manager, client.client))}">
+                  .map((client) => {
+                    const clientDeliveryClass = clientHasDocDelivery(client) ? " has-doc-delivery" : "";
+                    return `
+                      <details class="client-card${clientDeliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("current-client", manager.manager, client.client))}">
                         <summary>
                           ${renderClientSummary(client, "active")}
                         </summary>
@@ -1556,13 +1558,13 @@ function renderManagerGroups(deals) {
                           ${renderClientApplicationSections(client)}
                         </div>
                       </details>
-                    `
-                  )
+                    `;
+                  })
                   .join("")}
               </div>
             </details>
-          `
-        )
+          `;
+        })
         .join("")}
     </div>
   `;
@@ -1577,9 +1579,10 @@ function renderClientCards(clients, emptyText, options = {}) {
   return `
     <div class="client-stack">
       ${clients
-        .map(
-          (client) => `
-            <details class="client-card" data-ui-state-key="${escapeHtml(uiStateKey("client", client.manager || "", client.client, settings.showArchivedAt ? "archive" : "active"))}">
+        .map((client) => {
+          const deliveryClass = clientHasDocDelivery(client) ? " has-doc-delivery" : "";
+          return `
+            <details class="client-card${deliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("client", client.manager || "", client.client, settings.showArchivedAt ? "archive" : "active"))}">
               <summary>
                 ${renderClientSummary(client, { showAddedAt: settings.showAddedAt, showArchivedAt: settings.showArchivedAt })}
               </summary>
@@ -1589,8 +1592,8 @@ function renderClientCards(clients, emptyText, options = {}) {
                 ${renderClientApplicationSections(client)}
               </div>
             </details>
-          `
-        )
+          `;
+        })
         .join("")}
     </div>
   `;
@@ -1778,8 +1781,9 @@ function renderManagerLinkControl(manager) {
 }
 
 function renderManagerCard(manager) {
+  const deliveryClass = managerHasDocDelivery(manager) ? " has-doc-delivery" : "";
   return `
-    <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
+    <details class="manager-section manager-accordion${deliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
       <summary class="manager-head">
         ${renderManagerTaskBadge(manager)}
         ${renderManagerDocStrip(manager)}
@@ -2442,6 +2446,16 @@ function documentRequestsForClient(manager, clientName) {
 function documentRequestsForManager(managerName) {
   const m = compareKey(managerName);
   return state.documentRequests.filter((req) => compareKey(req.manager) === m);
+}
+
+function clientHasDocDelivery(client) {
+  return documentRequestsForClient(client.manager || "", client.client)
+    .some((req) => req.status === "fulfilled");
+}
+
+function managerHasDocDelivery(manager) {
+  const name = manager?.manager || "";
+  return documentRequestsForManager(name).some((req) => req.status === "fulfilled");
 }
 
 function summarizeDocRequests(items) {
