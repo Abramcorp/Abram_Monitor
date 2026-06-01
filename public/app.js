@@ -1747,8 +1747,76 @@ function renderArchiveView() {
   `;
 }
 
+function managerRoleByName(name) {
+  const key = String(name || "").trim().toLowerCase();
+  if (!key) return "";
+  const found = state.managers.find((m) => String(m.name || "").trim().toLowerCase() === key);
+  return found?.role || "";
+}
+
+function renderManagerCard(manager) {
+  return `
+    <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
+      <summary class="manager-head">
+        ${renderManagerTaskBadge(manager)}
+        ${renderManagerDocStrip(manager)}
+        <div>
+          <p class="eyebrow">Аналитик</p>
+          <h3>${escapeHtml(manager.manager)}</h3>
+        </div>
+        <div class="manager-metrics">
+          <strong>${manager.clientCount} клиентов</strong>
+          <div class="summary-amounts">
+            <span>План подач <strong>${manager.plannedCount} · ${money(manager.plannedAmountRequested)}</strong></span>
+            <span>Лиды <strong>${manager.leadCount} · ${money(manager.leadAmountRequested)}</strong></span>
+            <span>Заявки в работе <strong>${manager.workingCount} · ${money(manager.workingAmountRequested)}</strong></span>
+          </div>
+        </div>
+      </summary>
+      ${renderClientCards(manager.clients, "Клиентов пока нет.")}
+    </details>
+  `;
+}
+
 function renderManagerClientView() {
   const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients, state.managers);
+
+  if (!managers.length) {
+    return `
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Аналитики и клиенты</p>
+            <h2>Карточки аналитиков</h2>
+          </div>
+        </div>
+        <div class="empty">Аналитики пока не добавлены.</div>
+      </section>
+    `;
+  }
+
+  const abram = [];
+  const partners = [];
+  const other = [];
+  for (const manager of managers) {
+    const role = managerRoleByName(manager.manager);
+    if (role === "analyst_abram" || role === "admin") {
+      abram.push(manager);
+    } else if (role === "partner") {
+      partners.push(manager);
+    } else {
+      other.push(manager);
+    }
+  }
+
+  const renderGroup = (title, items) => items.length ? `
+    <div class="manager-group">
+      <h3 class="manager-group-title">${escapeHtml(title)} <span>(${items.length})</span></h3>
+      <div class="manager-stack">
+        ${items.map(renderManagerCard).join("")}
+      </div>
+    </div>
+  ` : "";
 
   return `
     <section class="panel">
@@ -1758,37 +1826,9 @@ function renderManagerClientView() {
           <h2>Карточки аналитиков</h2>
         </div>
       </div>
-      ${
-        managers.length
-          ? `<div class="manager-stack">
-              ${managers
-                .map(
-                  (manager) => `
-                    <details class="manager-section manager-accordion" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
-                      <summary class="manager-head">
-                        ${renderManagerTaskBadge(manager)}
-                        ${renderManagerDocStrip(manager)}
-                        <div>
-                          <p class="eyebrow">Аналитик</p>
-                          <h3>${escapeHtml(manager.manager)}</h3>
-                        </div>
-                        <div class="manager-metrics">
-                          <strong>${manager.clientCount} клиентов</strong>
-                          <div class="summary-amounts">
-                            <span>План подач <strong>${manager.plannedCount} · ${money(manager.plannedAmountRequested)}</strong></span>
-                            <span>Лиды <strong>${manager.leadCount} · ${money(manager.leadAmountRequested)}</strong></span>
-                            <span>Заявки в работе <strong>${manager.workingCount} · ${money(manager.workingAmountRequested)}</strong></span>
-                          </div>
-                        </div>
-                      </summary>
-                      ${renderClientCards(manager.clients, "Клиентов пока нет.")}
-                    </details>
-                  `
-                )
-                .join("")}
-            </div>`
-          : `<div class="empty">Аналитики пока не добавлены.</div>`
-      }
+      ${renderGroup("Аналитики AbramCorp", abram)}
+      ${renderGroup("Партнёрский контур", partners)}
+      ${renderGroup("Без привязки к учётке", other)}
     </section>
   `;
 }

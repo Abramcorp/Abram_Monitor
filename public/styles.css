@@ -407,6 +407,25 @@ textarea:focus-visible {
   gap: 12px;
 }
 
+.manager-group + .manager-group {
+  margin-top: 24px;
+}
+
+.manager-group-title {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.manager-group-title span {
+  color: var(--ink);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
 .manager-section,
 .client-card {
   border: 1px solid var(--line);

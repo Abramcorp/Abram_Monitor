@@ -581,8 +581,22 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/managers") {
-    const managers = await getManagers();
-    sendJson(response, 200, { managers: scope ? filterByManager(managers, scope, (manager) => manager.name) : managers });
+    const managersRaw = await getManagers();
+    // Join: проставляем role из соответствующей учётки по name === fullName.
+    const allUsers = await users.listUsers();
+    const roleByName = new Map();
+    for (const u of allUsers) {
+      const key = String(u.fullName || "").trim().toLowerCase();
+      if (key) {
+        roleByName.set(key, u.role);
+      }
+    }
+    const enriched = managersRaw.map((manager) => ({
+      ...manager,
+      role: roleByName.get(String(manager.name || "").trim().toLowerCase()) || ""
+    }));
+    const managers = scope ? filterByManager(enriched, scope, (manager) => manager.name) : enriched;
+    sendJson(response, 200, { managers });
     return;
   }
 
@@ -703,6 +717,18 @@ async function handleApi(request, response) {
         fullName: payload.fullName,
         role: payload.role
       });
+      // Авто-создаём manager для ролей-аналитиков, если такого ещё нет.
+      if (created && (created.role === "partner" || created.role === "analyst_abram") && created.fullName) {
+        const existingManagers = await getManagers();
+        const exists = existingManagers.some((m) => String(m.name || "").trim().toLowerCase() === created.fullName.trim().toLowerCase());
+        if (!exists) {
+          try {
+            await createManager({ name: created.fullName });
+          } catch {
+            // конфликт по имени или ошибка валидации — игнорируем; админ может создать вручную
+          }
+        }
+      }
       sendJson(response, 201, { user: created });
     } catch (error) {
       sendJson(response, 400, { error: error.message });
