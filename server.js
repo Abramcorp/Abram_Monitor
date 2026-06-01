@@ -675,6 +675,68 @@ async function handleApi(request, response) {
     return;
   }
 
+  if (request.method === "GET" && pathname === "/api/users") {
+    requireRole(request, ["admin"]);
+    const items = await users.listUsers();
+    sendJson(response, 200, { users: items.map(users.publicUser) });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/users") {
+    requireRole(request, ["admin"]);
+    const payload = await readBody(request);
+    try {
+      const created = await users.createUser({
+        login: payload.login,
+        password: payload.password,
+        fullName: payload.fullName,
+        role: payload.role
+      });
+      sendJson(response, 201, { user: created });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+
+  const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (request.method === "PATCH" && userMatch) {
+    requireRole(request, ["admin"]);
+    const userId = decodeURIComponent(userMatch[1]);
+    const payload = await readBody(request);
+    try {
+      const updated = await users.updateUser(userId, {
+        fullName: payload.fullName,
+        role: payload.role,
+        password: payload.password
+      });
+      if (!updated) {
+        sendJson(response, 404, { error: "User not found" });
+        return;
+      }
+      sendJson(response, 200, { user: updated });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && userMatch) {
+    requireRole(request, ["admin"]);
+    const userId = decodeURIComponent(userMatch[1]);
+    if (request.user?.id === userId) {
+      sendJson(response, 400, { error: "Нельзя удалить собственную учётную запись" });
+      return;
+    }
+    const removed = await users.deleteUser(userId);
+    if (!removed) {
+      sendJson(response, 404, { error: "User not found" });
+      return;
+    }
+    sendJson(response, 200, { user: removed });
+    return;
+  }
+
   sendJson(response, 404, { error: "API route not found" });
 }
 

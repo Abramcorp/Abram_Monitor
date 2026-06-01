@@ -7,6 +7,7 @@ const state = {
   knowledge: [],
   managers: [],
   tasks: [],
+  users: [],
   user: null,
   filters: {
     query: "",
@@ -49,6 +50,12 @@ const dealActionForm = document.querySelector("#dealActionForm");
 const knowledgeDialog = document.querySelector("#knowledgeDialog");
 const knowledgeForm = document.querySelector("#knowledgeForm");
 const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
+const userDialog = document.querySelector("#userDialog");
+const userForm = document.querySelector("#userForm");
+const userDialogTitle = document.querySelector("#userDialogTitle");
+const userFormError = document.querySelector("#userFormError");
+const userPasswordHint = document.querySelector("#userPasswordHint");
+const userLoginField = document.querySelector("#userLogin");
 const applicationProgramPreview = document.querySelector("#applicationProgramPreview");
 const taskDialog = document.querySelector("#taskDialog");
 const taskForm = document.querySelector("#taskForm");
@@ -92,8 +99,13 @@ const VIEWS = [
   { id: "summary", label: "Сводный отчет" },
   { id: "funnels", label: "Аналитики" },
   { id: "archive", label: "Архив клиентов" },
-  { id: "knowledge", label: "База знаний" }
+  { id: "knowledge", label: "База знаний" },
+  { id: "users", label: "Пользователи", adminOnly: true }
 ];
+
+function visibleViews() {
+  return VIEWS.filter((view) => !view.adminOnly || isAdmin());
+}
 
 const REQUIREMENT_LABELS = {
   businessRegion: "Регион ведения бизнеса",
@@ -547,7 +559,8 @@ const LOAD_DATA_TARGETS = {
   clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; } },
   managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; } },
   knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; } },
-  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; } }
+  tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; } },
+  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, adminOnly: true }
 };
 const LOAD_DATA_ALL = Object.keys(LOAD_DATA_TARGETS);
 
@@ -733,9 +746,10 @@ function renderClientTaskList(client) {
 }
 
 async function loadData(options = {}) {
-  const requested = Array.isArray(options.targets) && options.targets.length
+  const requestedRaw = Array.isArray(options.targets) && options.targets.length
     ? options.targets.filter((target) => target in LOAD_DATA_TARGETS)
     : LOAD_DATA_ALL;
+  const requested = requestedRaw.filter((target) => !LOAD_DATA_TARGETS[target].adminOnly || isAdmin());
   const responses = await Promise.all(requested.map((target) => requestJson(LOAD_DATA_TARGETS[target].url)));
   responses.forEach((payload, index) => {
     LOAD_DATA_TARGETS[requested[index]].apply(payload);
@@ -827,7 +841,11 @@ function resetFilters() {
 }
 
 function renderViewTabs() {
-  viewTabs.innerHTML = VIEWS
+  const views = visibleViews();
+  if (!views.some((view) => view.id === state.view)) {
+    state.view = views[0]?.id || "summary";
+  }
+  viewTabs.innerHTML = views
     .map((view) => `<button class="tab ${state.view === view.id ? "is-active" : ""}" data-view="${view.id}" type="button">${view.label}</button>`)
     .join("");
 
@@ -2280,6 +2298,55 @@ function renderKnowledgeView() {
   `;
 }
 
+function renderUsersView() {
+  if (!isAdmin()) {
+    return `<div class="empty">Доступ только для администраторов.</div>`;
+  }
+  const meId = state.user?.id;
+  const sorted = [...state.users].sort((a, b) => {
+    const roleOrder = (role) => ({ admin: 0, analyst_abram: 1, partner: 2 }[role] ?? 99);
+    return roleOrder(a.role) - roleOrder(b.role) || a.fullName.localeCompare(b.fullName, "ru");
+  });
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Учётные записи</p>
+          <h2>Пользователи (${sorted.length})</h2>
+        </div>
+        <button class="primary-button" data-add-user="1" type="button">+ Пользователь</button>
+      </div>
+      ${sorted.length ? `
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>Логин</th>
+              <th>ФИО</th>
+              <th>Роль</th>
+              <th>Создан</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map((user) => `
+              <tr>
+                <td><code>${escapeHtml(user.login)}</code></td>
+                <td>${escapeHtml(user.fullName)}${user.id === meId ? ` <span class="user-row-self">— это вы</span>` : ""}</td>
+                <td><span class="user-role-badge user-role-${escapeHtml(user.role)}">${escapeHtml(ROLE_LABELS[user.role] || user.role)}</span></td>
+                <td><time>${formatDate(user.createdAt)}</time></td>
+                <td class="users-row-actions">
+                  <button class="ghost-button small-button" data-edit-user="${escapeHtml(user.id)}" type="button">Изменить</button>
+                  ${user.id === meId ? "" : `<button class="ghost-button small-button danger-button" data-delete-user="${escapeHtml(user.id)}" data-user-name="${escapeHtml(user.fullName)}" type="button">Удалить</button>`}
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="empty">Пока нет пользователей.</div>`}
+    </section>
+  `;
+}
+
 function renderCurrent() {
   const deals = filteredDeals("current");
   return `
@@ -3239,10 +3306,11 @@ function render() {
     completed: renderCompleted,
     archive: renderArchiveView,
     knowledge: renderKnowledgeView,
-    summary: renderSummary
+    summary: renderSummary,
+    users: renderUsersView
   };
 
-  app.innerHTML = views[state.view]();
+  app.innerHTML = (views[state.view] || renderSummary)();
   bindDynamicControls();
 }
 
@@ -3484,6 +3552,33 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       await handleArchiveClient(archiveClient);
+      return;
+    }
+
+    const addUserBtn = target.closest("[data-add-user]");
+    if (addUserBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      openUserDialog(null);
+      return;
+    }
+
+    const editUserBtn = target.closest("[data-edit-user]");
+    if (editUserBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const entry = state.users.find((u) => u.id === editUserBtn.dataset.editUser);
+      if (entry) {
+        openUserDialog(entry);
+      }
+      return;
+    }
+
+    const deleteUserBtn = target.closest("[data-delete-user]");
+    if (deleteUserBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteUser(deleteUserBtn);
       return;
     }
 
@@ -3970,11 +4065,96 @@ knowledgeForm.addEventListener("submit", async (event) => {
   await loadData({ targets: ["knowledge"] });
 });
 
+// ===== Users management =====
+
+function openUserDialog(entry) {
+  if (!userDialog || !userForm) {
+    return;
+  }
+  userForm.reset();
+  if (userFormError) {
+    userFormError.hidden = true;
+    userFormError.textContent = "";
+  }
+  if (userDialogTitle) {
+    userDialogTitle.textContent = entry ? "Редактировать пользователя" : "Новый пользователь";
+  }
+  userForm.elements.userId.value = entry?.id || "";
+  if (userLoginField) {
+    userLoginField.value = entry?.login || "";
+    userLoginField.readOnly = Boolean(entry);
+  }
+  userForm.elements.fullName.value = entry?.fullName || "";
+  userForm.elements.role.value = entry?.role || "partner";
+  userForm.elements.password.value = "";
+  userForm.elements.password.required = !entry;
+  if (userPasswordHint) {
+    userPasswordHint.textContent = entry
+      ? "(оставьте пустым, чтобы не менять)"
+      : "(минимум 6 символов)";
+  }
+  userDialog.showModal();
+}
+
+async function handleDeleteUser(button) {
+  const userId = button.dataset.deleteUser;
+  if (!userId) return;
+  const name = button.dataset.userName || "пользователя";
+  if (!window.confirm(`Удалить пользователя "${name}" безвозвратно?`)) return;
+  try {
+    await requestJson(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+    await loadData({ targets: ["users"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+if (userForm) {
+  userForm.addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") {
+      return;
+    }
+    event.preventDefault();
+    if (!userForm.reportValidity()) {
+      return;
+    }
+    const formData = new FormData(userForm);
+    const payload = Object.fromEntries(formData.entries());
+    const userId = payload.userId;
+    delete payload.userId;
+    if (!payload.password) {
+      delete payload.password;
+    }
+    if (userId) {
+      delete payload.login; // не позволяем менять login
+    }
+    if (userFormError) {
+      userFormError.hidden = true;
+      userFormError.textContent = "";
+    }
+    try {
+      await requestJson(
+        userId ? `/api/users/${encodeURIComponent(userId)}` : "/api/users",
+        { method: userId ? "PATCH" : "POST", body: JSON.stringify(payload) }
+      );
+      userDialog.close();
+      await loadData({ targets: ["users"] });
+    } catch (error) {
+      if (userFormError) {
+        userFormError.hidden = false;
+        userFormError.textContent = error.message || "Не удалось сохранить";
+      }
+    }
+  });
+}
+
 // ===== Auth bootstrap =====
 
 function showLoginScreen({ focus = true } = {}) {
-  if (loginShell) loginShell.hidden = false;
-  if (appShell) appShell.hidden = true;
+  if (loginShell) {
+    loginShell.classList.add("is-visible");
+    loginShell.removeAttribute("hidden");
+  }
   if (loginError) {
     loginError.hidden = true;
     loginError.textContent = "";
@@ -3989,8 +4169,11 @@ function showLoginScreen({ focus = true } = {}) {
 }
 
 function showAppShell() {
-  if (loginShell) loginShell.hidden = true;
-  if (appShell) appShell.hidden = false;
+  if (loginShell) {
+    loginShell.classList.remove("is-visible");
+    loginShell.removeAttribute("hidden");
+  }
+  if (appShell) appShell.removeAttribute("hidden");
 }
 
 function applyUserToBadge(user) {
