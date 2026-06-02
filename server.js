@@ -745,7 +745,8 @@ async function handleApi(request, response) {
         login: payload.login,
         password: payload.password,
         fullName: payload.fullName,
-        role: payload.role
+        role: payload.role,
+        telegramChatId: payload.telegramChatId
       });
       // Авто-создаём manager для ролей-аналитиков (admin/analyst_abram/partner), если такого ещё нет.
       // Если manager с таким именем уже есть — сразу привязываем его к учётке через userId.
@@ -785,7 +786,8 @@ async function handleApi(request, response) {
       const updated = await users.updateUser(userId, {
         fullName: payload.fullName,
         role: payload.role,
-        password: payload.password
+        password: payload.password,
+        telegramChatId: payload.telegramChatId
       });
       if (!updated) {
         sendJson(response, 404, { error: "User not found" });
@@ -847,7 +849,26 @@ async function handleApi(request, response) {
   if (request.method === "PATCH" && documentRequestFulfillMatch) {
     requireRole(request, ["admin", "documents_officer"]);
     const reqId = decodeURIComponent(documentRequestFulfillMatch[1]);
-    const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
+    // Резолвим Telegram chat_id владельца-аналитика, чтобы уведомление ушло ему в личку.
+    let recipientChatId = "";
+    try {
+      const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+      if (existing?.manager) {
+        const managers = await getManagers();
+        const nameKey = String(existing.manager).trim().toLowerCase();
+        const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
+        if (manager) {
+          const allUsers = await users.listUsers();
+          // Сначала по userId (жёсткая привязка), потом fallback по fullName.
+          const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
+            || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
+          recipientChatId = linked?.telegramChatId || "";
+        }
+      }
+    } catch {
+      // если резолв упал — fallback в общий чат через notify
+    }
+    const updated = await fulfillDocumentRequest(reqId, { actor: request.user, recipientChatId });
     if (!updated) {
       sendJson(response, 404, { error: "Document request not found" });
       return;

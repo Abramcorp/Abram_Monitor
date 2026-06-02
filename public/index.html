@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260602-doc-tab-badge">
+    <link rel="stylesheet" href="/styles.css?v=20260602-tg-personal">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -280,6 +280,15 @@
           <input name="password" type="password" autocomplete="new-password" placeholder="••••••••">
         </label>
 
+        <label>
+          Telegram chat ID
+          <input name="telegramChatId" type="text" autocomplete="off" placeholder="например: 123456789" inputmode="numeric">
+          <span class="user-password-hint">
+            Узнать свой ID можно у <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer">@userinfobot</a>.
+            После заполнения — обязательно напишите боту-уведомителю /start, иначе он не сможет вам писать.
+          </span>
+        </label>
+
         <p class="login-error" id="userFormError" hidden></p>
 
         <div class="dialog-actions">
@@ -451,6 +460,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260602-doc-tab-badge" defer></script>
+    <script src="/app.js?v=20260602-tg-personal" defer></script>
   </body>
 </html>

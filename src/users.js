@@ -52,6 +52,7 @@ function normalizeUser(raw = {}) {
     fullName: cleanText(raw.fullName || raw.name) || cleanText(raw.login),
     role: normalizeRole(raw.role) || "partner",
     passwordHash: cleanText(raw.passwordHash) || "",
+    telegramChatId: cleanText(raw.telegramChatId),
     createdAt: cleanText(raw.createdAt) || now,
     updatedAt: cleanText(raw.updatedAt) || cleanText(raw.createdAt) || now
   };
@@ -66,6 +67,7 @@ function publicUser(user) {
     login: user.login,
     fullName: user.fullName,
     role: user.role,
+    telegramChatId: user.telegramChatId || "",
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
   };
@@ -111,7 +113,7 @@ async function findUserById(id) {
   return users.find((user) => user.id === id) || null;
 }
 
-async function createUser({ login, password, fullName, role, id, createdAt }) {
+async function createUser({ login, password, fullName, role, telegramChatId, id, createdAt }) {
   const normalizedLogin = validateLogin(login);
   const normalizedRole = validateRole(role);
   const normalizedFullName = cleanText(fullName) || normalizedLogin;
@@ -130,6 +132,7 @@ async function createUser({ login, password, fullName, role, id, createdAt }) {
     fullName: normalizedFullName,
     role: normalizedRole,
     passwordHash,
+    telegramChatId,
     createdAt: createdAt || now,
     updatedAt: now
   });
@@ -157,6 +160,9 @@ async function updateUser(id, patch = {}) {
   }
   if (patch.password) {
     updates.passwordHash = await hashPassword(patch.password);
+  }
+  if (patch.telegramChatId !== undefined) {
+    updates.telegramChatId = cleanText(patch.telegramChatId);
   }
   updates.updatedAt = new Date().toISOString();
   const next = normalizeUser(updates);

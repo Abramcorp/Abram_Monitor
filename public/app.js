@@ -4495,6 +4495,9 @@ function openUserDialog(entry) {
   userForm.elements.role.value = entry?.role || "partner";
   userForm.elements.password.value = "";
   userForm.elements.password.required = !entry;
+  if (userForm.elements.telegramChatId) {
+    userForm.elements.telegramChatId.value = entry?.telegramChatId || "";
+  }
   if (userPasswordHint) {
     userPasswordHint.textContent = entry
       ? "(оставьте пустым, чтобы не менять)"
