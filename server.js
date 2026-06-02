@@ -1111,72 +1111,93 @@ async function handleApi(request, response) {
 
   const documentRequestFulfillMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/fulfill$/);
   if (request.method === "PATCH" && documentRequestFulfillMatch) {
-    requireRole(request, ["admin", "documents_officer"]);
-    const reqId = decodeURIComponent(documentRequestFulfillMatch[1]);
-    const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
-    if (!existing) {
-      sendJson(response, 404, { error: "Document request not found" });
-      return;
-    }
-    // Валидация: должны быть прикреплённые файлы.
-    const attachments = Array.isArray(existing.attachments) ? existing.attachments.filter((a) => a.driveFileId) : [];
-    if (!attachments.length) {
-      sendJson(response, 400, { error: "Прикрепите хотя бы один файл перед отправкой пакета" });
-      return;
-    }
-    // Валидация: Drive должен быть подключён (раз файлы там лежат).
-    const driveStatus = await googleDrive.getStatus();
-    if (!driveStatus.connected) {
-      sendJson(response, 400, { error: "Google Drive не подключён. Подключите в Настройки → Интеграции." });
-      return;
-    }
-    // Резолвим Telegram chat_id владельца-аналитика (для личного канала).
-    let recipientChatId = "";
+    const ftrace = `fulfill-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const flog = (...args) => console.log(`[${ftrace}]`, ...args);
     try {
-      if (existing.manager) {
-        const managers = await getManagers();
-        const nameKey = String(existing.manager).trim().toLowerCase();
-        const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
-        if (manager) {
-          const allUsers = await users.listUsers();
-          const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
-            || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
-          recipientChatId = linked?.telegramChatId || "";
-        }
-      }
-    } catch { /* fallback в общий чат */ }
-    const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
-    if (!updated) {
-      sendJson(response, 404, { error: "Document request not found" });
-      return;
-    }
-    sendJson(response, 200, { documentRequest: updated });
-    // Отправка пакета в Telegram — fire-and-forget, стрим из Drive.
-    (async () => {
-      const sources = [];
-      for (const att of attachments) {
-        try {
-          const stream = await googleDrive.getFileStream(att.driveFileId);
-          sources.push({
-            fileName: att.fileName || "document",
-            mimeType: att.mimeType || "application/octet-stream",
-            stream
-          });
-        } catch (error) {
-          console.warn("[gdrive] failed to stream file for TG:", att.fileName, error.message);
-        }
-      }
-      if (!sources.length) {
-        console.warn("[telegram] no streams to send for request", updated.id);
+      requireRole(request, ["admin", "documents_officer"]);
+      const reqId = decodeURIComponent(documentRequestFulfillMatch[1]);
+      flog("START reqId=", reqId, "user=", request.user.login);
+      const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Document request not found" });
         return;
       }
-      try {
-        await require("./src/telegram").notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources });
-      } catch (error) {
-        console.warn("[telegram] notify failed:", error.message);
+      const attachments = Array.isArray(existing.attachments) ? existing.attachments.filter((a) => a.driveFileId) : [];
+      flog("attachments=", attachments.length, "manager=", existing.manager);
+      if (!attachments.length) {
+        sendJson(response, 400, { error: "Прикрепите хотя бы один файл перед отправкой пакета" });
+        return;
       }
-    })().catch((error) => console.warn("[telegram] dispatch error:", error.message));
-    return;
+      const driveStatus = await googleDrive.getStatus();
+      if (!driveStatus.connected) {
+        sendJson(response, 400, { error: "Google Drive не подключён. Подключите в Настройки → Интеграции." });
+        return;
+      }
+      // Резолвим Telegram chat_id владельца-аналитика (для личного канала).
+      let recipientChatId = "";
+      let linkedUserLogin = "";
+      try {
+        if (existing.manager) {
+          const managers = await getManagers();
+          const nameKey = String(existing.manager).trim().toLowerCase();
+          const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
+          flog("manager match by name:", manager ? `id=${manager.id} userId=${manager.userId || "-"}` : "none");
+          if (manager) {
+            const allUsers = await users.listUsers();
+            const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
+              || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
+            flog("user link:", linked ? `login=${linked.login} hasChatId=${Boolean(linked.telegramChatId)}` : "none");
+            recipientChatId = linked?.telegramChatId || "";
+            linkedUserLogin = linked?.login || "";
+          }
+        }
+      } catch (e) {
+        flog("resolve recipientChatId error:", e.message);
+      }
+      flog("recipientChatId=", recipientChatId || "(empty → общий чат)", "linkedUser=", linkedUserLogin || "-");
+      const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
+      if (!updated) {
+        sendJson(response, 404, { error: "Document request not found" });
+        return;
+      }
+      sendJson(response, 200, { documentRequest: updated });
+      // Отправка пакета в Telegram — fire-and-forget, файлы качаем в Buffer.
+      (async () => {
+        flog("TG dispatch start: downloading", attachments.length, "files from Drive");
+        const sources = [];
+        for (const att of attachments) {
+          try {
+            const buffer = await googleDrive.getFileBuffer(att.driveFileId);
+            flog(`downloaded ${att.fileName}: ${buffer.length} bytes`);
+            sources.push({
+              fileName: att.fileName || "document",
+              mimeType: att.mimeType || "application/octet-stream",
+              buffer
+            });
+          } catch (error) {
+            flog(`download error ${att.fileName}:`, error.message);
+          }
+        }
+        if (!sources.length) {
+          flog("no sources to send to TG");
+          return;
+        }
+        try {
+          flog("calling notifyDocRequestFulfilled with", sources.length, "files, chat=", recipientChatId || "common");
+          const result = await require("./src/telegram").notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources });
+          flog("TG result:", JSON.stringify(result?.ok !== undefined ? { ok: result.ok, count: result.results?.length } : result));
+        } catch (error) {
+          flog("TG notify error:", error.message, error.stack);
+        }
+      })().catch((error) => flog("TG dispatch error:", error.message));
+      return;
+    } catch (error) {
+      console.error(`[${ftrace}] FATAL:`, error.stack || error.message);
+      if (!response.headersSent) {
+        sendJson(response, 500, { error: `Fulfill error [${ftrace}]: ${error.message}` });
+      }
+      return;
+    }
   }
 
   const documentRequestConfirmMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/confirm$/);
