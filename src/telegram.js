@@ -75,7 +75,39 @@ async function sendTelegramMessage(text, { topicId, chatId } = {}) {
   }
 }
 
-function notifyDocRequestCreated(req /*, { author } = {} */) {
+// Создаёт топик в форум-группе. Возвращает { ok, message_thread_id } или null.
+// Группа должна быть супергруппой с включённым forum mode, и бот должен иметь
+// право Manage Topics (по умолчанию у админов есть).
+async function createForumTopic(name) {
+  if (!BOT_TOKEN || !CHAT_ID) {
+    console.warn("[telegram] createForumTopic: BOT_TOKEN/CHAT_ID not set");
+    return null;
+  }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/createForumTopic`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: CHAT_ID,
+        name: String(name || "").slice(0, 128) || "Клиент"
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      console.warn(`[telegram] createForumTopic failed: status=${res.status} body=${JSON.stringify(json)}`);
+      return null;
+    }
+    const threadId = json.result?.message_thread_id;
+    console.log(`[telegram] createForumTopic ok: name="${name}" thread_id=${threadId}`);
+    return { ok: true, message_thread_id: threadId };
+  } catch (error) {
+    console.warn(`[telegram] createForumTopic error: ${error.message}`);
+    return null;
+  }
+}
+
+function notifyDocRequestCreated(req, { topicId } = {}) {
   if (!isEnabled() || !req) return null;
   const itemsText = truncate(req.items || "");
   const itemsBlock = itemsText
@@ -87,7 +119,7 @@ function notifyDocRequestCreated(req /*, { author } = {} */) {
     + `Банк: ${escapeHtml(req.bank || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}`
     + itemsBlock;
-  return sendTelegramMessage(text, { topicId: TOPIC_DOCUMENTS });
+  return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
 
 // Отправка файла-документа. fileSource: { fileName, mimeType, stream } или { fileName, mimeType, buffer }
@@ -147,7 +179,7 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
   }
 }
 
-async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [] } = {}) {
+async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId } = {}) {
   if (!BOT_TOKEN || !req) return null;
   const text = `📦 <b>Документы готовы к отправке</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
@@ -156,6 +188,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
     + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "")
     + `Нужно подтвердить получение в приложении.`;
   const targetChatId = recipientChatId || "";
+  const groupTopicId = topicId || TOPIC_DOCUMENTS;
   // Если файлов нет — просто текст (старое поведение).
   if (!attachmentSources.length) {
     if (targetChatId) {
@@ -163,7 +196,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
       if (res && res.ok !== false) return res;
     }
     if (!CHAT_ID) return null;
-    return sendTelegramMessage(text, { topicId: TOPIC_DOCUMENTS });
+    return sendTelegramMessage(text, { topicId: groupTopicId });
   }
   // Есть файлы: шлём поштучно, caption ставим только на первый.
   const usePersonal = Boolean(targetChatId);
@@ -176,12 +209,12 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
     let res = null;
     if (usePersonal) {
       res = await sendDocument({ chatId: targetChatId, fileSource: src, caption });
-      // Если личка не сработала на ПЕРВОМ файле — переключаемся на общий чат для всех
+      // Если личка не сработала на ПЕРВОМ файле — переключаемся на групповой чат для всех
       if ((!res || res.ok === false) && !firstSent && fallbackChatId) {
-        res = await sendDocument({ chatId: fallbackChatId, topicId: TOPIC_DOCUMENTS, fileSource: src, caption });
+        res = await sendDocument({ chatId: fallbackChatId, topicId: groupTopicId, fileSource: src, caption });
       }
     } else if (fallbackChatId) {
-      res = await sendDocument({ chatId: fallbackChatId, topicId: TOPIC_DOCUMENTS, fileSource: src, caption });
+      res = await sendDocument({ chatId: fallbackChatId, topicId: groupTopicId, fileSource: src, caption });
     }
     results.push(res);
     firstSent = true;
@@ -190,19 +223,20 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   return { ok: anySuccess, results };
 }
 
-function notifyDocRequestConfirmed(req, { actor } = {}) {
+function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
   if (!isEnabled() || !req) return null;
   const text = `✅ <b>Документы получены</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
     + `Подтвердил: ${escapeHtml(actor?.fullName || "—")}`;
-  return sendTelegramMessage(text, { topicId: TOPIC_DOCUMENTS });
+  return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
 
 module.exports = {
   isEnabled,
   sendTelegramMessage,
   sendDocument,
+  createForumTopic,
   notifyDocRequestCreated,
   notifyDocRequestFulfilled,
   notifyDocRequestConfirmed
