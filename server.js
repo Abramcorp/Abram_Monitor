@@ -908,124 +908,166 @@ async function handleApi(request, response) {
   // POST /api/document-requests/:id/attachments — multipart upload файлов в Drive
   const docRequestAttachUploadMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/attachments$/);
   if (request.method === "POST" && docRequestAttachUploadMatch) {
-    requireRole(request, ["admin", "documents_officer"]);
-    const reqId = decodeURIComponent(docRequestAttachUploadMatch[1]);
-    const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
-    if (!existing) {
-      sendJson(response, 404, { error: "Document request not found" });
-      return;
-    }
-    if (existing.status === "delivered") {
-      sendJson(response, 400, { error: "Запрос уже закрыт, файлы прикреплять нельзя" });
-      return;
-    }
-    // Резолвим папку клиента на Drive: сначала existing.driveUrl (заснапшоченный), потом текущий client.driveUrl
-    let rootDriveUrl = existing.driveUrl || "";
-    if (!rootDriveUrl) {
-      const clients = await getClients();
-      const cli = clients.find((c) =>
-        String(c.name || "").trim().toLowerCase() === String(existing.clientName || "").trim().toLowerCase() &&
-        String(c.manager || "").trim().toLowerCase() === String(existing.manager || "").trim().toLowerCase()
-      );
-      rootDriveUrl = cli?.driveUrl || "";
-    }
-    const rootFolderId = googleDrive.extractFolderIdFromUrl(rootDriveUrl);
-    if (!rootFolderId) {
-      sendJson(response, 400, { error: "У клиента не указана ссылка на папку Google Drive (driveUrl)" });
-      return;
-    }
-    const driveStatus = await googleDrive.getStatus();
-    if (!driveStatus.connected) {
-      sendJson(response, 400, { error: "Google Drive не подключён. Подключите в Настройки → Интеграции." });
-      return;
-    }
-    const hasAccess = await googleDrive.checkParentAccess(rootFolderId).catch(() => false);
-    if (!hasAccess) {
-      sendJson(response, 400, { error: "Подключённый Google-аккаунт не имеет доступа к папке клиента (нужны права редактора)" });
-      return;
-    }
-    // ensureFolder: 5. ПОДАЧИ / <банк>
-    let submissionsFolder;
-    let bankFolder;
+    const traceId = `upload-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const log = (...args) => console.log(`[${traceId}]`, ...args);
+    log("START", { path: pathname, ct: request.headers["content-type"], cl: request.headers["content-length"] });
     try {
-      submissionsFolder = await googleDrive.ensureFolder("5. ПОДАЧИ", rootFolderId);
-      const bankName = existing.bank || "БЕЗ_БАНКА";
-      bankFolder = await googleDrive.ensureFolder(bankName, submissionsFolder.id);
+      requireRole(request, ["admin", "documents_officer"]);
+      const reqId = decodeURIComponent(docRequestAttachUploadMatch[1]);
+      log("reqId=", reqId, "user=", request.user.login);
+      const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+      if (!existing) {
+        sendJson(response, 404, { error: "Document request not found" });
+        return;
+      }
+      if (existing.status === "delivered") {
+        sendJson(response, 400, { error: "Запрос уже закрыт, файлы прикреплять нельзя" });
+        return;
+      }
+      // Резолвим папку клиента на Drive: сначала existing.driveUrl (заснапшоченный), потом текущий client.driveUrl
+      let rootDriveUrl = existing.driveUrl || "";
+      if (!rootDriveUrl) {
+        const clients = await getClients();
+        const cli = clients.find((c) =>
+          String(c.name || "").trim().toLowerCase() === String(existing.clientName || "").trim().toLowerCase() &&
+          String(c.manager || "").trim().toLowerCase() === String(existing.manager || "").trim().toLowerCase()
+        );
+        rootDriveUrl = cli?.driveUrl || "";
+      }
+      log("rootDriveUrl=", rootDriveUrl);
+      const rootFolderId = googleDrive.extractFolderIdFromUrl(rootDriveUrl);
+      if (!rootFolderId) {
+        sendJson(response, 400, { error: "У клиента не указана ссылка на папку Google Drive (driveUrl)" });
+        return;
+      }
+      log("rootFolderId=", rootFolderId);
+      const driveStatus = await googleDrive.getStatus();
+      log("driveStatus.connected=", driveStatus.connected, "configured=", driveStatus.configured);
+      if (!driveStatus.connected) {
+        sendJson(response, 400, { error: "Google Drive не подключён. Подключите в Настройки → Интеграции." });
+        return;
+      }
+      const hasAccess = await googleDrive.checkParentAccess(rootFolderId).catch((e) => { log("checkParentAccess error:", e.message); return false; });
+      log("hasAccess=", hasAccess);
+      if (!hasAccess) {
+        sendJson(response, 400, { error: "Подключённый Google-аккаунт не имеет доступа к папке клиента (нужны права редактора)" });
+        return;
+      }
+      // ensureFolder: 5. ПОДАЧИ / <банк>
+      let submissionsFolder;
+      let bankFolder;
+      try {
+        submissionsFolder = await googleDrive.ensureFolder("5. ПОДАЧИ", rootFolderId);
+        log("submissionsFolder=", submissionsFolder?.id);
+        const bankName = existing.bank || "БЕЗ_БАНКА";
+        bankFolder = await googleDrive.ensureFolder(bankName, submissionsFolder.id);
+        log("bankFolder=", bankFolder?.id, "name=", bankName);
+      } catch (error) {
+        log("ensureFolder error:", error.message);
+        sendJson(response, 500, { error: `Не удалось создать папку на Drive: ${error.message}` });
+        return;
+      }
+      // Принимаем multipart, для каждого file event — стримим в Drive в bankFolder с префиксом времени.
+      const uploaded = [];
+      const errors = [];
+      const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB лимит Telegram
+      log("multipart parse start");
+      await new Promise((resolve) => {
+        let bb;
+        try {
+          bb = Busboy({
+            headers: request.headers,
+            limits: { fileSize: MAX_FILE_BYTES, files: 20 }
+          });
+        } catch (e) {
+          log("Busboy ctor error:", e.message);
+          errors.push({ fileName: "(busboy)", error: e.message });
+          resolve();
+          return;
+        }
+        const pending = [];
+        let fileCount = 0;
+        bb.on("file", (_name, fileStream, info) => {
+          fileCount += 1;
+          const originalName = info.filename || "file";
+          const mimeType = info.mimeType || "application/octet-stream";
+          log(`file event #${fileCount}:`, originalName, mimeType);
+          // префикс времени, чтобы избежать коллизий
+          const now = new Date();
+          const pad = (n) => String(n).padStart(2, "0");
+          const prefix = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+          const finalName = `${prefix}__${originalName}`;
+          let truncated = false;
+          let sizeApprox = 0;
+          fileStream.on("data", (chunk) => { sizeApprox += chunk.length; });
+          fileStream.on("limit", () => { truncated = true; log(`file ${originalName} hit size limit`); });
+          fileStream.on("error", (e) => { log(`file stream error ${originalName}:`, e.message); });
+          const uploadPromise = googleDrive.uploadStream({
+            fileName: finalName,
+            parentId: bankFolder.id,
+            stream: fileStream,
+            mimeType
+          })
+            .then(async (driveFile) => {
+              log(`uploaded to Drive:`, originalName, "→", driveFile.id);
+              if (truncated) {
+                await googleDrive.deleteFile(driveFile.id).catch(() => null);
+                errors.push({ fileName: originalName, error: `Файл больше ${MAX_FILE_BYTES / 1024 / 1024} MB` });
+                return;
+              }
+              const att = {
+                fileName: finalName,
+                mimeType,
+                size: Number(driveFile.size) || sizeApprox,
+                driveFileId: driveFile.id,
+                driveLink: driveFile.webViewLink || "",
+                uploadedAt: new Date().toISOString(),
+                uploadedBy: request.user.fullName || "",
+                uploadedByLogin: request.user.login || ""
+              };
+              try {
+                await addDocumentRequestAttachment(reqId, att);
+                uploaded.push({ ...att, originalName });
+              } catch (e) {
+                log(`addAttachment error ${originalName}:`, e.message);
+                errors.push({ fileName: originalName, error: e.message });
+                await googleDrive.deleteFile(driveFile.id).catch(() => null);
+              }
+            })
+            .catch((error) => {
+              log(`uploadStream error ${originalName}:`, error.message, error.code || "");
+              errors.push({ fileName: originalName, error: error.message });
+              // ВАЖНО: дренируем оставшиеся данные fileStream, иначе busboy не завершит close-event
+              fileStream.resume();
+            });
+          pending.push(uploadPromise);
+        });
+        bb.on("close", async () => {
+          log("bb close, awaiting", pending.length, "uploads");
+          await Promise.all(pending);
+          log("all uploads settled");
+          resolve();
+        });
+        bb.on("error", (error) => {
+          log("bb error:", error.message);
+          errors.push({ fileName: "(multipart)", error: error.message });
+          resolve();
+        });
+        request.on("aborted", () => log("request aborted by client"));
+        request.on("error", (e) => log("request error:", e.message));
+        request.pipe(bb);
+      });
+      const fresh = (await getDocumentRequests()).find((item) => item.id === reqId);
+      log("DONE uploaded=", uploaded.length, "errors=", errors.length);
+      sendJson(response, 200, { documentRequest: fresh, uploaded, errors });
+      return;
     } catch (error) {
-      sendJson(response, 500, { error: `Не удалось создать папку на Drive: ${error.message}` });
+      console.error(`[${traceId}] FATAL:`, error.stack || error.message);
+      if (!response.headersSent) {
+        sendJson(response, 500, { error: `Upload error [${traceId}]: ${error.message}` });
+      }
       return;
     }
-    // Принимаем multipart, для каждого file event — стримим в Drive в bankFolder с префиксом времени.
-    const uploaded = [];
-    const errors = [];
-    const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB лимит Telegram
-    await new Promise((resolve) => {
-      const bb = Busboy({
-        headers: request.headers,
-        limits: { fileSize: MAX_FILE_BYTES, files: 20 }
-      });
-      const pending = [];
-      bb.on("file", (_name, fileStream, info) => {
-        const originalName = info.filename || "file";
-        const mimeType = info.mimeType || "application/octet-stream";
-        // префикс времени, чтобы избежать коллизий
-        const now = new Date();
-        const pad = (n) => String(n).padStart(2, "0");
-        const prefix = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
-        const finalName = `${prefix}__${originalName}`;
-        let truncated = false;
-        let sizeApprox = 0;
-        fileStream.on("data", (chunk) => { sizeApprox += chunk.length; });
-        fileStream.on("limit", () => { truncated = true; });
-        const uploadPromise = googleDrive.uploadStream({
-          fileName: finalName,
-          parentId: bankFolder.id,
-          stream: fileStream,
-          mimeType
-        })
-          .then(async (driveFile) => {
-            if (truncated) {
-              // если был truncate — файл записался не полностью, удаляем
-              await googleDrive.deleteFile(driveFile.id).catch(() => null);
-              errors.push({ fileName: originalName, error: `Файл больше ${MAX_FILE_BYTES / 1024 / 1024} MB` });
-              return;
-            }
-            const att = {
-              fileName: finalName,
-              mimeType,
-              size: Number(driveFile.size) || sizeApprox,
-              driveFileId: driveFile.id,
-              driveLink: driveFile.webViewLink || "",
-              uploadedAt: new Date().toISOString(),
-              uploadedBy: request.user.fullName || "",
-              uploadedByLogin: request.user.login || ""
-            };
-            try {
-              await addDocumentRequestAttachment(reqId, att);
-              uploaded.push({ ...att, originalName });
-            } catch (e) {
-              errors.push({ fileName: originalName, error: e.message });
-              await googleDrive.deleteFile(driveFile.id).catch(() => null);
-            }
-          })
-          .catch((error) => {
-            errors.push({ fileName: originalName, error: error.message });
-          });
-        pending.push(uploadPromise);
-      });
-      bb.on("close", async () => {
-        await Promise.all(pending);
-        resolve();
-      });
-      bb.on("error", (error) => {
-        errors.push({ fileName: "(multipart)", error: error.message });
-        resolve();
-      });
-      request.pipe(bb);
-    });
-    const fresh = (await getDocumentRequests()).find((item) => item.id === reqId);
-    sendJson(response, 200, { documentRequest: fresh, uploaded, errors });
-    return;
   }
 
   // DELETE /api/document-requests/:id/attachments/:attId — удаление файла с Drive и из запроса
