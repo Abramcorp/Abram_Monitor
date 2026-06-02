@@ -12,6 +12,7 @@
 // под id = "google_drive".
 
 const crypto = require("node:crypto");
+const { Readable } = require("node:stream");
 const { google } = require("googleapis");
 const postgresStore = require("./postgresStore");
 
@@ -252,6 +253,9 @@ async function ensureFolder(name, parentId) {
 
 async function uploadStream({ fileName, parentId, stream, mimeType }) {
   const drive = await getDrive();
+  if (stream && typeof stream.on === "function") {
+    stream.on("error", () => {});
+  }
   const res = await drive.files.create({
     requestBody: {
       name: fileName,
@@ -260,6 +264,27 @@ async function uploadStream({ fileName, parentId, stream, mimeType }) {
     media: {
       mimeType: mimeType || "application/octet-stream",
       body: stream
+    },
+    fields: "id, name, size, mimeType, webViewLink, webContentLink",
+    supportsAllDrives: true
+  });
+  return res.data;
+}
+
+// Безопаснее, чем uploadStream: file уже в памяти, обходим баг
+// ERR_STREAM_PUSH_AFTER_EOF в googleapis при live-стримах (busboy → PassThrough).
+async function uploadBuffer({ fileName, parentId, buffer, mimeType }) {
+  const drive = await getDrive();
+  const body = Readable.from(buffer);
+  body.on("error", () => {});
+  const res = await drive.files.create({
+    requestBody: {
+      name: fileName,
+      parents: [parentId]
+    },
+    media: {
+      mimeType: mimeType || "application/octet-stream",
+      body
     },
     fields: "id, name, size, mimeType, webViewLink, webContentLink",
     supportsAllDrives: true
@@ -324,6 +349,7 @@ module.exports = {
   extractFolderIdFromUrl,
   ensureFolder,
   uploadStream,
+  uploadBuffer,
   getFileStream,
   getFileMeta,
   deleteFile,

@@ -992,54 +992,64 @@ async function handleApi(request, response) {
           const originalName = info.filename || "file";
           const mimeType = info.mimeType || "application/octet-stream";
           log(`file event #${fileCount}:`, originalName, mimeType);
-          // префикс времени, чтобы избежать коллизий
           const now = new Date();
           const pad = (n) => String(n).padStart(2, "0");
           const prefix = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
           const finalName = `${prefix}__${originalName}`;
+          // Собираем файл в Buffer (макс. 50 МБ) и только потом грузим в Drive.
+          // Стримить busboy → googleapis напрямую ловит баг ERR_STREAM_PUSH_AFTER_EOF.
+          const chunks = [];
+          let totalBytes = 0;
           let truncated = false;
-          let sizeApprox = 0;
-          fileStream.on("data", (chunk) => { sizeApprox += chunk.length; });
+          fileStream.on("data", (chunk) => {
+            if (truncated) return;
+            totalBytes += chunk.length;
+            chunks.push(chunk);
+          });
           fileStream.on("limit", () => { truncated = true; log(`file ${originalName} hit size limit`); });
           fileStream.on("error", (e) => { log(`file stream error ${originalName}:`, e.message); });
-          const uploadPromise = googleDrive.uploadStream({
-            fileName: finalName,
-            parentId: bankFolder.id,
-            stream: fileStream,
-            mimeType
-          })
-            .then(async (driveFile) => {
-              log(`uploaded to Drive:`, originalName, "→", driveFile.id);
+          const uploadPromise = new Promise((resolveFile) => {
+            fileStream.on("end", async () => {
+              log(`file ${originalName} read: ${totalBytes} bytes, truncated=${truncated}`);
               if (truncated) {
-                await googleDrive.deleteFile(driveFile.id).catch(() => null);
                 errors.push({ fileName: originalName, error: `Файл больше ${MAX_FILE_BYTES / 1024 / 1024} MB` });
+                resolveFile();
                 return;
               }
-              const att = {
-                fileName: finalName,
-                mimeType,
-                size: Number(driveFile.size) || sizeApprox,
-                driveFileId: driveFile.id,
-                driveLink: driveFile.webViewLink || "",
-                uploadedAt: new Date().toISOString(),
-                uploadedBy: request.user.fullName || "",
-                uploadedByLogin: request.user.login || ""
-              };
+              const buffer = Buffer.concat(chunks, totalBytes);
               try {
-                await addDocumentRequestAttachment(reqId, att);
-                uploaded.push({ ...att, originalName });
-              } catch (e) {
-                log(`addAttachment error ${originalName}:`, e.message);
-                errors.push({ fileName: originalName, error: e.message });
-                await googleDrive.deleteFile(driveFile.id).catch(() => null);
+                const driveFile = await googleDrive.uploadBuffer({
+                  fileName: finalName,
+                  parentId: bankFolder.id,
+                  buffer,
+                  mimeType
+                });
+                log(`uploaded to Drive:`, originalName, "→", driveFile.id);
+                const att = {
+                  fileName: finalName,
+                  mimeType,
+                  size: Number(driveFile.size) || totalBytes,
+                  driveFileId: driveFile.id,
+                  driveLink: driveFile.webViewLink || "",
+                  uploadedAt: new Date().toISOString(),
+                  uploadedBy: request.user.fullName || "",
+                  uploadedByLogin: request.user.login || ""
+                };
+                try {
+                  await addDocumentRequestAttachment(reqId, att);
+                  uploaded.push({ ...att, originalName });
+                } catch (e) {
+                  log(`addAttachment error ${originalName}:`, e.message);
+                  errors.push({ fileName: originalName, error: e.message });
+                  await googleDrive.deleteFile(driveFile.id).catch(() => null);
+                }
+              } catch (error) {
+                log(`uploadBuffer error ${originalName}:`, error.message, error.code || "", error.errors ? JSON.stringify(error.errors) : "");
+                errors.push({ fileName: originalName, error: error.message });
               }
-            })
-            .catch((error) => {
-              log(`uploadStream error ${originalName}:`, error.message, error.code || "");
-              errors.push({ fileName: originalName, error: error.message });
-              // ВАЖНО: дренируем оставшиеся данные fileStream, иначе busboy не завершит close-event
-              fileStream.resume();
+              resolveFile();
             });
+          });
           pending.push(uploadPromise);
         });
         bb.on("close", async () => {
@@ -1270,6 +1280,16 @@ const server = http.createServer(async (request, response) => {
     }
     sendJson(response, 400, { error: error.message });
   }
+});
+
+// Safety net: ловим неперехваченные ошибки/реджекты, чтобы один сбойный
+// upload или Drive-stream не валил весь процесс (контейнер потом перезапускается
+// и теряет сессии, а клиент видит 502).
+process.on("uncaughtException", (error) => {
+  console.error("[uncaughtException]", error?.stack || error?.message || error);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason?.stack || reason?.message || reason);
 });
 
 async function start() {
