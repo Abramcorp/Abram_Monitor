@@ -2688,11 +2688,16 @@ function renderIntegrationsView() {
   if (!status) {
     statusBlock = `<div class="empty">Загрузка статуса…</div>`;
   } else if (!status.configured) {
+    const missing = Array.isArray(status.missingEnvs) ? status.missingEnvs : [];
+    const missingHtml = missing.length
+      ? `<p>Не заданы переменные: ${missing.map((n) => `<code>${escapeHtml(n)}</code>`).join(", ")}</p>`
+      : `<p>Серверные переменные не настроены.</p>`;
     statusBlock = `
       <div class="integration-status is-error">
         <h3>Google Drive</h3>
-        <p>Серверные переменные не настроены.</p>
-        <p class="muted">Нужны env: <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, <code>GOOGLE_REDIRECT_URI</code>, <code>OAUTH_TOKEN_ENCRYPTION_KEY</code>.</p>
+        ${missingHtml}
+        <p class="muted">Полный список: <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, <code>GOOGLE_REDIRECT_URI</code>, <code>OAUTH_TOKEN_ENCRYPTION_KEY</code>.</p>
+        <p class="muted">После добавления переменных в Railway → Variables дождитесь redeploy и обновите страницу.</p>
       </div>`;
   } else if (status.connected) {
     statusBlock = `

@@ -23,8 +23,19 @@ function getEnv(name) {
   return String(process.env[name] || "").trim();
 }
 
+const REQUIRED_ENV_VARS = [
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REDIRECT_URI",
+  "OAUTH_TOKEN_ENCRYPTION_KEY"
+];
+
+function missingEnvVars() {
+  return REQUIRED_ENV_VARS.filter((name) => !getEnv(name));
+}
+
 function isConfigured() {
-  return Boolean(getEnv("GOOGLE_CLIENT_ID") && getEnv("GOOGLE_CLIENT_SECRET") && getEnv("GOOGLE_REDIRECT_URI") && getEnv("OAUTH_TOKEN_ENCRYPTION_KEY"));
+  return missingEnvVars().length === 0;
 }
 
 function getEncryptionKey() {
@@ -142,8 +153,12 @@ async function handleOAuthCallback(code) {
 
 async function getStatus() {
   const integration = await readIntegration();
+  const missing = missingEnvVars();
+  const redirectUri = getEnv("GOOGLE_REDIRECT_URI");
   return {
-    configured: isConfigured(),
+    configured: missing.length === 0,
+    missingEnvs: missing,
+    redirectUri: redirectUri || "",
     connected: Boolean(integration?.refreshTokenEnc),
     email: integration?.connectedEmail || "",
     connectedAt: integration?.connectedAt || ""
@@ -301,6 +316,7 @@ async function checkParentAccess(parentId) {
 
 module.exports = {
   isConfigured,
+  missingEnvVars,
   getAuthUrl,
   handleOAuthCallback,
   getStatus,
