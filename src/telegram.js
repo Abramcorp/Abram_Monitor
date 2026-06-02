@@ -89,8 +89,8 @@ function notifyDocRequestCreated(req /*, { author } = {} */) {
 
 // Отправка файла-документа. fileSource: { fileName, mimeType, stream } или { fileName, mimeType, buffer }
 async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
-  if (!BOT_TOKEN) return null;
-  if (!fileSource) return null;
+  if (!BOT_TOKEN) { console.warn("[telegram] sendDocument: BOT_TOKEN not set"); return null; }
+  if (!fileSource) { console.warn("[telegram] sendDocument: no fileSource"); return null; }
   const targetChatId = chatId ? String(chatId) : CHAT_ID;
   if (!targetChatId) return null;
   const form = new FormData();
@@ -126,12 +126,14 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.warn("[telegram] sendDocument failed:", res.status, body);
+      console.warn(`[telegram] sendDocument failed: status=${res.status} chat=${targetChatId} file=${fileSource.fileName} body=${body}`);
       return { ok: false, status: res.status, body };
     }
-    return await res.json();
+    const json = await res.json();
+    console.log(`[telegram] sendDocument ok: chat=${targetChatId} file=${fileSource.fileName} message_id=${json?.result?.message_id}`);
+    return json;
   } catch (error) {
-    console.warn("[telegram] sendDocument error:", error.message);
+    console.warn(`[telegram] sendDocument error: chat=${targetChatId} file=${fileSource.fileName} err=${error.message}`);
     return null;
   }
 }

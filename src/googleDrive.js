@@ -298,7 +298,22 @@ async function getFileStream(fileId) {
     { fileId, alt: "media", supportsAllDrives: true },
     { responseType: "stream" }
   );
+  if (res.data && typeof res.data.on === "function") {
+    res.data.on("error", () => {});
+  }
   return res.data;
+}
+
+// Скачивает файл целиком в Buffer — для безопасной передачи в Telegram
+// (sendDocument с form-data ведёт себя стабильнее с Buffer чем со stream).
+async function getFileBuffer(fileId) {
+  const stream = await getFileStream(fileId);
+  return await new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+    stream.on("error", (err) => reject(err));
+  });
 }
 
 async function getFileMeta(fileId) {
@@ -351,6 +366,7 @@ module.exports = {
   uploadStream,
   uploadBuffer,
   getFileStream,
+  getFileBuffer,
   getFileMeta,
   deleteFile,
   checkParentAccess
