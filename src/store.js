@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { normalizeDeal } = require("./analytics");
 const postgresStore = require("./postgresStore");
+const telegram = require("./telegram");
 const { getMoscowNowIso, toIsoDate } = require("./time");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
@@ -779,6 +780,8 @@ async function createDocumentRequest(payload, { author } = {}) {
   } catch {
     // если хронология не пишется — не валим основной поток
   }
+  // Telegram-уведомление в общий чат (fire-and-forget).
+  Promise.resolve(telegram.notifyDocRequestCreated(saved, { author })).catch(() => {});
   return saved;
 }
 
@@ -813,6 +816,9 @@ async function fulfillDocumentRequest(id, { actor } = {}) {
       await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${byTail}`, actionAt: updated.fulfilledAt });
     } catch { /* skip */ }
   }
+  if (updated) {
+    Promise.resolve(telegram.notifyDocRequestFulfilled(updated, { actor })).catch(() => {});
+  }
   return updated;
 }
 
@@ -846,6 +852,9 @@ async function confirmDocumentRequest(id, { actor } = {}) {
       const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
       await addDealAction(updated.dealId, { action: `Документы получены аналитиком${byTail}`, actionAt: updated.deliveredAt });
     } catch { /* skip */ }
+  }
+  if (updated) {
+    Promise.resolve(telegram.notifyDocRequestConfirmed(updated, { actor })).catch(() => {});
   }
   return updated;
 }
