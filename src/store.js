@@ -785,7 +785,7 @@ async function createDocumentRequest(payload, { author } = {}) {
   return saved;
 }
 
-async function fulfillDocumentRequest(id, { actor } = {}) {
+async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
   const now = await getMoscowNowIso();
   const patch = (current) => normalizeDocumentRequest({
     ...current,
@@ -817,7 +817,7 @@ async function fulfillDocumentRequest(id, { actor } = {}) {
     } catch { /* skip */ }
   }
   if (updated) {
-    Promise.resolve(telegram.notifyDocRequestFulfilled(updated, { actor })).catch(() => {});
+    Promise.resolve(telegram.notifyDocRequestFulfilled(updated, { actor, recipientChatId })).catch(() => {});
   }
   return updated;
 }
