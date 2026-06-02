@@ -4,8 +4,11 @@
 // Шлёт в один общий чат/группу (TELEGRAM_CHAT_ID).
 // Если в группе включены Topics — можно задать TELEGRAM_TOPIC_DOCUMENTS,
 // и уведомления по запросам документов пойдут в соответствующий топик.
-
-const FormData = require("form-data");
+//
+// Для отправки файлов используем нативные FormData + Blob из Node 20+
+// (web standard) — они корректно работают с native fetch, в отличие от
+// устаревшей пакетной form-data, которая в Node 20+ отдаёт неправильный
+// Content-Length и Telegram отвечает 400 с пустым body.
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
@@ -93,6 +96,8 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
   if (!fileSource) { console.warn("[telegram] sendDocument: no fileSource"); return null; }
   const targetChatId = chatId ? String(chatId) : CHAT_ID;
   if (!targetChatId) return null;
+
+  // Native FormData + Blob (Node 20+ web standard, совместим с native fetch).
   const form = new FormData();
   form.append("chat_id", targetChatId);
   if (!chatId && topicId) {
@@ -105,35 +110,39 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
     form.append("caption", caption);
     form.append("parse_mode", "HTML");
   }
-  const docOptions = {
-    filename: fileSource.fileName || "document",
-    contentType: fileSource.mimeType || "application/octet-stream"
-  };
-  if (fileSource.stream) {
-    form.append("document", fileSource.stream, docOptions);
-  } else if (fileSource.buffer) {
-    form.append("document", fileSource.buffer, docOptions);
+  const fileName = fileSource.fileName || "document";
+  const mimeType = fileSource.mimeType || "application/octet-stream";
+  // Buffer → Blob (web Blob, не require'им — глобальный в Node 18+)
+  let blob;
+  if (fileSource.buffer) {
+    blob = new Blob([fileSource.buffer], { type: mimeType });
+  } else if (fileSource.stream) {
+    // На всякий случай — собрать stream в Buffer, потом обернуть в Blob
+    const chunks = [];
+    for await (const chunk of fileSource.stream) chunks.push(chunk);
+    blob = new Blob([Buffer.concat(chunks)], { type: mimeType });
   } else {
+    console.warn("[telegram] sendDocument: fileSource has no buffer/stream");
     return null;
   }
+  form.append("document", blob, fileName);
+
   try {
     const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
       method: "POST",
-      headers: form.getHeaders(),
-      body: form,
-      // длинный таймаут на большие файлы (50 МБ может загружаться 30+ сек)
+      body: form, // fetch сам выставит multipart Content-Type с boundary
       signal: AbortSignal.timeout(120000)
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.warn(`[telegram] sendDocument failed: status=${res.status} chat=${targetChatId} file=${fileSource.fileName} body=${body}`);
+      console.warn(`[telegram] sendDocument failed: status=${res.status} chat=${targetChatId} file=${fileName} body=${body}`);
       return { ok: false, status: res.status, body };
     }
     const json = await res.json();
-    console.log(`[telegram] sendDocument ok: chat=${targetChatId} file=${fileSource.fileName} message_id=${json?.result?.message_id}`);
+    console.log(`[telegram] sendDocument ok: chat=${targetChatId} file=${fileName} message_id=${json?.result?.message_id}`);
     return json;
   } catch (error) {
-    console.warn(`[telegram] sendDocument error: chat=${targetChatId} file=${fileSource.fileName} err=${error.message}`);
+    console.warn(`[telegram] sendDocument error: chat=${targetChatId} file=${fileName} err=${error.message}`);
     return null;
   }
 }
