@@ -10,6 +10,7 @@
     "check": "node --check server.js && node --check src/analytics.js && node --check src/store.js && node --check src/postgresStore.js && node --check public/app.js"
   },
   "dependencies": {
+    "googleapis": "^144.0.0",
     "pg": "^8.13.1"
   },
   "engines": {

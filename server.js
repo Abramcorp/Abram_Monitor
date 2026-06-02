@@ -39,6 +39,28 @@ const {
 } = require("./src/store");
 const users = require("./src/users");
 const { defaultStore: sessionStore } = require("./src/sessions");
+const googleDrive = require("./src/googleDrive");
+
+// OAuth one-time state -> userId (TTL 10 min). In-memory, переживает только до рестарта.
+const oauthStates = new Map();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+function createOAuthState(userId) {
+  const state = crypto.randomBytes(24).toString("hex");
+  oauthStates.set(state, { userId, expiresAt: Date.now() + OAUTH_STATE_TTL_MS });
+  return state;
+}
+function consumeOAuthState(state) {
+  const entry = oauthStates.get(state);
+  if (!entry) return null;
+  oauthStates.delete(state);
+  if (entry.expiresAt < Date.now()) return null;
+  return entry;
+}
+// чистка протухших раз в 5 минут
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of oauthStates) if (v.expiresAt < now) oauthStates.delete(k);
+}, 5 * 60 * 1000).unref();
 
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE = "am_session";
@@ -414,6 +436,41 @@ async function handleApi(request, response) {
     if (handled) {
       return;
     }
+  }
+
+  // Google OAuth callback публичен (state→user проверяем сами через oauthStates).
+  if (request.method === "GET" && pathname === "/api/google/callback") {
+    const code = url.searchParams.get("code") || "";
+    const state = url.searchParams.get("state") || "";
+    const err = url.searchParams.get("error") || "";
+    if (err) {
+      response.writeHead(302, { Location: `/?integration=error&reason=${encodeURIComponent(err)}` });
+      response.end();
+      return;
+    }
+    const entry = consumeOAuthState(state);
+    if (!entry) {
+      response.writeHead(302, { Location: "/?integration=error&reason=invalid_state" });
+      response.end();
+      return;
+    }
+    // дополнительная проверка: пользователь существует и admin
+    const u = await users.findUserById(entry.userId);
+    if (!u || u.role !== "admin") {
+      response.writeHead(302, { Location: "/?integration=error&reason=forbidden" });
+      response.end();
+      return;
+    }
+    try {
+      const result = await googleDrive.handleOAuthCallback(code);
+      response.writeHead(302, { Location: `/?integration=connected&email=${encodeURIComponent(result.connectedEmail || "")}` });
+      response.end();
+    } catch (error) {
+      console.warn("[gdrive] callback error:", error.message);
+      response.writeHead(302, { Location: `/?integration=error&reason=${encodeURIComponent(error.message)}` });
+      response.end();
+    }
+    return;
   }
 
   // Все остальные /api/* требуют авторизации.
@@ -924,6 +981,34 @@ async function handleApi(request, response) {
     }
     const removed = await deleteDocumentRequest(reqId);
     sendJson(response, 200, { documentRequest: removed });
+    return;
+  }
+
+  // ===== Google Drive integration (admin) =====
+
+  if (request.method === "GET" && pathname === "/api/integrations") {
+    requireRole(request, ["admin"]);
+    const google = await googleDrive.getStatus();
+    sendJson(response, 200, { google });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/integrations/google/auth-url") {
+    requireRole(request, ["admin"]);
+    if (!googleDrive.isConfigured()) {
+      sendJson(response, 400, { error: "Google Drive не настроен: отсутствуют env GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI/OAUTH_TOKEN_ENCRYPTION_KEY" });
+      return;
+    }
+    const state = createOAuthState(request.user.id);
+    const authUrl = googleDrive.getAuthUrl(state);
+    sendJson(response, 200, { url: authUrl });
+    return;
+  }
+
+  if (request.method === "DELETE" && pathname === "/api/integrations/google") {
+    requireRole(request, ["admin"]);
+    await googleDrive.disconnect();
+    sendJson(response, 200, { ok: true });
     return;
   }
 

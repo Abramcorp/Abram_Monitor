@@ -32,6 +32,10 @@ const COLLECTIONS = {
   document_requests: {
     file: path.join(DATA_DIR, "document_requests.json"),
     table: "app_document_requests"
+  },
+  integrations: {
+    file: path.join(DATA_DIR, "integrations.json"),
+    table: "app_integrations"
   }
 };
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
@@ -208,6 +212,13 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
 
         CREATE INDEX IF NOT EXISTS app_document_requests_manager_idx
           ON app_document_requests (lower(data->>'manager'));
+
+        CREATE TABLE IF NOT EXISTS app_integrations (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
 
         CREATE TABLE IF NOT EXISTS app_knowledge_programs (
           id text PRIMARY KEY,
