@@ -389,10 +389,30 @@ function normalizeClient(raw = {}) {
     driveUrl: cleanText(raw.driveUrl || raw.diskUrl || raw.driveLink),
     instructionUrl: cleanText(raw.instructionUrl || raw.instructionLink),
     comment: cleanText(raw.comment),
+    telegramTopicId: cleanText(raw.telegramTopicId),
     archivedAt,
     createdAt,
     updatedAt: updatedAt || createdAt
   };
+}
+
+async function setClientTelegramTopicId(id, topicId) {
+  const patch = (current) => normalizeClient({
+    ...current,
+    telegramTopicId: String(topicId || ""),
+    updatedAt: new Date().toISOString()
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("clients", id, patch);
+    return updated ? normalizeClient(updated) : null;
+  }
+  const list = getClients();
+  const index = list.findIndex((c) => c.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  writeJson(CLIENTS_FILE, list);
+  return list[index];
 }
 
 function createClient(payload) {
@@ -795,8 +815,7 @@ async function createDocumentRequest(payload, { author } = {}) {
   } catch {
     // если хронология не пишется — не валим основной поток
   }
-  // Telegram-уведомление в общий чат (fire-and-forget).
-  Promise.resolve(telegram.notifyDocRequestCreated(saved, { author })).catch(() => {});
+  // Telegram-уведомление отправляется из server.js (там доступ к topicId клиента).
   return saved;
 }
 
@@ -919,9 +938,7 @@ async function confirmDocumentRequest(id, { actor } = {}) {
       await addDealAction(updated.dealId, { action: `Документы получены аналитиком${byTail}`, actionAt: updated.deliveredAt });
     } catch { /* skip */ }
   }
-  if (updated) {
-    Promise.resolve(telegram.notifyDocRequestConfirmed(updated, { actor })).catch(() => {});
-  }
+  // Telegram-уведомление отправляется из server.js (там доступ к topicId клиента).
   return updated;
 }
 
@@ -1216,6 +1233,7 @@ module.exports = {
   normalizeDocumentRequest,
   normalizeDocumentRequestAttachment,
   removeDocumentRequestAttachment,
+  setClientTelegramTopicId,
   normalizeManager,
   normalizeKnowledgeProgram,
   normalizeTask,

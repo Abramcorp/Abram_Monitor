@@ -42,7 +42,38 @@ const {
 const users = require("./src/users");
 const { defaultStore: sessionStore } = require("./src/sessions");
 const googleDrive = require("./src/googleDrive");
+const telegram = require("./src/telegram");
+const { setClientTelegramTopicId } = require("./src/store");
 const Busboy = require("busboy");
+
+// Резолвит/создаёт topic-id в форум-группе для клиента.
+// Возвращает строковый thread_id или "" если не удалось.
+async function resolveClientTopicId(clientName, managerName) {
+  try {
+    if (!clientName) return "";
+    const clients = await getClients();
+    const cli = clients.find((c) =>
+      String(c.name || "").trim().toLowerCase() === String(clientName).trim().toLowerCase() &&
+      String(c.manager || "").trim().toLowerCase() === String(managerName || "").trim().toLowerCase()
+    ) || clients.find((c) => String(c.name || "").trim().toLowerCase() === String(clientName).trim().toLowerCase());
+    if (!cli) return "";
+    if (cli.telegramTopicId) return String(cli.telegramTopicId);
+    // создаём новый топик
+    const topicName = managerName ? `${cli.name} (${managerName})` : cli.name;
+    const result = await telegram.createForumTopic(topicName);
+    if (!result?.message_thread_id) return "";
+    const threadId = String(result.message_thread_id);
+    try {
+      await setClientTelegramTopicId(cli.id, threadId);
+    } catch (e) {
+      console.warn("[telegram] failed to persist topicId:", e.message);
+    }
+    return threadId;
+  } catch (error) {
+    console.warn("[telegram] resolveClientTopicId error:", error.message);
+    return "";
+  }
+}
 
 // OAuth one-time state -> userId (TTL 10 min). In-memory, переживает только до рестарта.
 const oauthStates = new Map();
@@ -899,6 +930,11 @@ async function handleApi(request, response) {
     try {
       const req = await createDocumentRequest(payload, { author: request.user });
       sendJson(response, 201, { documentRequest: req });
+      // Telegram-уведомление о новом запросе в топик клиента (fire-and-forget).
+      (async () => {
+        const topicId = await resolveClientTopicId(req.clientName, req.manager);
+        await telegram.notifyDocRequestCreated(req, { topicId });
+      })().catch((e) => console.warn("[telegram] notifyCreated dispatch:", e.message));
     } catch (error) {
       sendJson(response, 400, { error: error.message });
     }
@@ -1183,8 +1219,9 @@ async function handleApi(request, response) {
           return;
         }
         try {
-          flog("calling notifyDocRequestFulfilled with", sources.length, "files, chat=", recipientChatId || "common");
-          const result = await require("./src/telegram").notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources });
+          const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
+          flog("calling notifyDocRequestFulfilled with", sources.length, "files, chat=", recipientChatId || "common", "topic=", topicId || "(none)");
+          const result = await telegram.notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources, topicId });
           flog("TG result:", JSON.stringify(result?.ok !== undefined ? { ok: result.ok, count: result.results?.length } : result));
         } catch (error) {
           flog("TG notify error:", error.message, error.stack);
@@ -1231,6 +1268,11 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { documentRequest: updated });
+    // Telegram-уведомление о подтверждении в топик клиента (fire-and-forget).
+    (async () => {
+      const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
+      await telegram.notifyDocRequestConfirmed(updated, { actor: request.user, topicId });
+    })().catch((e) => console.warn("[telegram] notifyConfirmed dispatch:", e.message));
     return;
   }
 
