@@ -868,8 +868,22 @@ function renderViewTabs() {
   if (!views.some((view) => view.id === state.view)) {
     state.view = views[0]?.id || "summary";
   }
+  // Подсчёт действующих запросов документов (open + fulfilled).
+  const activeDocRequests = Array.isArray(state.documentRequests)
+    ? state.documentRequests.filter((req) => req.status === "open" || req.status === "fulfilled").length
+    : 0;
+
   viewTabs.innerHTML = views
-    .map((view) => `<button class="tab ${state.view === view.id ? "is-active" : ""}" data-view="${view.id}" type="button">${view.label}</button>`)
+    .map((view) => {
+      const classes = ["tab"];
+      if (state.view === view.id) classes.push("is-active");
+      let badge = "";
+      if (view.id === "document-requests" && activeDocRequests > 0) {
+        classes.push("has-doc-pending");
+        badge = `<span class="tab-counter">${activeDocRequests > 99 ? "99+" : activeDocRequests}</span>`;
+      }
+      return `<button class="${classes.join(" ")}" data-view="${view.id}" type="button">${view.label}${badge}</button>`;
+    })
     .join("");
 
   viewTabs.querySelectorAll("[data-view]").forEach((tab) => {
