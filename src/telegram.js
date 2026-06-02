@@ -20,13 +20,10 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
-function pluralizeItems(count) {
-  const n = Math.abs(Number(count) || 0) % 100;
-  const n1 = n % 10;
-  if (n > 10 && n < 20) return "позиций";
-  if (n1 > 1 && n1 < 5) return "позиции";
-  if (n1 === 1) return "позиция";
-  return "позиций";
+function truncate(text, max = 3500) {
+  const s = String(text == null ? "" : text);
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
 }
 
 async function sendTelegramMessage(text, { topicId } = {}) {
@@ -67,16 +64,18 @@ async function sendTelegramMessage(text, { topicId } = {}) {
   }
 }
 
-function notifyDocRequestCreated(req, { author } = {}) {
+function notifyDocRequestCreated(req /*, { author } = {} */) {
   if (!isEnabled() || !req) return null;
-  const itemsCount = Array.isArray(req.items) ? req.items.length : 0;
-  const itemsLine = itemsCount ? ` · ${itemsCount} ${pluralizeItems(itemsCount)}` : "";
+  const itemsText = truncate(req.items || "");
+  const itemsBlock = itemsText
+    ? `\n<b>Что нужно:</b>\n${escapeHtml(itemsText)}`
+    : "";
   const text = `📥 <b>Новый запрос документов</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Банк: ${escapeHtml(req.bank || "—")}\n`
-    + `Аналитик: ${escapeHtml(req.manager)}\n`
-    + `Запросил: ${escapeHtml(author?.fullName || "—")}${itemsLine}`;
+    + `Аналитик: ${escapeHtml(req.manager)}`
+    + itemsBlock;
   return sendTelegramMessage(text, { topicId: TOPIC_DOCUMENTS });
 }
 
