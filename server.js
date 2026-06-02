@@ -941,6 +941,72 @@ async function handleApi(request, response) {
     return;
   }
 
+  // POST /api/document-requests/resend — переотправить все активные запросы в TG
+  // (полезно после настройки топиков, или если кто-то пропустил/удалил уведомление).
+  if (request.method === "POST" && pathname === "/api/document-requests/resend") {
+    requireRole(request, ["admin", "documents_officer"]);
+    const trace = `resend-${Date.now().toString(36)}`;
+    const tlog = (...args) => console.log(`[${trace}]`, ...args);
+    try {
+      const all = await getDocumentRequests();
+      const active = all.filter((r) => r.status !== "delivered");
+      tlog("resending", active.length, "active requests");
+      const results = { open: 0, fulfilled: 0, errors: 0, details: [] };
+      // Резолвим users 1 раз для производительности.
+      const managers = await getManagers();
+      const allUsers = await users.listUsers();
+      // Параллельно — но осторожно: createForumTopic не любит большие batch.
+      // Делаем последовательно, чтобы не словить flood-limit Telegram.
+      for (const req of active) {
+        try {
+          const topicId = await resolveClientTopicId(req.clientName, req.manager);
+          if (req.status === "open") {
+            await telegram.notifyDocRequestCreated(req, { topicId });
+            results.open += 1;
+            results.details.push({ id: req.id, status: "open", clientName: req.clientName, topicId });
+          } else if (req.status === "fulfilled") {
+            // chatId аналитика
+            let recipientChatId = "";
+            const nameKey = String(req.manager || "").trim().toLowerCase();
+            const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
+            if (manager) {
+              const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
+                || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
+              recipientChatId = linked?.telegramChatId || "";
+            }
+            // Файлы из Drive (если есть и Drive подключён).
+            const attachments = Array.isArray(req.attachments) ? req.attachments.filter((a) => a.driveFileId) : [];
+            const sources = [];
+            const driveStatus = await googleDrive.getStatus();
+            if (driveStatus.connected && attachments.length) {
+              for (const att of attachments) {
+                try {
+                  const buffer = await googleDrive.getFileBuffer(att.driveFileId);
+                  sources.push({ fileName: att.fileName, mimeType: att.mimeType, buffer });
+                } catch (e) {
+                  tlog(`download ${att.fileName} failed:`, e.message);
+                }
+              }
+            }
+            await telegram.notifyDocRequestFulfilled(req, { actor: request.user, recipientChatId, attachmentSources: sources, topicId });
+            results.fulfilled += 1;
+            results.details.push({ id: req.id, status: "fulfilled", clientName: req.clientName, topicId, files: sources.length });
+          }
+        } catch (e) {
+          tlog("error on", req.id, e.message);
+          results.errors += 1;
+          results.details.push({ id: req.id, status: "error", error: e.message });
+        }
+      }
+      tlog("DONE open=", results.open, "fulfilled=", results.fulfilled, "errors=", results.errors);
+      sendJson(response, 200, results);
+    } catch (error) {
+      console.error(`[${trace}] FATAL:`, error.message);
+      sendJson(response, 500, { error: error.message });
+    }
+    return;
+  }
+
   // POST /api/document-requests/:id/attachments — multipart upload файлов в Drive
   const docRequestAttachUploadMatch = pathname.match(/^\/api\/document-requests\/([^/]+)\/attachments$/);
   if (request.method === "POST" && docRequestAttachUploadMatch) {
