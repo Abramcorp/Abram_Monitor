@@ -1061,31 +1061,69 @@ async function handleApi(request, response) {
   if (request.method === "PATCH" && documentRequestFulfillMatch) {
     requireRole(request, ["admin", "documents_officer"]);
     const reqId = decodeURIComponent(documentRequestFulfillMatch[1]);
-    // Резолвим Telegram chat_id владельца-аналитика, чтобы уведомление ушло ему в личку.
+    const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Document request not found" });
+      return;
+    }
+    // Валидация: должны быть прикреплённые файлы.
+    const attachments = Array.isArray(existing.attachments) ? existing.attachments.filter((a) => a.driveFileId) : [];
+    if (!attachments.length) {
+      sendJson(response, 400, { error: "Прикрепите хотя бы один файл перед отправкой пакета" });
+      return;
+    }
+    // Валидация: Drive должен быть подключён (раз файлы там лежат).
+    const driveStatus = await googleDrive.getStatus();
+    if (!driveStatus.connected) {
+      sendJson(response, 400, { error: "Google Drive не подключён. Подключите в Настройки → Интеграции." });
+      return;
+    }
+    // Резолвим Telegram chat_id владельца-аналитика (для личного канала).
     let recipientChatId = "";
     try {
-      const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
-      if (existing?.manager) {
+      if (existing.manager) {
         const managers = await getManagers();
         const nameKey = String(existing.manager).trim().toLowerCase();
         const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
         if (manager) {
           const allUsers = await users.listUsers();
-          // Сначала по userId (жёсткая привязка), потом fallback по fullName.
           const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
             || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
           recipientChatId = linked?.telegramChatId || "";
         }
       }
-    } catch {
-      // если резолв упал — fallback в общий чат через notify
-    }
-    const updated = await fulfillDocumentRequest(reqId, { actor: request.user, recipientChatId });
+    } catch { /* fallback в общий чат */ }
+    const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
     if (!updated) {
       sendJson(response, 404, { error: "Document request not found" });
       return;
     }
     sendJson(response, 200, { documentRequest: updated });
+    // Отправка пакета в Telegram — fire-and-forget, стрим из Drive.
+    (async () => {
+      const sources = [];
+      for (const att of attachments) {
+        try {
+          const stream = await googleDrive.getFileStream(att.driveFileId);
+          sources.push({
+            fileName: att.fileName || "document",
+            mimeType: att.mimeType || "application/octet-stream",
+            stream
+          });
+        } catch (error) {
+          console.warn("[gdrive] failed to stream file for TG:", att.fileName, error.message);
+        }
+      }
+      if (!sources.length) {
+        console.warn("[telegram] no streams to send for request", updated.id);
+        return;
+      }
+      try {
+        await require("./src/telegram").notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources });
+      } catch (error) {
+        console.warn("[telegram] notify failed:", error.message);
+      }
+    })().catch((error) => console.warn("[telegram] dispatch error:", error.message));
     return;
   }
 
@@ -1133,6 +1171,11 @@ async function handleApi(request, response) {
     }
     if (scope) {
       ensurePartnerOwnsManager(request, existing.manager);
+    }
+    // Параллельно зачистим файлы на Drive (fire-and-forget, не блокируем удаление).
+    const attsToDelete = Array.isArray(existing.attachments) ? existing.attachments.filter((a) => a.driveFileId) : [];
+    if (attsToDelete.length) {
+      Promise.all(attsToDelete.map((a) => googleDrive.deleteFile(a.driveFileId).catch(() => null))).catch(() => null);
     }
     const removed = await deleteDocumentRequest(reqId);
     sendJson(response, 200, { documentRequest: removed });

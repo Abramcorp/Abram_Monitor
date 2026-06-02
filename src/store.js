@@ -877,13 +877,14 @@ async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
   }
   if (updated?.dealId) {
     try {
+      const filesCount = Array.isArray(updated.attachments) ? updated.attachments.length : 0;
+      const filesTail = filesCount ? ` — ${filesCount} ${filesCount === 1 ? "файл" : (filesCount < 5 ? "файла" : "файлов")}` : "";
       const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
-      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${byTail}`, actionAt: updated.fulfilledAt });
+      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${filesTail}${byTail}`, actionAt: updated.fulfilledAt });
     } catch { /* skip */ }
   }
-  if (updated) {
-    Promise.resolve(telegram.notifyDocRequestFulfilled(updated, { actor, recipientChatId })).catch(() => {});
-  }
+  // Telegram-уведомление: отправляется из server.js, потому что там есть доступ к Drive-стримам.
+  // (Раньше тут стоял fire-and-forget notifyDocRequestFulfilled — теперь это делает server fulfill-handler.)
   return updated;
 }
 
