@@ -665,6 +665,20 @@ function deleteTask(id) {
 
 // ===== Document requests =====
 
+function normalizeDocumentRequestAttachment(raw = {}) {
+  return {
+    id: cleanText(raw.id) || `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fileName: cleanText(raw.fileName),
+    mimeType: cleanText(raw.mimeType),
+    size: Number(raw.size) || 0,
+    driveFileId: cleanText(raw.driveFileId),
+    driveLink: cleanText(raw.driveLink),
+    uploadedAt: toIsoDate(raw.uploadedAt) || new Date().toISOString(),
+    uploadedBy: cleanText(raw.uploadedBy),
+    uploadedByLogin: cleanText(raw.uploadedByLogin)
+  };
+}
+
 function normalizeDocumentRequest(raw = {}) {
   const createdAt = toIsoDate(raw.createdAt);
   const updatedAt = toIsoDate(raw.updatedAt);
@@ -695,6 +709,7 @@ function normalizeDocumentRequest(raw = {}) {
     fulfilledByLogin: cleanText(raw.fulfilledByLogin),
     deliveredBy: cleanText(raw.deliveredBy),
     deliveredByLogin: cleanText(raw.deliveredByLogin),
+    attachments: Array.isArray(raw.attachments) ? raw.attachments.map(normalizeDocumentRequestAttachment) : [],
     createdAt,
     updatedAt: updatedAt || createdAt,
     fulfilledAt,
@@ -785,6 +800,56 @@ async function createDocumentRequest(payload, { author } = {}) {
   return saved;
 }
 
+async function addDocumentRequestAttachment(id, attachment) {
+  const att = normalizeDocumentRequestAttachment(attachment);
+  const patch = (current) => normalizeDocumentRequest({
+    ...current,
+    attachments: [...(Array.isArray(current.attachments) ? current.attachments : []), att],
+    updatedAt: new Date().toISOString()
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+async function removeDocumentRequestAttachment(id, attachmentId) {
+  let removed = null;
+  const patch = (current) => {
+    const list = Array.isArray(current.attachments) ? current.attachments : [];
+    const next = list.filter((att) => {
+      if (att.id === attachmentId) {
+        removed = att;
+        return false;
+      }
+      return true;
+    });
+    return normalizeDocumentRequest({
+      ...current,
+      attachments: next,
+      updatedAt: new Date().toISOString()
+    });
+  };
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return { request: updated ? normalizeDocumentRequest(updated) : null, attachment: removed };
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return { request: null, attachment: null };
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return { request: list[index], attachment: removed };
+}
+
 async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
   const now = await getMoscowNowIso();
   const patch = (current) => normalizeDocumentRequest({
@@ -812,13 +877,14 @@ async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
   }
   if (updated?.dealId) {
     try {
+      const filesCount = Array.isArray(updated.attachments) ? updated.attachments.length : 0;
+      const filesTail = filesCount ? ` — ${filesCount} ${filesCount === 1 ? "файл" : (filesCount < 5 ? "файла" : "файлов")}` : "";
       const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
-      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${byTail}`, actionAt: updated.fulfilledAt });
+      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${filesTail}${byTail}`, actionAt: updated.fulfilledAt });
     } catch { /* skip */ }
   }
-  if (updated) {
-    Promise.resolve(telegram.notifyDocRequestFulfilled(updated, { actor, recipientChatId })).catch(() => {});
-  }
+  // Telegram-уведомление: отправляется из server.js, потому что там есть доступ к Drive-стримам.
+  // (Раньше тут стоял fire-and-forget notifyDocRequestFulfilled — теперь это делает server fulfill-handler.)
   return updated;
 }
 
@@ -1120,6 +1186,7 @@ function normalizeKnowledgeEntries(entries) {
 
 module.exports = {
   addDealAction,
+  addDocumentRequestAttachment,
   archiveClient,
   buildInitialCommentAction,
   buildStatusChangeAction,
@@ -1147,6 +1214,8 @@ module.exports = {
   initStore,
   normalizeClient,
   normalizeDocumentRequest,
+  normalizeDocumentRequestAttachment,
+  removeDocumentRequestAttachment,
   normalizeManager,
   normalizeKnowledgeProgram,
   normalizeTask,

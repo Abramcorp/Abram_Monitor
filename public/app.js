@@ -9,6 +9,7 @@ const state = {
   tasks: [],
   users: [],
   documentRequests: [],
+  integrations: null,
   lastSeenFulfilledRequestIds: new Set(),
   user: null,
   filters: {
@@ -112,7 +113,8 @@ const VIEWS = [
   { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "document-requests", label: "Запросы документов", allowedRoles: ["admin", "documents_officer"] },
-  { id: "users", label: "Пользователи", allowedRoles: ["admin"] }
+  { id: "users", label: "Пользователи", allowedRoles: ["admin"] },
+  { id: "integrations", label: "Интеграции", allowedRoles: ["admin"] }
 ];
 
 function visibleViews() {
@@ -574,6 +576,7 @@ const LOAD_DATA_TARGETS = {
   knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; }, notForRoles: ["documents_officer"] },
   tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; }, notForRoles: ["documents_officer"] },
   users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, allowedRoles: ["admin"] },
+  integrations: { url: "/api/integrations", apply: (payload) => { state.integrations = payload || null; }, allowedRoles: ["admin"] },
   documentRequests: {
     url: "/api/document-requests",
     apply: (payload) => { applyDocumentRequests(payload.documentRequests || []); }
@@ -2575,11 +2578,34 @@ function renderDocumentRequestsView() {
     } else {
       headTime = `Запрошено ${formatDate(req.createdAt)}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}`;
     }
+    const attachments = Array.isArray(req.attachments) ? req.attachments : [];
+    const canEditAttachments = !archived && !isDelivered && (isAdmin() || isDocumentsOfficer());
+    const attachmentsList = attachments.length
+      ? `<ul class="doc-attachments-list">
+          ${attachments.map((att) => {
+            const sizeMb = att.size ? ` · ${(att.size / 1024 / 1024).toFixed(2)} MB` : "";
+            const link = att.driveLink
+              ? `<a href="${escapeHtml(att.driveLink)}" target="_blank" rel="noopener noreferrer">${escapeHtml(att.fileName)}</a>`
+              : `<span>${escapeHtml(att.fileName)}</span>`;
+            const del = canEditAttachments
+              ? `<button class="ghost-button small-button danger-button" data-delete-attachment="${escapeHtml(req.id)}" data-attachment-id="${escapeHtml(att.id)}" type="button" title="Удалить файл">✕</button>`
+              : "";
+            return `<li>${link}<span class="doc-attachment-meta">${sizeMb}</span>${del}</li>`;
+          }).join("")}
+        </ul>`
+      : (canEditAttachments ? `<div class="doc-attachments-empty">Файлы не прикреплены</div>` : "");
+    const uploader = canEditAttachments
+      ? `<div class="doc-attachments-upload">
+          <input type="file" multiple data-upload-attachment="${escapeHtml(req.id)}" id="upload-${escapeHtml(req.id)}">
+          <label class="ghost-button small-button" for="upload-${escapeHtml(req.id)}">📎 Прикрепить файлы</label>
+          <span class="doc-upload-hint">До 50 MB на файл, до 20 файлов за раз</span>
+        </div>`
+      : "";
     let cta = "";
     if (!archived) {
       cta = isFulfilled
         ? `<span class="doc-request-pending-note">Ждём подтверждения от ${escapeHtml(req.manager)}</span>`
-        : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Документы загружены</button>`;
+        : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Отправить пакет (${attachments.length})</button>`;
     }
     const deleteBtn = isAdmin()
       ? `<button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>`
@@ -2599,6 +2625,8 @@ function renderDocumentRequestsView() {
           <time>${headTime}</time>
         </div>
         <div class="doc-request-items">${escapeHtml(req.items)}</div>
+        ${attachmentsList}
+        ${uploader}
         ${(deleteBtn || cta) ? `<div class="doc-request-actions">${deleteBtn}${cta}</div>` : ""}
       </article>
     `;
@@ -2647,6 +2675,55 @@ function renderDocumentRequestsView() {
           </div>
         </details>
       ` : ""}
+    </section>
+  `;
+}
+
+function renderIntegrationsView() {
+  if (!isAdmin()) {
+    return `<div class="empty">Доступ только для администраторов.</div>`;
+  }
+  const status = state.integrations?.google || null;
+  let statusBlock;
+  if (!status) {
+    statusBlock = `<div class="empty">Загрузка статуса…</div>`;
+  } else if (!status.configured) {
+    statusBlock = `
+      <div class="integration-status is-error">
+        <h3>Google Drive</h3>
+        <p>Серверные переменные не настроены.</p>
+        <p class="muted">Нужны env: <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code>, <code>GOOGLE_REDIRECT_URI</code>, <code>OAUTH_TOKEN_ENCRYPTION_KEY</code>.</p>
+      </div>`;
+  } else if (status.connected) {
+    statusBlock = `
+      <div class="integration-status is-connected">
+        <h3>Google Drive — подключён</h3>
+        <p>Аккаунт: <strong>${escapeHtml(status.email || "(email не определён)")}</strong></p>
+        ${status.connectedAt ? `<p class="muted">Подключён ${formatDate(status.connectedAt)}</p>` : ""}
+        <div class="dialog-actions">
+          <button class="ghost-button danger-button" data-disconnect-google type="button">Отключить</button>
+        </div>
+      </div>`;
+  } else {
+    statusBlock = `
+      <div class="integration-status">
+        <h3>Google Drive — не подключён</h3>
+        <p>Файлы из запросов документов будут загружаться в папку клиента <code>5. ПОДАЧИ / &lt;банк&gt;</code>.</p>
+        <p class="muted">Подключите аккаунт, у которого есть доступ к папкам всех клиентов.</p>
+        <div class="dialog-actions">
+          <button class="primary-button" data-connect-google type="button">Подключить Google Drive</button>
+        </div>
+      </div>`;
+  }
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Интеграции</p>
+          <h2>Внешние сервисы</h2>
+        </div>
+      </div>
+      ${statusBlock}
     </section>
   `;
 }
@@ -3662,7 +3739,8 @@ function render() {
     knowledge: renderKnowledgeView,
     summary: renderSummary,
     users: renderUsersView,
-    "document-requests": renderDocumentRequestsView
+    "document-requests": renderDocumentRequestsView,
+    integrations: renderIntegrationsView
   };
 
   const renderer = views[state.view] || (isDocumentsOfficer() ? renderDocumentRequestsView : renderSummary);
@@ -3822,6 +3900,10 @@ function initDynamicControls() {
       await handleToggleTask(target.dataset.taskToggle, target.checked);
       return;
     }
+    if (target.dataset?.uploadAttachment) {
+      await handleUploadAttachment(target);
+      return;
+    }
     if (!target.id) {
       return;
     }
@@ -3951,6 +4033,30 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       await handleUnlinkManagerFromUser(unlinkManagerBtn);
+      return;
+    }
+
+    const connectGoogleBtn = target.closest("[data-connect-google]");
+    if (connectGoogleBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleConnectGoogle();
+      return;
+    }
+
+    const disconnectGoogleBtn = target.closest("[data-disconnect-google]");
+    if (disconnectGoogleBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDisconnectGoogle();
+      return;
+    }
+
+    const deleteAttachmentBtn = target.closest("[data-delete-attachment]");
+    if (deleteAttachmentBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteAttachment(deleteAttachmentBtn);
       return;
     }
 
@@ -4572,6 +4678,87 @@ async function handleLinkManagerToUser(button) {
   }
 }
 
+async function handleConnectGoogle() {
+  try {
+    const res = await requestJson("/api/integrations/google/auth-url");
+    if (res?.url) {
+      window.location.href = res.url;
+    } else {
+      window.alert("Не удалось получить ссылку авторизации");
+    }
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleDisconnectGoogle() {
+  if (!window.confirm("Отключить Google Drive? Прикреплённые файлы на самом Диске не удалятся.")) {
+    return;
+  }
+  try {
+    await requestJson("/api/integrations/google", { method: "DELETE" });
+    showToast("Google Drive отключён", { type: "info" });
+    await loadData({ targets: ["integrations"] });
+    render();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleUploadAttachment(input) {
+  const reqId = input.dataset.uploadAttachment;
+  if (!reqId || !input.files?.length) return;
+  const files = [...input.files];
+  input.value = ""; // сбрасываем, чтобы можно было повторно выбрать те же файлы
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file, file.name);
+  }
+  showToast(`Загружаем ${files.length} ${files.length === 1 ? "файл" : "файлов"} на Drive…`, { type: "info" });
+  try {
+    const token = localStorage.getItem("amBearerToken") || "";
+    const res = await fetch(`/api/document-requests/${encodeURIComponent(reqId)}/attachments`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "same-origin",
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const result = await res.json();
+    const uploadedCount = result.uploaded?.length || 0;
+    const errorCount = result.errors?.length || 0;
+    if (uploadedCount > 0) {
+      showToast(`Загружено: ${uploadedCount}${errorCount ? ` · ошибок: ${errorCount}` : ""}`, { type: "success" });
+    }
+    if (errorCount > 0) {
+      const list = result.errors.map((e) => `${e.fileName}: ${e.error}`).join("\n");
+      window.alert(`Ошибки при загрузке:\n\n${list}`);
+    }
+    await loadData({ targets: ["documentRequests"] });
+    render();
+  } catch (error) {
+    window.alert(`Не удалось загрузить: ${error.message}`);
+  }
+}
+
+async function handleDeleteAttachment(button) {
+  const reqId = button.dataset.deleteAttachment;
+  const attId = button.dataset.attachmentId;
+  if (!reqId || !attId) return;
+  if (!window.confirm("Удалить файл? Он будет удалён и с Google Drive.")) return;
+  try {
+    await requestJson(`/api/document-requests/${encodeURIComponent(reqId)}/attachments/${encodeURIComponent(attId)}`, { method: "DELETE" });
+    showToast("Файл удалён", { type: "info" });
+    await loadData({ targets: ["documentRequests"] });
+    render();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
 async function handleUnlinkManagerFromUser(button) {
   const managerId = button.dataset.unlinkManager;
   if (!managerId) return;
@@ -4821,6 +5008,31 @@ async function startApplication() {
       return;
     }
     app.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
+  }
+  // Если вернулись с Google OAuth callback — показать toast и почистить URL.
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const integ = sp.get("integration");
+    if (integ === "connected") {
+      const email = sp.get("email") || "";
+      showToast(`Google Drive подключён${email ? ` — ${email}` : ""}`, { type: "success" });
+      sp.delete("integration"); sp.delete("email");
+      const newSearch = sp.toString();
+      window.history.replaceState({}, "", window.location.pathname + (newSearch ? `?${newSearch}` : ""));
+      if (isAdmin()) {
+        state.view = "integrations";
+        await loadData({ targets: ["integrations"] });
+        render();
+      }
+    } else if (integ === "error") {
+      const reason = sp.get("reason") || "";
+      showToast(`Не удалось подключить Drive${reason ? `: ${reason}` : ""}`, { type: "error" });
+      sp.delete("integration"); sp.delete("reason");
+      const newSearch = sp.toString();
+      window.history.replaceState({}, "", window.location.pathname + (newSearch ? `?${newSearch}` : ""));
+    }
+  } catch {
+    // не критично
   }
 }
 
