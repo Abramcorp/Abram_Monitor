@@ -2646,6 +2646,10 @@ function renderDocumentRequestsView() {
     `;
   }
 
+  const resendBtn = (isAdmin() || isDocumentsOfficer()) && active.length
+    ? `<button class="ghost-button" data-resend-doc-requests type="button" title="Переотправить уведомления по всем активным запросам в Telegram">🔄 Переотправить уведомления</button>`
+    : "";
+
   return `
     <section class="panel">
       <div class="panel-head">
@@ -2653,6 +2657,7 @@ function renderDocumentRequestsView() {
           <p class="eyebrow">Документы</p>
           <h2>Активные запросы (${active.length})</h2>
         </div>
+        ${resendBtn ? `<div class="panel-head-actions">${resendBtn}</div>` : ""}
       </div>
       ${open.length ? `
         <h3 class="doc-section-title">Ждут загрузки (${open.length})</h3>
@@ -4065,6 +4070,14 @@ function initDynamicControls() {
       return;
     }
 
+    const resendDocsBtn = target.closest("[data-resend-doc-requests]");
+    if (resendDocsBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleResendDocRequests(resendDocsBtn);
+      return;
+    }
+
     const addDocRequestBtn = target.closest("[data-add-doc-request]");
     if (addDocRequestBtn) {
       event.preventDefault();
@@ -4746,6 +4759,27 @@ async function handleUploadAttachment(input) {
     render();
   } catch (error) {
     window.alert(`Не удалось загрузить: ${error.message}`);
+  }
+}
+
+async function handleResendDocRequests(button) {
+  if (!window.confirm("Переотправить уведомления по всем активным запросам? Аналитики получат повторные сообщения в Telegram.")) return;
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Отправляем…";
+  try {
+    const res = await requestJson("/api/document-requests/resend", { method: "POST" });
+    const parts = [];
+    if (res?.open) parts.push(`open: ${res.open}`);
+    if (res?.fulfilled) parts.push(`fulfilled: ${res.fulfilled}`);
+    if (res?.errors) parts.push(`ошибок: ${res.errors}`);
+    const msg = parts.length ? parts.join(" · ") : "Активных запросов нет";
+    showToast(`Переотправлено: ${msg}`, { type: res?.errors ? "error" : "success" });
+  } catch (error) {
+    window.alert(`Не удалось переотправить: ${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
 
