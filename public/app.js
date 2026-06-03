@@ -113,8 +113,7 @@ const VIEWS = [
   { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "document-requests", label: "Запросы документов", allowedRoles: ["admin", "documents_officer"] },
-  { id: "users", label: "Пользователи", allowedRoles: ["admin"] },
-  { id: "integrations", label: "Интеграции", allowedRoles: ["admin"] }
+  { id: "admin-panel", label: "Панель управления", allowedRoles: ["admin"] }
 ];
 
 function visibleViews() {
@@ -898,34 +897,11 @@ function renderViewTabs() {
   });
 }
 
-const TOPBAR_PRIMARY_BY_VIEW = {
-  summary: "newDealButton",
-  funnels: "newDealButton",
-  archive: "newClientButton",
-  knowledge: "newKnowledgeButton"
-};
-
+// Legacy-кнопки в топбаре скрыты, действие вызывается через делегацию
+// (data-add-manager, data-add-client, data-add-knowledge, data-add-task).
+// Функция оставлена пустой ради совместимости с местами вызова.
 function updateActionVisibility() {
-  const docsOnly = isDocumentsOfficer();
-  newManagerButton.hidden = docsOnly || state.view !== "funnels" || !isAdmin();
-  newClientButton.hidden = docsOnly;
-  if (newDealButton) {
-    newDealButton.hidden = docsOnly || state.view === "knowledge" || state.view === "archive";
-  }
-  if (newTaskButton) {
-    newTaskButton.hidden = docsOnly;
-  }
-  newKnowledgeButton.hidden = docsOnly || !canEditKnowledge();
-
-  const primaryId = TOPBAR_PRIMARY_BY_VIEW[state.view] || "newClientButton";
-  [newManagerButton, newClientButton, newDealButton, newTaskButton, newKnowledgeButton].forEach((button) => {
-    if (!button) {
-      return;
-    }
-    const isPrimary = button.id === primaryId && !button.hidden;
-    button.classList.toggle("primary-button", isPrimary);
-    button.classList.toggle("ghost-button", !isPrimary);
-  });
+  // intentionally empty — topbar create-buttons hidden permanently
 }
 
 // Цветовой семафор для процентных показателей
@@ -964,19 +940,17 @@ function renderKpis() {
   `;
 }
 
-// Алерт-блок: вещи, требующие внимания руководителя
+// Алерт-блок: вещи, требующие внимания руководителя.
+// Лид-алерт раскрывается details'ом с карточками самих заявок-лидов.
 function summaryAlerts() {
-  const items = [];
-  // 1. Зависшие лиды (≥7 дней без активности)
-  const stalledLeads = (state.dashboard.deals || [])
+  // 1. Зависшие лиды (≥7 дней без активности) — собираем сам массив
+  const stalledLeadsList = (state.dashboard.deals || [])
     .filter((d) => d.statusGroup === "current" && (d.stage === "lead" || d.stage === "documents_requested"))
     .filter((d) => {
       const days = daysSince(d.lastActionAt);
       return days != null && days >= 7;
-    }).length;
-  if (stalledLeads > 0) {
-    items.push({ tone: "danger", label: "Лиды без действий 7+ дней", value: stalledLeads });
-  }
+    })
+    .sort((a, b) => (daysSince(b.lastActionAt) || 0) - (daysSince(a.lastActionAt) || 0));
   // 2. Просрочены задачи
   const now = Date.now();
   const overdueTasks = (state.tasks || []).filter((t) => {
@@ -984,28 +958,43 @@ function summaryAlerts() {
     const due = new Date(t.dueAt || 0).getTime();
     return Number.isFinite(due) && due > 0 && due < now;
   }).length;
-  if (overdueTasks > 0) {
-    items.push({ tone: "danger", label: "Просрочено задач", value: overdueTasks });
-  }
   // 3. Документы на отправку (fulfilled, ожидают подтверждения)
   const docFulfilled = (state.documentRequests || []).filter((r) => r.status === "fulfilled").length;
-  if (docFulfilled > 0) {
-    items.push({ tone: "warning", label: "Документы на отправку", value: docFulfilled });
-  }
   // 4. Открытые запросы документов (open)
   const docOpen = (state.documentRequests || []).filter((r) => r.status === "open").length;
-  if (docOpen > 0) {
-    items.push({ tone: "warning", label: "Открытых запросов документов", value: docOpen });
-  }
-  if (!items.length) return "";
+
+  const pills = [];
+  if (overdueTasks > 0) pills.push({ tone: "danger", label: "Просрочено задач", value: overdueTasks });
+  if (docFulfilled > 0) pills.push({ tone: "warning", label: "Документы на отправку", value: docFulfilled });
+  if (docOpen > 0)      pills.push({ tone: "warning", label: "Открытых запросов документов", value: docOpen });
+
+  const hasStalledLeads = stalledLeadsList.length > 0;
+  if (!hasStalledLeads && !pills.length) return "";
+
+  const pillsHtml = pills.map((it) => `
+    <div class="alert-pill is-${it.tone}">
+      <span class="alert-pill-value">${it.value}</span>
+      <span class="alert-pill-label">${escapeHtml(it.label)}</span>
+    </div>
+  `).join("");
+
+  const stalledHtml = hasStalledLeads ? `
+    <details class="alert-expand">
+      <summary class="alert-pill is-danger alert-pill-expandable" role="button">
+        <span class="alert-pill-value">${stalledLeadsList.length}</span>
+        <span class="alert-pill-label">Лиды без действий 7+ дней</span>
+        <span class="alert-pill-chev" aria-hidden="true">▾</span>
+      </summary>
+      <div class="alert-expand-body">
+        ${renderBoardApplicationRows(stalledLeadsList, "manager")}
+      </div>
+    </details>
+  ` : "";
+
   return `
     <section class="alerts-strip" aria-label="Требует внимания">
-      ${items.map((it) => `
-        <div class="alert-pill is-${it.tone}">
-          <span class="alert-pill-value">${it.value}</span>
-          <span class="alert-pill-label">${escapeHtml(it.label)}</span>
-        </div>
-      `).join("")}
+      ${stalledHtml}
+      ${pillsHtml}
     </section>
   `;
 }
@@ -1923,6 +1912,14 @@ function renderManagerClientView() {
     </div>
   ` : "";
 
+  const docsOnly = isDocumentsOfficer();
+  const actions = !docsOnly ? `
+    <div class="panel-head-actions">
+      <button class="primary-button" data-add-client type="button">+ Клиент</button>
+      <button class="ghost-button" data-add-task type="button">+ Задача</button>
+    </div>
+  ` : "";
+
   return `
     <section class="panel">
       <div class="panel-head">
@@ -1930,6 +1927,7 @@ function renderManagerClientView() {
           <p class="eyebrow">Аналитики и клиенты</p>
           <h2>Карточки аналитиков</h2>
         </div>
+        ${actions}
       </div>
       ${renderGroup("Аналитики AbramCorp", abram)}
       ${renderGroup("Партнёрский контур", partners)}
@@ -2459,6 +2457,9 @@ function renderKnowledgeSectionContent(items) {
 
 function renderKnowledgeView() {
   const items = filteredKnowledge();
+  const addBtn = canEditKnowledge()
+    ? `<button class="primary-button" data-add-knowledge type="button">+ Запись БЗ</button>`
+    : "";
   return `
     <section class="panel">
       <div class="panel-head">
@@ -2466,7 +2467,10 @@ function renderKnowledgeView() {
           <p class="eyebrow">База знаний</p>
           <h2>${KNOWLEDGE_SECTIONS[state.knowledgeSection]}</h2>
         </div>
-        ${renderKnowledgeFilters()}
+        <div class="panel-head-actions">
+          ${addBtn}
+          ${renderKnowledgeFilters()}
+        </div>
       </div>
       ${renderKnowledgeSectionControls()}
       ${renderKnowledgeSectionContent(items)}
@@ -2827,6 +2831,30 @@ function renderIntegrationsView() {
       </div>
       ${statusBlock}
     </section>
+  `;
+}
+
+// Объединённая «Панель управления» (admin only):
+// Аналитики (быстрое создание) → Пользователи → Интеграции
+function renderAdminPanelView() {
+  if (!isAdmin()) {
+    return `<div class="empty">Доступ только для администраторов.</div>`;
+  }
+  return `
+    <section class="panel admin-panel-section">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Команда</p>
+          <h2>Аналитики</h2>
+          <p class="muted">Создавайте аналитиков и привязывайте их к учёткам</p>
+        </div>
+        <div class="panel-head-actions">
+          <button class="primary-button" data-add-manager type="button">+ Аналитик</button>
+        </div>
+      </div>
+    </section>
+    ${renderUsersView()}
+    ${renderIntegrationsView()}
   `;
 }
 
@@ -3873,9 +3901,8 @@ function render() {
     archive: renderArchiveView,
     knowledge: renderKnowledgeView,
     summary: renderSummary,
-    users: renderUsersView,
     "document-requests": renderDocumentRequestsView,
-    integrations: renderIntegrationsView
+    "admin-panel": renderAdminPanelView
   };
 
   const renderer = views[state.view] || (isDocumentsOfficer() ? renderDocumentRequestsView : renderSummary);
@@ -4259,6 +4286,36 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       openDealActionDialog(addDealAction.dataset.addDealAction);
+      return;
+    }
+
+    // Делегационные «+ Создать» кнопки (вынесены из топбара по разделам).
+    const addManagerBtn = target.closest("[data-add-manager]");
+    if (addManagerBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (newManagerButton) newManagerButton.click();
+      return;
+    }
+    const addClientBtn = target.closest("[data-add-client]");
+    if (addClientBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (newClientButton) newClientButton.click();
+      return;
+    }
+    const addKnowledgeBtn = target.closest("[data-add-knowledge]");
+    if (addKnowledgeBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (newKnowledgeButton) newKnowledgeButton.click();
+      return;
+    }
+    const addTaskBtn = target.closest("[data-add-task]");
+    if (addTaskBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (newTaskButton) newTaskButton.click();
       return;
     }
 

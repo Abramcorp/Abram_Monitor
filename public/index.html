@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260603-edit-planned">
+    <link rel="stylesheet" href="/styles.css?v=20260603-admin-panel">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -35,16 +35,18 @@
         </div>
         <div class="topbar-actions">
           <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
-          <button class="ghost-button" id="newManagerButton" type="button">+ Аналитик</button>
-          <button class="ghost-button" id="newClientButton" type="button">+ Клиент</button>
-          <button class="ghost-button" id="newDealButton" type="button">+ Заявка</button>
-          <button class="ghost-button" id="newTaskButton" type="button">+ Задача</button>
-          <button class="ghost-button" id="newKnowledgeButton" type="button">+ Запись БЗ</button>
           <span class="user-badge" id="userBadge" hidden>
             <span class="user-badge-name" id="userBadgeName"></span>
             <span class="user-badge-role" id="userBadgeRole"></span>
           </span>
           <button class="ghost-button" id="logoutButton" type="button" hidden>Выйти</button>
+          <!-- Скрытые legacy-кнопки: оставлены для сохранения слушателей,
+               вызываются через делегацию (data-add-* атрибуты в view-шапках). -->
+          <button id="newManagerButton" type="button" hidden></button>
+          <button id="newClientButton" type="button" hidden></button>
+          <button id="newDealButton" type="button" hidden></button>
+          <button id="newTaskButton" type="button" hidden></button>
+          <button id="newKnowledgeButton" type="button" hidden></button>
         </div>
       </header>
 
@@ -460,6 +462,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260603-edit-planned" defer></script>
+    <script src="/app.js?v=20260603-admin-panel" defer></script>
   </body>
 </html>
