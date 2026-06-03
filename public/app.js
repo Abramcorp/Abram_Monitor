@@ -1318,6 +1318,11 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 <button class="primary-button small-button application-save-button" data-save-application="${escapeHtml(deal.id)}" type="button">
                   Сохранить
                 </button>
+                ${deal.stage === "planned" ? `
+                  <button class="ghost-button small-button" data-edit-planned-deal="${escapeHtml(deal.id)}" type="button" title="Изменить программу, банк, сумму">
+                    ✎ Изменить
+                  </button>
+                ` : ""}
                 <button class="ghost-button small-button danger-button application-delete-button" data-delete-deal="${escapeHtml(deal.id)}" data-deal-title="${escapeHtml(deal.client + " · " + (deal.program || deal.bank || ""))}" type="button">
                   Удалить заявку
                 </button>
@@ -2729,9 +2734,9 @@ function renderDocumentRequestsView() {
           return `
             <details class="doc-client-group" data-ui-state-key="${escapeHtml(stateKey)}">
               <summary class="doc-client-group-head">
+                <span class="doc-client-count is-${dominantStatus}" title="Запросов в группе: ${list.length}">${countLabel}</span>
                 <span class="doc-client-name">${escapeHtml(clientName)}</span>
                 <span class="doc-client-meta">${analysts ? escapeHtml(analysts) : ""}</span>
-                <span class="doc-client-count is-${dominantStatus}" title="Запросов в группе: ${list.length}">${countLabel}</span>
               </summary>
               <div class="doc-request-stack">
                 ${list.map((req) => renderCard(req, { archived: options.archived })).join("")}
@@ -4257,6 +4262,20 @@ function initDynamicControls() {
       return;
     }
 
+    const editPlannedDeal = target.closest("[data-edit-planned-deal]");
+    if (editPlannedDeal) {
+      event.preventDefault();
+      event.stopPropagation();
+      const dealId = editPlannedDeal.dataset.editPlannedDeal;
+      const deal = (state.dashboard?.deals || []).find((d) => d.id === dealId);
+      if (deal && deal.stage === "planned") {
+        openApplicationDialog(deal.manager, deal.client, deal);
+      } else if (deal) {
+        window.alert("Редактирование доступно только для заявок на этапе «Плановая».");
+      }
+      return;
+    }
+
     const editKnowledge = target.closest("[data-edit-knowledge]");
     if (editKnowledge) {
       event.preventDefault();
@@ -4380,17 +4399,37 @@ function openKnowledgeDialog(entry = null) {
   knowledgeDialog.showModal();
 }
 
-function openApplicationDialog(manager, client) {
+function openApplicationDialog(manager, client, deal = null) {
   fillDealFormOptions();
   form.reset();
   setDealDialogLoading(false);
-  const lockedManager = isPartner() ? partnerManagerName() : manager || "";
+  const lockedManager = isPartner() ? partnerManagerName() : (deal?.manager || manager || "");
   form.elements.manager.value = lockedManager;
-  form.elements.client.value = client || "";
+  form.elements.client.value = deal?.client || client || "";
   form.elements.managerLocked.value = lockedManager;
   form.elements.manager.disabled = true;
-  form.elements.client.readOnly = Boolean(client);
-  form.elements.stage.value = "planned";
+  form.elements.client.readOnly = Boolean(deal || client);
+  form.elements.stage.value = deal?.stage || "planned";
+  // Edit-mode: пробрасываем dealId через dataset формы, заполняем поля.
+  if (deal) {
+    form.dataset.dealId = deal.id;
+    if (deal.knowledgeProgramId && form.elements.knowledgeProgramId) {
+      form.elements.knowledgeProgramId.value = deal.knowledgeProgramId;
+    }
+    if (form.elements.amountRequested) form.elements.amountRequested.value = deal.amountRequested || "";
+    if (form.elements.amountApproved) form.elements.amountApproved.value = deal.amountApproved || "";
+    if (form.elements.comment) form.elements.comment.value = deal.comment || "";
+    const title = dialog.querySelector("h2");
+    if (title) title.textContent = "Редактирование заявки";
+    const saveBtn = document.querySelector("#saveDealButton");
+    if (saveBtn) saveBtn.textContent = "Сохранить изменения";
+  } else {
+    delete form.dataset.dealId;
+    const title = dialog.querySelector("h2");
+    if (title) title.textContent = "Новая заявка";
+    const saveBtn = document.querySelector("#saveDealButton");
+    if (saveBtn) saveBtn.textContent = "Сохранить заявку";
+  }
   syncApplicationProgramFields();
   updateApplicationDateRequirements();
   dialog.showModal();
@@ -4630,14 +4669,26 @@ form.addEventListener("submit", async (event) => {
   setDealDialogLoading(true);
 
   try {
-    const { deal } = await requestJson("/api/deals", {
-      method: "POST",
-      body: JSON.stringify(Object.fromEntries(formData.entries()))
-    });
+    const editId = form.dataset.dealId || "";
+    const payload = Object.fromEntries(formData.entries());
+    let deal;
+    if (editId) {
+      // Редактирование существующей заявки.
+      ({ deal } = await requestJson(`/api/deals/${encodeURIComponent(editId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      }));
+    } else {
+      ({ deal } = await requestJson("/api/deals", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }));
+    }
     try {
       await refreshDashboard({ restoreUi: preserveClientOpenState(uiSnapshot, deal) });
     } finally {
       dialog.close();
+      delete form.dataset.dealId;
     }
   } catch (error) {
     window.alert(error.message);
