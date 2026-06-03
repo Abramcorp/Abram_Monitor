@@ -928,29 +928,84 @@ function updateActionVisibility() {
   });
 }
 
+// Цветовой семафор для процентных показателей
+function kpiTone(value, { good, ok }) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "neutral";
+  if (n >= good) return "success";
+  if (n >= ok) return "warning";
+  return "danger";
+}
+
 function renderKpis() {
   const totals = state.dashboard.totals;
+  const leadConv = Number(totals.leadToWorkingConversionRate) || 0;
+  const successConv = Number(totals.completedToSuccessConversionRate) || 0;
   const kpis = [
-    ["Лиды", totals.leads],
-    ["Заявки в работе", totals.working],
-    ["Завершенные", totals.completed],
-    ["Одобрено", totals.issued],
-    ["Конверсия лидов", `${totals.leadToWorkingConversionRate}%`],
-    ["Успех завершенных", `${totals.completedToSuccessConversionRate}%`]
+    { label: "Лиды", value: totals.leads, tone: "neutral" },
+    { label: "Заявки в работе", value: totals.working, tone: "neutral" },
+    { label: "Завершенные", value: totals.completed, tone: "neutral" },
+    { label: "Одобрено", value: totals.issued, tone: "success" },
+    { label: "Конверсия лидов", value: `${leadConv}%`, tone: kpiTone(leadConv, { good: 60, ok: 40 }) },
+    { label: "Успех завершенных", value: `${successConv}%`, tone: kpiTone(successConv, { good: 35, ok: 20 }) }
   ];
 
   return `
     <section class="kpi-grid">
       ${kpis
-        .map(
-          ([label, value]) => `
-            <div class="kpi">
-              <span>${label}</span>
-              <strong>${value}</strong>
-            </div>
-          `
-        )
+        .map((k) => `
+          <div class="kpi is-${k.tone}">
+            <span>${k.label}</span>
+            <strong>${k.value}</strong>
+          </div>
+        `)
         .join("")}
+    </section>
+  `;
+}
+
+// Алерт-блок: вещи, требующие внимания руководителя
+function summaryAlerts() {
+  const items = [];
+  // 1. Зависшие лиды (≥7 дней без активности)
+  const stalledLeads = (state.dashboard.deals || [])
+    .filter((d) => d.statusGroup === "current" && (d.stage === "lead" || d.stage === "documents_requested"))
+    .filter((d) => {
+      const days = daysSince(d.lastActionAt);
+      return days != null && days >= 7;
+    }).length;
+  if (stalledLeads > 0) {
+    items.push({ tone: "danger", label: "Лиды без действий 7+ дней", value: stalledLeads });
+  }
+  // 2. Просрочены задачи
+  const now = Date.now();
+  const overdueTasks = (state.tasks || []).filter((t) => {
+    if (t.completedAt) return false;
+    const due = new Date(t.dueAt || 0).getTime();
+    return Number.isFinite(due) && due > 0 && due < now;
+  }).length;
+  if (overdueTasks > 0) {
+    items.push({ tone: "danger", label: "Просрочено задач", value: overdueTasks });
+  }
+  // 3. Документы на отправку (fulfilled, ожидают подтверждения)
+  const docFulfilled = (state.documentRequests || []).filter((r) => r.status === "fulfilled").length;
+  if (docFulfilled > 0) {
+    items.push({ tone: "warning", label: "Документы на отправку", value: docFulfilled });
+  }
+  // 4. Открытые запросы документов (open)
+  const docOpen = (state.documentRequests || []).filter((r) => r.status === "open").length;
+  if (docOpen > 0) {
+    items.push({ tone: "warning", label: "Открытых запросов документов", value: docOpen });
+  }
+  if (!items.length) return "";
+  return `
+    <section class="alerts-strip" aria-label="Требует внимания">
+      ${items.map((it) => `
+        <div class="alert-pill is-${it.tone}">
+          <span class="alert-pill-value">${it.value}</span>
+          <span class="alert-pill-label">${escapeHtml(it.label)}</span>
+        </div>
+      `).join("")}
     </section>
   `;
 }
@@ -3621,43 +3676,71 @@ function resolveBoardApplications(group) {
   return Array.isArray(group?.applications) ? group.applications : [];
 }
 
+// Stage → семантический оттенок для левой полоски / бейджа карточки
+function stageTone(stage) {
+  if (stage === "approved") return "success";
+  if (stage === "rejected" || stage === "blocked") return "danger";
+  if (stage === "submitted") return "info";
+  if (stage === "planned") return "neutral";
+  return "warning";
+}
+
+function daysSince(dateValue) {
+  if (!dateValue) return null;
+  const t = new Date(dateValue).getTime();
+  if (!Number.isFinite(t)) return null;
+  const days = Math.floor((Date.now() - t) / (24 * 3600 * 1000));
+  return days >= 0 ? days : null;
+}
+
+function ageBadge(days, { stalledFrom = 7 } = {}) {
+  if (days == null) return "";
+  const tone = days >= stalledFrom ? "danger" : days >= Math.floor(stalledFrom * 0.6) ? "warning" : "neutral";
+  const word = days === 0 ? "сегодня" : days === 1 ? "1 день" : `${days} дн.`;
+  return `<span class="deal-card-age is-${tone}">${word}</span>`;
+}
+
 function renderBoardApplicationRows(applications, groupBy) {
   if (!applications.length) {
     return `<div class="empty compact-empty">Заявок нет.</div>`;
   }
 
   return `
-    <div class="board-deal-list">
+    <div class="deal-card-grid">
       ${applications
-        .map(
-          (deal) => {
-            const contextLabel = groupBy === "bank"
-              ? `${deal.client} · ${deal.manager} · ${deal.program || deal.bank}`
-              : groupBy === "client"
-                ? `${deal.manager} · ${applicationProgramTitle(deal)}`
-                : applicationProgramTitle(deal);
-            return `
-            <article class="board-deal-row">
-              <div>
-                <strong>${escapeHtml(deal.client)}</strong>
-                <span>${escapeHtml(contextLabel)} · ${escapeHtml(deal.stageLabel)}</span>
-              </div>
-              <div>
-                <span>Дата заявки</span>
-                <strong>${formatDate(deal.applicationDate)}</strong>
-              </div>
-              <div>
-                <span>Последнее действие</span>
-                <strong>${formatDate(deal.lastActionAt)}</strong>
-              </div>
-              <div>
-                <span>Сумма заявки</span>
+        .map((deal) => {
+          const tone = stageTone(deal.stage);
+          const program = applicationProgramTitle(deal);
+          const bankLabel = deal.bank || "Без банка";
+          const subtitle = groupBy === "bank"
+            ? `${escapeHtml(program)} · аналитик ${escapeHtml(deal.manager)}`
+            : groupBy === "client"
+              ? `${escapeHtml(program)} · ${escapeHtml(bankLabel)}`
+              : `${escapeHtml(program)} · ${escapeHtml(bankLabel)}`;
+          const ageDays = daysSince(deal.lastActionAt || deal.applicationDate);
+          const docBadge = renderDealDocumentBadge(deal);
+          return `
+            <article class="deal-card is-${tone}">
+              <header class="deal-card-head">
+                <span class="deal-card-stage is-${tone}">${escapeHtml(deal.stageLabel || "—")}</span>
+                ${ageBadge(ageDays)}
+              </header>
+              <h4 class="deal-card-client">${escapeHtml(deal.client)}</h4>
+              <p class="deal-card-subtitle">${subtitle}</p>
+              <div class="deal-card-amount">
+                <span class="deal-card-amount-label">Сумма</span>
                 <strong>${money(deal.amountRequested)}</strong>
+                ${deal.amountApproved ? `<span class="deal-card-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}
               </div>
+              ${docBadge ? `<div class="deal-card-doc-row">${docBadge}</div>` : ""}
+              <footer class="deal-card-foot">
+                <span>Аналитик: <strong>${escapeHtml(deal.manager)}</strong></span>
+                <span>Заявка: <strong>${formatDate(deal.applicationDate)}</strong></span>
+                <span>Действие: <strong>${formatDate(deal.lastActionAt)}</strong></span>
+              </footer>
             </article>
           `;
-          }
-        )
+        })
         .join("")}
     </div>
   `;
@@ -3699,18 +3782,23 @@ function renderSummary() {
   const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
   const totals = renderReportTotals(groups);
   const reportTime = state.dashboard.time || { iso: state.dashboard.generatedAt, source: "server" };
+  const statusLabel = BOARD_STATUS_LABELS[state.board.status] || "";
+  const groupLabel = BOARD_GROUP_LABELS[state.board.groupBy]?.toLowerCase() || "";
+  const reportTimeAttr = `Обновлено ${formatDate(reportTime.iso)} MSK · источник: ${reportTime.source || "server"}`;
 
   return `
     ${renderKpis()}
+    ${summaryAlerts()}
     <section class="panel">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Сводный отчет</p>
-          <h2>${BOARD_STATUS_LABELS[state.board.status]} заявки · ${BOARD_GROUP_LABELS[state.board.groupBy].toLowerCase()}</h2>
-          <p class="muted">${totals.count} заявок · ${money(totals.amountRequested)} в выбранном отчете (${totals.approvalConversionRate}%)</p>
+          <h2 title="${escapeHtml(reportTimeAttr)}">${escapeHtml(statusLabel)} заявки · ${escapeHtml(groupLabel)}</h2>
+          <p class="summary-totals-line">
+            <strong>${totals.count}</strong> заявок · <strong>${money(totals.amountRequested)}</strong>
+            ${totals.amountApproved ? ` · одобрено <strong>${money(totals.amountApproved)}</strong> (${totals.approvalConversionRate}%)` : ""}
+          </p>
           ${renderSummaryAmountBadges(totals, state.board.status)}
           ${renderConversionBadges(totals)}
-          <p class="muted">Время отчета: ${formatDate(reportTime.iso)} MSK · источник: ${escapeHtml(reportTime.source || "server")}</p>
         </div>
         ${renderBoardControls()}
       </div>
