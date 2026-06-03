@@ -1059,10 +1059,13 @@ async function handleApi(request, response) {
         rootDriveUrl = cli?.driveUrl || "";
       }
       log("rootDriveUrl=", rootDriveUrl);
-      const rootFolderId = googleDrive.extractFolderIdFromUrl(rootDriveUrl);
+      let rootFolderId = googleDrive.extractFolderIdFromUrl(rootDriveUrl);
+      // Fallback для клиентов без driveUrl (например, у партнёрского контура часто нет своей папки).
+      // Берём env GOOGLE_DRIVE_FALLBACK_FOLDER_ID если задан, иначе корень аккаунта ("root").
       if (!rootFolderId) {
-        sendJson(response, 400, { error: "У клиента не указана ссылка на папку Google Drive (driveUrl)" });
-        return;
+        const fallbackId = String(process.env.GOOGLE_DRIVE_FALLBACK_FOLDER_ID || "").trim();
+        rootFolderId = fallbackId || "root";
+        log(`no client driveUrl → fallback parent=${rootFolderId}`);
       }
       log("rootFolderId=", rootFolderId);
       const driveStatus = await googleDrive.getStatus();
@@ -1071,7 +1074,10 @@ async function handleApi(request, response) {
         sendJson(response, 400, { error: "Google Drive не подключён. Подключите в Настройки → Интеграции." });
         return;
       }
-      const hasAccess = await googleDrive.checkParentAccess(rootFolderId).catch((e) => { log("checkParentAccess error:", e.message); return false; });
+      // Для "root" доступ всегда есть, остальные парентов проверяем.
+      const hasAccess = rootFolderId === "root"
+        ? true
+        : await googleDrive.checkParentAccess(rootFolderId).catch((e) => { log("checkParentAccess error:", e.message); return false; });
       log("hasAccess=", hasAccess);
       if (!hasAccess) {
         sendJson(response, 400, { error: "Подключённый Google-аккаунт не имеет доступа к папке клиента (нужны права редактора)" });
