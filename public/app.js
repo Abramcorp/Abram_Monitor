@@ -4501,6 +4501,22 @@ function openDealActionDialog(dealId) {
 
 refreshButton.addEventListener("click", loadData);
 
+const fullscreenButton = document.querySelector("#fullscreenButton");
+if (fullscreenButton) {
+  fullscreenButton.addEventListener("click", () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {
+        // тихий fail если браузер запретил
+      });
+    } else {
+      document.exitFullscreen?.();
+    }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    fullscreenButton.textContent = document.fullscreenElement ? "⛶⃕" : "⛶";
+  });
+}
+
 newManagerButton.addEventListener("click", () => {
   managerForm.reset();
   managerDialog.showModal();

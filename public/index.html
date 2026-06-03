@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260603-admin-panel">
+    <link rel="stylesheet" href="/styles.css?v=20260603-fullwidth">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -35,6 +35,7 @@
         </div>
         <div class="topbar-actions">
           <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
+          <button class="icon-button" id="fullscreenButton" title="Полноэкранный режим (F11 тоже работает)" type="button">⛶</button>
           <span class="user-badge" id="userBadge" hidden>
             <span class="user-badge-name" id="userBadgeName"></span>
             <span class="user-badge-role" id="userBadgeRole"></span>
@@ -462,6 +463,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260603-admin-panel" defer></script>
+    <script src="/app.js?v=20260603-fullwidth" defer></script>
   </body>
 </html>
