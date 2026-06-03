@@ -49,9 +49,15 @@ button {
 }
 
 .app-shell {
-  width: min(1680px, 100%);
-  margin: 0 auto;
-  padding: 24px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 16px 20px 24px;
+}
+
+/* На очень широких мониторах добавляем чуть больше горизонтального воздуха */
+@media (min-width: 1800px) {
+  .app-shell { padding: 16px 32px 24px; }
 }
 
 .login-shell {
@@ -2323,10 +2329,11 @@ td select {
 .deal-card.is-info    { border-left-color: var(--blue); }
 .deal-card.is-neutral { border-left-color: var(--muted); }
 
-/* Hover/focus — поднимаем карточку над соседями */
+/* Hover/focus — лёгкий подъём + тень. Без scale, чтобы карточка
+   не залезала на соседние при hover. */
 .deal-card:hover,
 .deal-card:focus-within {
-  transform: translateY(-2px) scale(1.015);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-pop);
   border-color: rgba(22, 33, 47, 0.18);
   z-index: 10;
