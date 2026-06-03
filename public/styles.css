@@ -2971,9 +2971,34 @@ td select {
   align-items: baseline;
 }
 
+.doc-request-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .doc-request-card-head h3 {
   margin: 0;
-  font-size: 16px;
+}
+
+/* L1 — ФИО клиента крупно */
+.doc-request-client {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* L2 — Банк выделенный, но меньше клиента */
+.doc-request-bank {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
 }
 
 .doc-request-card-head time {
@@ -2981,11 +3006,13 @@ td select {
   font-size: 12px;
 }
 
+/* L3 — программа и аналитик мелким шрифтом */
 .doc-request-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  font-size: 13px;
+  gap: 8px 12px;
+  margin-top: 2px;
+  font-size: 12px;
   color: var(--muted);
 }
 
