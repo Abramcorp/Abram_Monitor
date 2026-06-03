@@ -2705,6 +2705,47 @@ function renderDocumentRequestsView() {
     ? `<button class="ghost-button" data-resend-doc-requests type="button" title="Переотправить уведомления по всем активным запросам в Telegram">🔄 Переотправить уведомления</button>`
     : "";
 
+  // Группировка запросов по клиенту → свёрнутые <details>.
+  // Внутри каждого клиента — счётчик, сумма последних дат активности.
+  const renderDocRequestsByClient = (requests, bucket, options = {}) => {
+    if (!requests.length) return "";
+    const byClient = new Map();
+    for (const req of requests) {
+      const key = req.clientName || "Без клиента";
+      if (!byClient.has(key)) byClient.set(key, []);
+      byClient.get(key).push(req);
+    }
+    const entries = [...byClient.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"));
+    return `
+      <div class="doc-client-stack">
+        ${entries.map(([clientName, list]) => {
+          const stateKey = uiStateKey("doc-client", bucket, clientName);
+          // Аналитик(и) клиента
+          const analysts = [...new Set(list.map((r) => r.manager).filter(Boolean))].join(", ");
+          // Бейджи статусов внутри группы (если в одной группе разные)
+          const statuses = list.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
+          const statusBadges = [];
+          if (statuses.open) statusBadges.push(`<span class="doc-client-status is-open">● ${statuses.open}</span>`);
+          if (statuses.fulfilled) statusBadges.push(`<span class="doc-client-status is-fulfilled">⚠ ${statuses.fulfilled}</span>`);
+          if (statuses.delivered) statusBadges.push(`<span class="doc-client-status is-delivered">✓ ${statuses.delivered}</span>`);
+          return `
+            <details class="doc-client-group" data-ui-state-key="${escapeHtml(stateKey)}">
+              <summary class="doc-client-group-head">
+                <span class="doc-client-name">${escapeHtml(clientName)}</span>
+                <span class="doc-client-meta">${analysts ? escapeHtml(analysts) : ""}</span>
+                <span class="doc-client-badges">${statusBadges.join("")}</span>
+                <span class="doc-client-count">${list.length}</span>
+              </summary>
+              <div class="doc-request-stack">
+                ${list.map((req) => renderCard(req, { archived: options.archived })).join("")}
+              </div>
+            </details>
+          `;
+        }).join("")}
+      </div>
+    `;
+  };
+
   return `
     <section class="panel">
       <div class="panel-head">
@@ -2716,23 +2757,17 @@ function renderDocumentRequestsView() {
       </div>
       ${open.length ? `
         <h3 class="doc-section-title">Ждут загрузки (${open.length})</h3>
-        <div class="doc-request-stack">
-          ${open.map((req) => renderCard(req)).join("")}
-        </div>
+        ${renderDocRequestsByClient(open, "open")}
       ` : ""}
       ${fulfilled.length ? `
         <h3 class="doc-section-title">Загружены, ждут подтверждения аналитика (${fulfilled.length})</h3>
-        <div class="doc-request-stack">
-          ${fulfilled.map((req) => renderCard(req)).join("")}
-        </div>
+        ${renderDocRequestsByClient(fulfilled, "fulfilled")}
       ` : ""}
       ${!active.length ? `<div class="empty">Активных запросов нет.</div>` : ""}
       ${archive.length ? `
         <details class="doc-request-archive">
           <summary class="doc-section-title">Архив запросов (${archive.length})</summary>
-          <div class="doc-request-stack">
-            ${archiveSorted.map((req) => renderCard(req, { archived: true })).join("")}
-          </div>
+          ${renderDocRequestsByClient(archiveSorted, "archive", { archived: true })}
         </details>
       ` : ""}
     </section>
