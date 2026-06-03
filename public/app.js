@@ -2669,11 +2669,12 @@ function renderDocumentRequestsView() {
     return `
       <article class="doc-request-card ${stateClass}">
         <div class="doc-request-card-head">
-          <div>
-            <h3>${escapeHtml(req.clientName)}${req.program ? ` · ${escapeHtml(req.program)}` : ""}</h3>
+          <div class="doc-request-titles">
+            <h3 class="doc-request-client">${escapeHtml(req.clientName)}</h3>
+            ${req.bank ? `<p class="doc-request-bank">${escapeHtml(req.bank)}</p>` : ""}
             <p class="doc-request-meta">
-              <span>Аналитик: ${escapeHtml(req.manager)}</span>
-              <span>${escapeHtml(req.bank || "")}</span>
+              ${req.program ? `<span>${escapeHtml(req.program)}</span>` : ""}
+              <span>Запросил: ${escapeHtml(req.manager)}</span>
               ${drive}
             </p>
           </div>
