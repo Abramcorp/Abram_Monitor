@@ -568,13 +568,14 @@ async function handleApi(request, response) {
   if (request.method === "PATCH" && dealMatch) {
     const dealId = decodeURIComponent(dealMatch[1]);
     const payload = await readBody(request);
+    // Запоминаем prev для уведомления о смене ключевого статуса.
+    const previous = (await getDeals()).find((d) => d.id === dealId) || null;
     if (scope) {
-      const existing = (await getDeals()).find((deal) => deal.id === dealId);
-      if (!existing) {
+      if (!previous) {
         sendJson(response, 404, { error: "Deal not found" });
         return;
       }
-      ensurePartnerOwnsManager(request, existing.manager);
+      ensurePartnerOwnsManager(request, previous.manager);
       if (payload.manager !== undefined) {
         ensurePartnerOwnsManager(request, payload.manager);
       }
@@ -585,6 +586,27 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { deal });
+    // Уведомление пользователю abram при смене статуса на ключевой.
+    const ALERT_STAGES = new Set(["submitted", "approved", "rejected"]);
+    if (previous && previous.stage !== deal.stage && ALERT_STAGES.has(deal.stage)) {
+      (async () => {
+        try {
+          const target = await users.findUserByLogin("abram");
+          const chatId = target?.telegramChatId || "";
+          if (!chatId) {
+            console.warn("[telegram] notifyStageChange skipped: user 'abram' has no telegramChatId");
+            return;
+          }
+          await telegram.notifyDealStageChange(deal, {
+            prevStageLabel: previous.stageLabel || previous.stage,
+            newStageLabel: deal.stageLabel || deal.stage,
+            chatId
+          });
+        } catch (error) {
+          console.warn("[telegram] notifyStageChange error:", error.message);
+        }
+      })().catch(() => null);
+    }
     return;
   }
 

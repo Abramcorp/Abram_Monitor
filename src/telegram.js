@@ -236,6 +236,23 @@ function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
 
+// Уведомление о ключевой смене статуса заявки (submitted/approved/rejected).
+// Отправляется конкретному получателю в личку — chatId должен быть передан.
+function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId } = {}) {
+  if (!BOT_TOKEN || !deal || !chatId) return null;
+  const emoji = /одобр/i.test(newStageLabel || "") ? "🟢"
+    : /отказ|отклон|нет возможн/i.test(newStageLabel || "") ? "🔴"
+    : /подпис|реш/i.test(newStageLabel || "") ? "🟡"
+    : "🔔";
+  const text = `${emoji} <b>Смена статуса</b>\n`
+    + `Клиент: <b>${escapeHtml(deal.client || "—")}</b>\n`
+    + `Банк: <b>${escapeHtml(deal.bank || "—")}</b>\n`
+    + `Программа: ${escapeHtml(deal.program || "—")}\n`
+    + `${escapeHtml(prevStageLabel || "—")} → <b>${escapeHtml(newStageLabel || "—")}</b>\n`
+    + `Аналитик: ${escapeHtml(deal.manager || "—")}`;
+  return sendTelegramMessage(text, { chatId });
+}
+
 module.exports = {
   isEnabled,
   sendTelegramMessage,
@@ -243,5 +260,6 @@ module.exports = {
   createForumTopic,
   notifyDocRequestCreated,
   notifyDocRequestFulfilled,
-  notifyDocRequestConfirmed
+  notifyDocRequestConfirmed,
+  notifyDealStageChange
 };
