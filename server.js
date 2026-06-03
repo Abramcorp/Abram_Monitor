@@ -568,13 +568,14 @@ async function handleApi(request, response) {
   if (request.method === "PATCH" && dealMatch) {
     const dealId = decodeURIComponent(dealMatch[1]);
     const payload = await readBody(request);
+    // Запоминаем prev для уведомления о смене ключевого статуса.
+    const previous = (await getDeals()).find((d) => d.id === dealId) || null;
     if (scope) {
-      const existing = (await getDeals()).find((deal) => deal.id === dealId);
-      if (!existing) {
+      if (!previous) {
         sendJson(response, 404, { error: "Deal not found" });
         return;
       }
-      ensurePartnerOwnsManager(request, existing.manager);
+      ensurePartnerOwnsManager(request, previous.manager);
       if (payload.manager !== undefined) {
         ensurePartnerOwnsManager(request, payload.manager);
       }
@@ -585,6 +586,27 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { deal });
+    // Уведомление пользователю abram при смене статуса на ключевой.
+    const ALERT_STAGES = new Set(["submitted", "approved", "rejected"]);
+    if (previous && previous.stage !== deal.stage && ALERT_STAGES.has(deal.stage)) {
+      (async () => {
+        try {
+          const target = await users.findUserByLogin("abram");
+          const chatId = target?.telegramChatId || "";
+          if (!chatId) {
+            console.warn("[telegram] notifyStageChange skipped: user 'abram' has no telegramChatId");
+            return;
+          }
+          await telegram.notifyDealStageChange(deal, {
+            prevStageLabel: previous.stageLabel || previous.stage,
+            newStageLabel: deal.stageLabel || deal.stage,
+            chatId
+          });
+        } catch (error) {
+          console.warn("[telegram] notifyStageChange error:", error.message);
+        }
+      })().catch(() => null);
+    }
     return;
   }
 
@@ -1079,7 +1101,10 @@ async function handleApi(request, response) {
         try {
           bb = Busboy({
             headers: request.headers,
-            limits: { fileSize: MAX_FILE_BYTES, files: 20 }
+            limits: { fileSize: MAX_FILE_BYTES, files: 20 },
+            // По умолчанию busboy декодирует параметры (включая filename) как latin1.
+            // Браузеры шлют кириллицу как utf8 без явной перекодировки → ломается.
+            defParamCharset: "utf8"
           });
         } catch (e) {
           log("Busboy ctor error:", e.message);
@@ -1091,7 +1116,14 @@ async function handleApi(request, response) {
         let fileCount = 0;
         bb.on("file", (_name, fileStream, info) => {
           fileCount += 1;
-          const originalName = info.filename || "file";
+          // Дополнительный фолбэк: если defParamCharset не сработал
+          // (старая версия busboy), перекодируем latin1 → utf8.
+          let originalName = info.filename || "file";
+          if (originalName && /[À-ÿ]/.test(originalName) && !/[А-Яа-яЁё]/.test(originalName)) {
+            try {
+              originalName = Buffer.from(originalName, "latin1").toString("utf8");
+            } catch { /* keep original */ }
+          }
           const mimeType = info.mimeType || "application/octet-stream";
           log(`file event #${fileCount}:`, originalName, mimeType);
           const now = new Date();

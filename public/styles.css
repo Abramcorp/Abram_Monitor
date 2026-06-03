@@ -2848,7 +2848,7 @@ td select {
 
 .doc-client-group > summary {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) auto auto;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
@@ -2892,47 +2892,48 @@ td select {
   overflow-wrap: anywhere;
 }
 
-.doc-client-badges {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.doc-client-status {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.doc-client-status.is-open {
-  background: var(--info-soft, rgba(37,99,235,0.08));
-  color: var(--blue);
-}
-.doc-client-status.is-fulfilled {
-  background: var(--warn-soft, rgba(212,129,30,0.10));
-  color: var(--amber);
-}
-.doc-client-status.is-delivered {
-  background: var(--success-soft, rgba(18,128,108,0.10));
-  color: var(--green);
-}
-
+/* Круглый счётчик запросов в группе (макс. 2 знака внутри). */
 .doc-client-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 26px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(22, 33, 47, 0.08);
   color: var(--ink);
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+
+/* Цвет круга = преобладающий статус в группе */
+.doc-client-count.is-open {
+  background: var(--info-soft, rgba(37,99,235,0.12));
+  color: var(--blue);
+  border-color: var(--info-line, rgba(37,99,235,0.25));
+}
+.doc-client-count.is-fulfilled {
+  background: var(--warn-soft, rgba(212,129,30,0.14));
+  color: var(--amber);
+  border-color: var(--warn-line, rgba(212,129,30,0.3));
+  animation: doc-count-pulse 1.8s ease-in-out infinite;
+}
+.doc-client-count.is-delivered {
+  background: var(--success-soft, rgba(18,128,108,0.12));
+  color: var(--green);
+  border-color: var(--success-line, rgba(18,128,108,0.25));
+}
+
+@keyframes doc-count-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 129, 30, 0); }
+  50%      { box-shadow: 0 0 0 4px rgba(212, 129, 30, 0.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .doc-client-count.is-fulfilled { animation: none; }
 }
 
 .doc-client-group > .doc-request-stack {
@@ -2946,12 +2947,11 @@ td select {
     grid-template-columns: 1fr auto;
     grid-template-areas:
       "name count"
-      "meta badges";
+      "meta count";
   }
   .doc-client-name { grid-area: name; }
   .doc-client-meta { grid-area: meta; }
-  .doc-client-badges { grid-area: badges; }
-  .doc-client-count { grid-area: count; }
+  .doc-client-count { grid-area: count; align-self: center; }
 }
 
 .doc-request-card {
