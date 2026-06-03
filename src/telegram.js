@@ -183,6 +183,8 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   if (!BOT_TOKEN || !req) return null;
   const text = `📦 <b>Документы готовы к отправке</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
+    + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
+    + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
     + `Подготовил: ${escapeHtml(actor?.fullName || "—")}\n`
     + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "")
