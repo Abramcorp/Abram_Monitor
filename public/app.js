@@ -2721,21 +2721,17 @@ function renderDocumentRequestsView() {
       <div class="doc-client-stack">
         ${entries.map(([clientName, list]) => {
           const stateKey = uiStateKey("doc-client", bucket, clientName);
-          // Аналитик(и) клиента
           const analysts = [...new Set(list.map((r) => r.manager).filter(Boolean))].join(", ");
-          // Бейджи статусов внутри группы (если в одной группе разные)
+          // Преобладающий статус — для цвета кружка.
           const statuses = list.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
-          const statusBadges = [];
-          if (statuses.open) statusBadges.push(`<span class="doc-client-status is-open">● ${statuses.open}</span>`);
-          if (statuses.fulfilled) statusBadges.push(`<span class="doc-client-status is-fulfilled">⚠ ${statuses.fulfilled}</span>`);
-          if (statuses.delivered) statusBadges.push(`<span class="doc-client-status is-delivered">✓ ${statuses.delivered}</span>`);
+          const dominantStatus = statuses.fulfilled ? "fulfilled" : statuses.open ? "open" : statuses.delivered ? "delivered" : "open";
+          const countLabel = list.length > 99 ? "99+" : String(list.length);
           return `
             <details class="doc-client-group" data-ui-state-key="${escapeHtml(stateKey)}">
               <summary class="doc-client-group-head">
                 <span class="doc-client-name">${escapeHtml(clientName)}</span>
                 <span class="doc-client-meta">${analysts ? escapeHtml(analysts) : ""}</span>
-                <span class="doc-client-badges">${statusBadges.join("")}</span>
-                <span class="doc-client-count">${list.length}</span>
+                <span class="doc-client-count is-${dominantStatus}" title="Запросов в группе: ${list.length}">${countLabel}</span>
               </summary>
               <div class="doc-request-stack">
                 ${list.map((req) => renderCard(req, { archived: options.archived })).join("")}

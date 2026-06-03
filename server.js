@@ -1101,7 +1101,10 @@ async function handleApi(request, response) {
         try {
           bb = Busboy({
             headers: request.headers,
-            limits: { fileSize: MAX_FILE_BYTES, files: 20 }
+            limits: { fileSize: MAX_FILE_BYTES, files: 20 },
+            // По умолчанию busboy декодирует параметры (включая filename) как latin1.
+            // Браузеры шлют кириллицу как utf8 без явной перекодировки → ломается.
+            defParamCharset: "utf8"
           });
         } catch (e) {
           log("Busboy ctor error:", e.message);
@@ -1113,7 +1116,14 @@ async function handleApi(request, response) {
         let fileCount = 0;
         bb.on("file", (_name, fileStream, info) => {
           fileCount += 1;
-          const originalName = info.filename || "file";
+          // Дополнительный фолбэк: если defParamCharset не сработал
+          // (старая версия busboy), перекодируем latin1 → utf8.
+          let originalName = info.filename || "file";
+          if (originalName && /[À-ÿ]/.test(originalName) && !/[А-Яа-яЁё]/.test(originalName)) {
+            try {
+              originalName = Buffer.from(originalName, "latin1").toString("utf8");
+            } catch { /* keep original */ }
+          }
           const mimeType = info.mimeType || "application/octet-stream";
           log(`file event #${fileCount}:`, originalName, mimeType);
           const now = new Date();
