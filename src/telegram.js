@@ -229,6 +229,8 @@ function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
   if (!isEnabled() || !req) return null;
   const text = `✅ <b>Документы получены</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
+    + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
+    + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
     + `Подтвердил: ${escapeHtml(actor?.fullName || "—")}`;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
