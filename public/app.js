@@ -3843,13 +3843,76 @@ function renderBoardSummaryGroups(groups) {
   `;
 }
 
+// Канонический порядок этапов в воронке (для сводного отчёта).
+const SUMMARY_STAGE_ORDER = [
+  "planned",
+  "lead",
+  "documents_requested",
+  "submitted",
+  "approved",
+  "rejected",
+  "blocked"
+];
+
+// Группировка заявок по этапу — раскрывающиеся секции с карточками.
+function renderDealsByStage() {
+  const deals = state.dashboard?.deals || [];
+  if (!deals.length) {
+    return `<div class="empty">Нет заявок.</div>`;
+  }
+  const stages = state.dashboard?.stages?.all || [];
+  const stageLabelMap = Object.fromEntries(stages.map((s) => [s.id, s.label]));
+
+  const byStage = new Map();
+  for (const deal of deals) {
+    const id = deal.stage || "unknown";
+    if (!byStage.has(id)) byStage.set(id, []);
+    byStage.get(id).push(deal);
+  }
+
+  // Стабильный порядок: сначала из SUMMARY_STAGE_ORDER, потом остальные.
+  const orderedIds = [
+    ...SUMMARY_STAGE_ORDER.filter((id) => byStage.has(id)),
+    ...[...byStage.keys()].filter((id) => !SUMMARY_STAGE_ORDER.includes(id))
+  ];
+
+  return `
+    <div class="stage-sections">
+      ${orderedIds.map((id) => {
+        const items = byStage.get(id) || [];
+        if (!items.length) return "";
+        const label = stageLabelMap[id] || (items[0]?.stageLabel) || id;
+        const tone = stageTone(id);
+        const sumReq = items.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+        const sumApp = items.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
+        const stateKey = uiStateKey("summary-stage", id);
+        const sortedItems = items.slice().sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+        return `
+          <details class="stage-section is-${tone}" data-ui-state-key="${escapeHtml(stateKey)}">
+            <summary class="stage-section-head">
+              <span class="stage-section-label is-${tone}">${escapeHtml(label)}</span>
+              <span class="stage-section-count">${items.length}</span>
+              <span class="stage-section-meta">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
+            </summary>
+            <div class="stage-section-body">
+              ${renderBoardApplicationRows(sortedItems, "manager")}
+            </div>
+          </details>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function renderSummary() {
+  // Графики берут текущие group/status, тоталы строки — current+по аналитикам.
   const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
   const totals = renderReportTotals(groups);
   const reportTime = state.dashboard.time || { iso: state.dashboard.generatedAt, source: "server" };
-  const statusLabel = BOARD_STATUS_LABELS[state.board.status] || "";
-  const groupLabel = BOARD_GROUP_LABELS[state.board.groupBy]?.toLowerCase() || "";
   const reportTimeAttr = `Обновлено ${formatDate(reportTime.iso)} MSK · источник: ${reportTime.source || "server"}`;
+  const allDeals = state.dashboard?.deals || [];
+  const totalReq = allDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+  const totalApp = allDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
 
   return `
     ${renderKpis()}
@@ -3857,18 +3920,15 @@ function renderSummary() {
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2 title="${escapeHtml(reportTimeAttr)}">${escapeHtml(statusLabel)} заявки · ${escapeHtml(groupLabel)}</h2>
+          <h2 title="${escapeHtml(reportTimeAttr)}">Все заявки по статусам</h2>
           <p class="summary-totals-line">
-            <strong>${totals.count}</strong> заявок · <strong>${money(totals.amountRequested)}</strong>
-            ${totals.amountApproved ? ` · одобрено <strong>${money(totals.amountApproved)}</strong> (${totals.approvalConversionRate}%)` : ""}
+            <strong>${allDeals.length}</strong> заявок · <strong>${money(totalReq)}</strong>
+            ${totalApp ? ` · одобрено <strong>${money(totalApp)}</strong>` : ""}
           </p>
-          ${renderSummaryAmountBadges(totals, state.board.status)}
-          ${renderConversionBadges(totals)}
         </div>
-        ${renderBoardControls()}
       </div>
       ${renderSummaryCharts(groups, state.board.status, totals)}
-      ${renderBoardSummaryGroups(groups)}
+      ${renderDealsByStage()}
     </section>
   `;
 }
