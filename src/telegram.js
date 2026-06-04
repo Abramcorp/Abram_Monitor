@@ -126,6 +126,32 @@ async function createForumTopic(name) {
   }
 }
 
+// Удаление топика в форум-группе. Возвращает true / false (тихо, без throw).
+// Требует у бота право Manage Topics.
+async function deleteForumTopic(threadId) {
+  if (!BOT_TOKEN || !CHAT_ID || !threadId) return false;
+  const n = Number(threadId);
+  if (!Number.isFinite(n) || n <= 0) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteForumTopic`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: CHAT_ID, message_thread_id: n }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      console.warn(`[telegram] deleteForumTopic failed: status=${res.status} body=${JSON.stringify(json)}`);
+      return false;
+    }
+    console.log(`[telegram] deleteForumTopic ok: thread_id=${n}`);
+    return true;
+  } catch (error) {
+    console.warn(`[telegram] deleteForumTopic error: ${error.message}`);
+    return false;
+  }
+}
+
 function notifyDocRequestCreated(req, { topicId, processingDays } = {}) {
   if (!isEnabled() || !req) return null;
   const itemsText = truncate(req.items || "");
@@ -291,6 +317,7 @@ module.exports = {
   sendTelegramMessage,
   sendDocument,
   createForumTopic,
+  deleteForumTopic,
   notifyDocRequestCreated,
   notifyDocRequestFulfilled,
   notifyDocRequestConfirmed,
