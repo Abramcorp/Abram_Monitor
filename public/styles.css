@@ -3270,6 +3270,29 @@ td select {
   border-radius: 6px;
 }
 
+.doc-request-period {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: var(--info-soft);
+  border: 1px solid var(--info-line);
+  align-self: flex-start;
+  font-size: 13px;
+}
+.doc-request-period span {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.doc-request-period strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .doc-request-actions {
   display: flex;
   gap: 8px;

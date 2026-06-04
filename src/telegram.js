@@ -135,11 +135,13 @@ function notifyDocRequestCreated(req, { topicId, processingDays } = {}) {
   const isResend = typeof processingDays === "number";
   const headEmoji = isResend ? "🔁" : "📥";
   const headText = isResend ? "Напоминание · запрос документов" : "Новый запрос документов";
+  const periodLine = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
   const text = `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Банк: ${escapeHtml(req.bank || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + periodLine
     + processingLine(processingDays)
     + itemsBlock;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
@@ -207,11 +209,13 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   const isResend = typeof processingDays === "number";
   const headEmoji = isResend ? "🔁" : "📦";
   const headText = isResend ? "Напоминание · документы ждут вашего подтверждения" : "Документы готовы к отправке";
+  const periodLineF = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
   const text = `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + periodLineF
     + (actor?.fullName ? `Подготовил: ${escapeHtml(actor.fullName)}\n` : "")
     + processingLine(processingDays)
     + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "")
@@ -254,11 +258,13 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
 
 function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
   if (!isEnabled() || !req) return null;
+  const periodLineC = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
   const text = `✅ <b>Документы получены</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + periodLineC
     + `Подтвердил: ${escapeHtml(actor?.fullName || "—")}`;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
