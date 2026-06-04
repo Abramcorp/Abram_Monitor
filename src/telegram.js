@@ -31,6 +31,25 @@ function truncate(text, max = 3500) {
   return s.slice(0, max - 1).trimEnd() + "…";
 }
 
+// «5 дней», «1 день», «22 дня», «сегодня»
+function formatDaysRu(n) {
+  if (n == null || !Number.isFinite(n) || n < 0) return "";
+  if (n === 0) return "сегодня";
+  const mod100 = n % 100;
+  const mod10 = n % 10;
+  if (mod100 >= 11 && mod100 <= 14) return `${n} дней`;
+  if (mod10 === 1) return `${n} день`;
+  if (mod10 >= 2 && mod10 <= 4) return `${n} дня`;
+  return `${n} дней`;
+}
+
+function processingLine(processingDays) {
+  if (processingDays == null) return "";
+  const label = formatDaysRu(processingDays);
+  if (!label) return "";
+  return `⏳ В обработке: <b>${label}</b>\n`;
+}
+
 async function sendTelegramMessage(text, { topicId, chatId } = {}) {
   if (!BOT_TOKEN) {
     return null;
@@ -107,17 +126,21 @@ async function createForumTopic(name) {
   }
 }
 
-function notifyDocRequestCreated(req, { topicId } = {}) {
+function notifyDocRequestCreated(req, { topicId, processingDays } = {}) {
   if (!isEnabled() || !req) return null;
   const itemsText = truncate(req.items || "");
   const itemsBlock = itemsText
     ? `\n<b>Что нужно:</b>\n${escapeHtml(itemsText)}`
     : "";
-  const text = `📥 <b>Новый запрос документов</b>\n`
+  const isResend = typeof processingDays === "number";
+  const headEmoji = isResend ? "🔁" : "📥";
+  const headText = isResend ? "Напоминание · запрос документов" : "Новый запрос документов";
+  const text = `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Банк: ${escapeHtml(req.bank || "—")}\n`
-    + `Аналитик: ${escapeHtml(req.manager)}`
+    + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + processingLine(processingDays)
     + itemsBlock;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
@@ -179,14 +202,18 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
   }
 }
 
-async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId } = {}) {
+async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId, processingDays } = {}) {
   if (!BOT_TOKEN || !req) return null;
-  const text = `📦 <b>Документы готовы к отправке</b>\n`
+  const isResend = typeof processingDays === "number";
+  const headEmoji = isResend ? "🔁" : "📦";
+  const headText = isResend ? "Напоминание · документы ждут вашего подтверждения" : "Документы готовы к отправке";
+  const text = `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
-    + `Подготовил: ${escapeHtml(actor?.fullName || "—")}\n`
+    + (actor?.fullName ? `Подготовил: ${escapeHtml(actor.fullName)}\n` : "")
+    + processingLine(processingDays)
     + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "")
     + `Нужно подтвердить получение в приложении.`;
   const targetChatId = recipientChatId || "";
