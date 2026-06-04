@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Превью стилей — Deal Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0e1116; color: #e6edf3; }
+  .preview-page { padding: 32px clamp(16px, 4vw, 48px); }
+  .preview-page > header { margin-bottom: 32px; max-width: 1200px; }
+  .preview-page > header h1 { margin: 0 0 8px; font-size: 28px; font-weight: 700; }
+  .preview-page > header p { margin: 0; color: #8b949e; }
+  .style-block { margin-bottom: 56px; max-width: 1600px; }
+  .style-block > h2 {
+    display: inline-flex; align-items: center; gap: 12px;
+    padding: 8px 16px;
+    margin: 0 0 18px;
+    border-radius: 999px;
+    background: #21262d;
+    color: #f0f6fc;
+    font-size: 14px; font-weight: 600; letter-spacing: 0.04em;
+  }
+  .style-block > p.style-meta { margin: 0 0 12px; font-size: 13px; color: #8b949e; }
+  .style-frame {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid #30363d;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  /* ======================================================== */
+  /* СТИЛЬ 1 — МИНИМАЛИЗМ (Linear / Stripe / Vercel)           */
+  /* ======================================================== */
+  .s1 {
+    --bg:#fafbfc; --panel:#ffffff; --ink:#111827; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#5046e4; --soft:#eef2ff;
+    --success:#16a34a; --warning:#d97706; --danger:#dc2626;
+    background: var(--bg); color: var(--ink);
+    font-family: "Inter", -apple-system, sans-serif;
+    padding: 0;
+  }
+  .s1 .topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 12px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .s1 .topbar h3 { margin:0; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .s1 .topbar .crumbs { color: var(--muted); font-size: 13px; }
+  .s1 .topbar .actions { display:flex; gap: 8px; align-items: center; font-size: 13px; }
+  .s1 .topbar .icon-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line); background:#fff; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+  .s1 .topbar .user { display: inline-flex; gap: 8px; align-items: center; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  .s1 .topbar .user .avatar { width:22px; height:22px; border-radius:50%; background: var(--accent); color:#fff; font-size: 11px; display:grid; place-items:center; font-weight:600; }
+  .s1 nav.tabs { display:flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .s1 nav.tabs button { all: unset; padding: 12px 14px; font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .s1 nav.tabs button.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+  .s1 main { padding: 24px; }
+  .s1 .h1 { margin:0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+  .s1 .sub { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+  .s1 .kpi-row { display:grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 16px; }
+  .s1 .kpi { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding: 14px 16px; }
+  .s1 .kpi .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .s1 .kpi .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .s1 .kpi .delta { font-size: 11px; color: var(--success); margin-top: 4px; font-weight: 600; }
+  .s1 .kpi.warn .v { color: var(--warning); }
+  .s1 .kpi.warn .delta { color: var(--warning); }
+  .s1 .alert-row { display:flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .s1 .alert { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; font-size: 12px; font-weight: 600; }
+  .s1 .alert .n { background:rgba(220,38,38,0.18); padding: 0 6px; border-radius: 4px; }
+  .s1 .alert.amber { background: #fffbeb; color: var(--warning); border-color: #fde68a; }
+  .s1 .alert.amber .n { background: rgba(217,119,6,0.18); }
+  .s1 .cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
+  .s1 .card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 14px; transition: box-shadow .2s; }
+  .s1 .card:hover { box-shadow: 0 6px 16px rgba(0,0,0,0.06); }
+  .s1 .card.lead { border-left-color: var(--warning); }
+  .s1 .card.appr { border-left-color: var(--success); }
+  .s1 .card-head { display:flex; justify-content:space-between; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .s1 .card-head .age { color: var(--warning); }
+  .s1 .card h4 { margin: 6px 0 2px; font-size: 15px; font-weight: 600; }
+  .s1 .card .sub { margin:0 0 10px; font-size: 12px; color: var(--muted); }
+  .s1 .card .sum { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .s1 .card .foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+
+  /* ======================================================== */
+  /* СТИЛЬ 2 — МЯГКИЙ DASHBOARD (Notion / Airtable)            */
+  /* ======================================================== */
+  .s2 {
+    --bg:#f7f6f3; --panel:#ffffff; --ink:#37352f; --muted:#9b9a97;
+    --line:#e9e7e2; --accent:#2383e2; --warn:#e9743a; --green:#4f8757;
+    background: var(--bg); color: var(--ink);
+    font-family: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+    padding: 0;
+  }
+  .s2 .topbar { display:flex; align-items:center; justify-content:space-between; padding: 16px 28px; background: transparent; }
+  .s2 .topbar h3 { margin:0; font-size: 16px; font-weight: 700; }
+  .s2 .topbar .actions { display:flex; gap: 10px; align-items: center; }
+  .s2 .icon-btn { width: 32px; height: 32px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; cursor: pointer; font-size: 14px; }
+  .s2 .user-chip { padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--panel); border:1px solid var(--line); display: inline-flex; gap: 8px; align-items: center; font-size: 13px; }
+  .s2 .user-chip .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #ffd29a, #ef8d3a); color:#fff; font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+  .s2 nav.tabs { padding: 8px 28px 0; display: flex; gap: 4px; flex-wrap: wrap; }
+  .s2 nav.tabs button { all: unset; padding: 8px 14px; font-size: 14px; border-radius: 8px; cursor: pointer; color: var(--muted); }
+  .s2 nav.tabs button.active { background: rgba(35,131,226,0.10); color: var(--accent); font-weight: 600; }
+  .s2 main { padding: 24px 28px 32px; }
+  .s2 .h1 { margin: 8px 0 2px; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
+  .s2 .sub { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+  .s2 .kpi-row { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 14px; margin-bottom: 20px; }
+  .s2 .kpi { background: var(--panel); border:1px solid var(--line); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 0 rgba(15,15,15,0.04); }
+  .s2 .kpi .label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .s2 .kpi .v { font-size: 30px; font-weight: 700; }
+  .s2 .kpi .delta { font-size: 12px; color: var(--green); margin-top: 6px; font-weight: 600; }
+  .s2 .kpi .delta.down { color: var(--warn); }
+  .s2 .alert-row { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 10px; margin: 0 0 20px; }
+  .s2 .alert { padding: 14px 16px; border-radius: 12px; display: flex; gap: 12px; align-items: center; }
+  .s2 .alert.danger { background: #fef0ec; border:1px solid #f8c7b7; color: #b3411e; }
+  .s2 .alert.amber  { background: #fff5e3; border:1px solid #fbd58d; color: #8a5a14; }
+  .s2 .alert .n { font-size: 20px; font-weight: 700; min-width: 36px; height: 36px; border-radius: 10px; display:grid; place-items:center; background: rgba(255,255,255,0.55); }
+  .s2 .cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 14px; }
+  .s2 .card { background: var(--panel); border-radius: 16px; padding: 18px; border: 1px solid var(--line); box-shadow: 0 6px 14px rgba(15,15,15,0.04); }
+  .s2 .card-head { display:flex; gap:8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .s2 .pill { padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .s2 .pill.lead { background:#fff0d8; color:#b56d12; }
+  .s2 .pill.appr { background:#e1f2e3; color: var(--green); }
+  .s2 .pill.age  { background:#fde7df; color:#b3411e; margin-left: auto; }
+  .s2 .card h4 { margin:6px 0 4px; font-size: 17px; font-weight: 700; }
+  .s2 .card .sub { margin:0 0 14px; font-size:13px; color: var(--muted); }
+  .s2 .card .sum-box { background: rgba(35,131,226,0.06); border-radius: 10px; padding: 8px 12px; }
+  .s2 .card .sum-box span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .s2 .card .sum-box strong { display:block; font-size: 20px; font-weight: 800; }
+  .s2 .card .foot { margin-top: 12px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+
+  /* ======================================================== */
+  /* СТИЛЬ 3 — ПЛОТНЫЙ DATA-FIRST (Bloomberg / Linear-table)   */
+  /* ======================================================== */
+  .s3 {
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#0d1d31; --muted:#5a6878;
+    --line:#dfe3ea; --accent:#0451d6; --warn:#b35900; --danger:#c4262b; --green:#127b54;
+    background: var(--bg); color: var(--ink);
+    font-family: "Inter", -apple-system, sans-serif;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .s3 .topbar { display:flex; align-items:center; gap:16px; padding: 8px 16px; background: var(--ink); color: #fff; }
+  .s3 .topbar h3 { margin:0; font-size: 13px; font-weight: 600; }
+  .s3 .topbar .crumbs { color: rgba(255,255,255,0.7); font-size: 12px; }
+  .s3 .topbar .actions { margin-left:auto; display: flex; gap: 4px; }
+  .s3 .topbar .icon-btn { all: unset; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 13px; }
+  .s3 .topbar .icon-btn:hover { background: rgba(255,255,255,0.1); }
+  .s3 .topbar .user { font-size: 12px; padding: 4px 8px; background: rgba(255,255,255,0.08); border-radius: 3px; }
+  .s3 nav.tabs { padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); display:flex; gap: 0; font-size: 12px; }
+  .s3 nav.tabs button { all: unset; padding: 8px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
+  .s3 nav.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .s3 main { padding: 12px 16px; }
+  .s3 .h1 { margin: 0 0 2px; font-size: 16px; font-weight: 700; }
+  .s3 .sub { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+  .s3 .kpi-row { display:grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 12px; }
+  .s3 .kpi { background: var(--panel); padding: 8px 12px; }
+  .s3 .kpi .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .s3 .kpi .v { font-size: 18px; font-weight: 700; font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .s3 .kpi.success .v { color: var(--green); }
+  .s3 .kpi.warn .v { color: var(--warn); }
+  .s3 .kpi.danger .v { color: var(--danger); }
+  .s3 .alert-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-left: 3px solid var(--danger); margin-bottom: 12px; font-size: 12px; }
+  .s3 .alert { background: var(--panel); padding: 6px 10px; display: flex; gap: 6px; align-items: baseline; }
+  .s3 .alert .n { font-weight: 700; font-family: "JetBrains Mono", monospace; color: var(--danger); }
+  .s3 .alert.amber .n { color: var(--warn); }
+  .s3 .data-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 8px; }
+  .s3 .row { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 8px 10px; font-size: 12px; }
+  .s3 .row.lead { border-left-color: var(--warn); }
+  .s3 .row.appr { border-left-color: var(--green); }
+  .s3 .row-head { display: flex; gap: 8px; align-items: baseline; }
+  .s3 .row .stage { color: var(--warn); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+  .s3 .row .age { color: var(--danger); font-family: "JetBrains Mono", monospace; font-size: 11px; margin-left: auto; }
+  .s3 .row h4 { margin: 4px 0 0; font-size: 13px; font-weight: 700; }
+  .s3 .row .meta { color: var(--muted); font-size: 11px; }
+  .s3 .row .sum { font-family: "JetBrains Mono", monospace; font-size: 14px; font-weight: 700; margin-top: 4px; }
+  .s3 .row .foot { color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+  /* ======================================================== */
+  /* СТИЛЬ 4 — iOS-GLASS / MODERN APPLE                        */
+  /* ======================================================== */
+  .s4 {
+    background: linear-gradient(135deg, #d2dcf2 0%, #e6dff5 50%, #f4e0ee 100%);
+    color: #0b1220;
+    font-family: -apple-system, "SF Pro Display", "Segoe UI", sans-serif;
+    padding: 0;
+    --glass: rgba(255,255,255,0.55);
+    --glass-line: rgba(255,255,255,0.6);
+    --accent: #007aff;
+    --muted: #4a5666;
+  }
+  .s4 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px; backdrop-filter: blur(20px); background: rgba(255,255,255,0.45); border-bottom: 1px solid rgba(255,255,255,0.4); }
+  .s4 .topbar h3 { margin:0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .s4 .topbar .actions { display: flex; gap: 10px; align-items: center; }
+  .s4 .icon-btn { width: 34px; height: 34px; border-radius: 50%; background: var(--glass); border: 1px solid var(--glass-line); display:grid; place-items:center; cursor: pointer; backdrop-filter: blur(16px); }
+  .s4 .user-chip { padding: 5px 14px 5px 5px; border-radius: 999px; display: inline-flex; gap: 8px; align-items: center; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(16px); font-size: 14px; font-weight: 500; }
+  .s4 .user-chip .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #4a9eff, #b07aff); color: #fff; font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+  .s4 nav.tabs { padding: 14px 28px 0; display: flex; gap: 8px; flex-wrap: wrap; }
+  .s4 nav.tabs button { all: unset; padding: 8px 16px; font-size: 14px; border-radius: 999px; cursor: pointer; background: rgba(255,255,255,0.4); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.5); color: var(--muted); }
+  .s4 nav.tabs button.active { background: rgba(0,122,255,0.15); color: var(--accent); font-weight: 600; border-color: rgba(0,122,255,0.3); }
+  .s4 main { padding: 24px 28px 40px; }
+  .s4 .h1 { margin: 8px 0 4px; font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
+  .s4 .sub { margin: 0 0 28px; color: var(--muted); font-size: 15px; }
+  .s4 .kpi-row { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 16px; margin-bottom: 24px; }
+  .s4 .kpi { background: var(--glass); backdrop-filter: blur(20px); border: 1px solid var(--glass-line); border-radius: 20px; padding: 20px; box-shadow: 0 8px 32px rgba(11,18,32,0.06); }
+  .s4 .kpi .label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .s4 .kpi .v { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
+  .s4 .kpi .delta { font-size: 12px; color: #34c759; margin-top: 6px; font-weight: 600; }
+  .s4 .alert-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 12px; margin-bottom: 24px; }
+  .s4 .alert { padding: 16px 18px; border-radius: 18px; backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.5); display: flex; gap: 14px; align-items: center; font-size: 14px; font-weight: 600; }
+  .s4 .alert.danger { background: rgba(255,59,48,0.10); color: #b1271f; }
+  .s4 .alert.amber  { background: rgba(255,149,0,0.12); color: #92560d; }
+  .s4 .alert .n { font-size: 22px; font-weight: 700; min-width: 40px; height: 40px; border-radius: 12px; display:grid; place-items:center; background: rgba(255,255,255,0.5); }
+  .s4 .cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap: 16px; }
+  .s4 .card { background: var(--glass); backdrop-filter: blur(24px); border: 1px solid var(--glass-line); border-radius: 22px; padding: 20px; box-shadow: 0 12px 32px rgba(11,18,32,0.08); position: relative; overflow: hidden; }
+  .s4 .card::before { content:""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+  .s4 .card.lead::before { background: linear-gradient(180deg, #ff9500, #ff6a00); }
+  .s4 .card.appr::before { background: linear-gradient(180deg, #34c759, #18a849); }
+  .s4 .card .pill { display:inline-flex; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: rgba(255,149,0,0.15); color: #92560d; }
+  .s4 .card .age  { font-size: 12px; color: #b1271f; font-weight: 600; }
+  .s4 .card-head { display: flex; justify-content: space-between; align-items: center; }
+  .s4 .card h4 { margin: 12px 0 4px; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .s4 .card .sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+  .s4 .card .sum { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+  .s4 .card .foot { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(11,18,32,0.08); font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+</style>
+</head>
+<body>
+
+<div class="preview-page">
+  <header>
+    <h1>Превью четырёх стилей оформления</h1>
+    <p>Одна и та же страница «Сводный отчёт» в четырёх стилистических направлениях. Сравни и скажи номер.</p>
+  </header>
+
+  <!-- ============================ -->
+  <!-- 1. МИНИМАЛИЗМ                -->
+  <!-- ============================ -->
+  <section class="style-block">
+    <h2>1 · Минимализм (Linear / Stripe / Vercel)</h2>
+    <p class="style-meta">Чистые линии, белый фон, серая типографика, индиго акцент. Подходит для финтех/CRM, не утомляет при работе с большим объёмом данных.</p>
+    <div class="style-frame">
+      <div class="s1">
+        <div class="topbar">
+          <div style="display:flex;gap:12px;align-items:baseline;">
+            <h3>Deal Monitor</h3>
+            <span class="crumbs">Сводный отчёт</span>
+          </div>
+          <div class="actions">
+            <button class="icon-btn">↻</button>
+            <button class="icon-btn">⛶</button>
+            <span class="user"><span class="avatar">ИГ</span>Иван Граф</span>
+          </div>
+        </div>
+        <nav class="tabs">
+          <button class="active">Сводный отчёт</button>
+          <button>Аналитики</button>
+          <button>Архив клиентов</button>
+          <button>База знаний</button>
+          <button>Запросы документов</button>
+          <button>Панель управления</button>
+        </nav>
+        <main>
+          <h1 class="h1">Сводный отчёт</h1>
+          <p class="sub">142 заявки · 89,0 млн ₽ · одобрено 23,4 млн ₽ (35%)</p>
+
+          <div class="kpi-row">
+            <div class="kpi"><div class="label">Лиды</div><div class="v">142</div><div class="delta">↗ +12%</div></div>
+            <div class="kpi"><div class="label">В работе</div><div class="v">89</div><div class="delta">↗ +5</div></div>
+            <div class="kpi"><div class="label">Завершенные</div><div class="v">78</div><div class="delta">↗ +8</div></div>
+            <div class="kpi"><div class="label">Одобрено</div><div class="v">31</div><div class="delta">↗ +3</div></div>
+            <div class="kpi warn"><div class="label">Конверсия</div><div class="v">35%</div><div class="delta">↘ −2%</div></div>
+          </div>
+
+          <div class="alert-row">
+            <span class="alert"><span class="n">14</span>Лиды без действий 7+ дней</span>
+            <span class="alert"><span class="n">4</span>Просрочено задач</span>
+            <span class="alert amber"><span class="n">3</span>Документы на отправку</span>
+          </div>
+
+          <div class="cards">
+            <article class="card lead">
+              <div class="card-head"><span>Лид</span><span class="age">12 дн.</span></div>
+              <h4>ООО «Ромашка»</h4>
+              <p class="sub">УСН-кредит · Т-Банк</p>
+              <div class="sum">5 000 000 ₽</div>
+              <div class="foot">Граф · 20.05</div>
+            </article>
+            <article class="card">
+              <div class="card-head"><span>В работе</span><span class="age" style="color:#6b7280;">3 дн.</span></div>
+              <h4>ИП Петров</h4>
+              <p class="sub">Овердрафт · Сбер</p>
+              <div class="sum">2 000 000 ₽</div>
+              <div class="foot">Сидоров · 21.05</div>
+            </article>
+            <article class="card appr">
+              <div class="card-head"><span>Одобрено</span><span class="age" style="color:#16a34a;">сегодня</span></div>
+              <h4>ЗАО «Сфера»</h4>
+              <p class="sub">Кредит · ВТБ</p>
+              <div class="sum">8 000 000 ₽</div>
+              <div class="foot">Соколов · 02.06</div>
+            </article>
+            <article class="card lead">
+              <div class="card-head"><span>Лид</span><span class="age">8 дн.</span></div>
+              <h4>ИП Иванов</h4>
+              <p class="sub">УСН-overdraft · Альфа</p>
+              <div class="sum">3 500 000 ₽</div>
+              <div class="foot">Граф · 25.05</div>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ -->
+  <!-- 2. МЯГКИЙ DASHBOARD          -->
+  <!-- ============================ -->
+  <section class="style-block">
+    <h2>2 · Мягкий dashboard (Notion / Airtable)</h2>
+    <p class="style-meta">Тёплый кремовый фон, большие радиусы, мягкие тени, «дружелюбные» эмодзи в роли иконок. Подходит для команд, где важна атмосфера.</p>
+    <div class="style-frame">
+      <div class="s2">
+        <div class="topbar">
+          <div>
+            <h3>📊 Deal Monitor</h3>
+          </div>
+          <div class="actions">
+            <button class="icon-btn">↻</button>
+            <button class="icon-btn">⛶</button>
+            <span class="user-chip"><span class="avatar">ИГ</span>Иван Граф</span>
+          </div>
+        </div>
+        <nav class="tabs">
+          <button class="active">Сводный отчёт</button>
+          <button>Аналитики</button>
+          <button>Архив</button>
+          <button>База знаний</button>
+          <button>Запросы документов</button>
+          <button>Панель управления</button>
+        </nav>
+        <main>
+          <h1 class="h1">Сводный отчёт</h1>
+          <p class="sub">142 заявки · 89,0 млн ₽ · одобрено 23,4 млн ₽ (35%)</p>
+
+          <div class="kpi-row">
+            <div class="kpi"><div class="label">Лиды</div><div class="v">142</div><div class="delta">↗ +12% к ноябрю</div></div>
+            <div class="kpi"><div class="label">В работе</div><div class="v">89</div><div class="delta">↗ +5</div></div>
+            <div class="kpi"><div class="label">Завершенные</div><div class="v">78</div><div class="delta">↗ +8</div></div>
+            <div class="kpi"><div class="label">Одобрено</div><div class="v">31</div><div class="delta">↗ +3</div></div>
+            <div class="kpi"><div class="label">Конверсия</div><div class="v">35%</div><div class="delta down">↘ −2%</div></div>
+          </div>
+
+          <div class="alert-row">
+            <div class="alert danger"><span class="n">14</span>Лиды без действий 7+ дней</div>
+            <div class="alert danger"><span class="n">4</span>Просрочено задач</div>
+            <div class="alert amber"><span class="n">3</span>Документы на отправку</div>
+          </div>
+
+          <div class="cards">
+            <article class="card">
+              <div class="card-head"><span class="pill lead">🟠 Лид</span><span class="pill age">12 дн.</span></div>
+              <h4>ООО «Ромашка»</h4>
+              <p class="sub">УСН-кредит · Т-Банк</p>
+              <div class="sum-box"><span>Сумма</span><strong>5 000 000 ₽</strong></div>
+              <div class="foot"><span>👤 Граф</span><span>📅 20.05</span></div>
+            </article>
+            <article class="card">
+              <div class="card-head"><span class="pill" style="background:#dde7f2;color:#1d4f9c;">В работе</span></div>
+              <h4>ИП Петров</h4>
+              <p class="sub">Овердрафт · Сбер</p>
+              <div class="sum-box"><span>Сумма</span><strong>2 000 000 ₽</strong></div>
+              <div class="foot"><span>👤 Сидоров</span><span>📅 21.05</span></div>
+            </article>
+            <article class="card">
+              <div class="card-head"><span class="pill appr">🟢 Одобрено</span></div>
+              <h4>ЗАО «Сфера»</h4>
+              <p class="sub">Кредит · ВТБ</p>
+              <div class="sum-box"><span>Сумма</span><strong>8 000 000 ₽</strong></div>
+              <div class="foot"><span>👤 Соколов</span><span>📅 02.06</span></div>
+            </article>
+            <article class="card">
+              <div class="card-head"><span class="pill lead">🟠 Лид</span><span class="pill age">8 дн.</span></div>
+              <h4>ИП Иванов</h4>
+              <p class="sub">УСН-overdraft · Альфа</p>
+              <div class="sum-box"><span>Сумма</span><strong>3 500 000 ₽</strong></div>
+              <div class="foot"><span>👤 Граф</span><span>📅 25.05</span></div>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ -->
+  <!-- 3. ПЛОТНЫЙ DATA-FIRST        -->
+  <!-- ============================ -->
+  <section class="style-block">
+    <h2>3 · Плотный data-first (Bloomberg / Linear-table)</h2>
+    <p class="style-meta">Высокая плотность, монолинейные цифры, минимум воздуха, тёмный топбар. Подходит когда заявок десятки и сотни — экран «дышит» информацией, не белым.</p>
+    <div class="style-frame">
+      <div class="s3">
+        <div class="topbar">
+          <h3>DEAL MONITOR</h3>
+          <span class="crumbs">/ Сводный отчёт</span>
+          <div class="actions">
+            <button class="icon-btn">↻</button>
+            <button class="icon-btn">⛶</button>
+            <span class="user">ИГ · Иван Граф</span>
+          </div>
+        </div>
+        <nav class="tabs">
+          <button class="active">Сводный</button>
+          <button>Аналитики</button>
+          <button>Архив</button>
+          <button>База знаний</button>
+          <button>Запросы документов</button>
+          <button>Управление</button>
+        </nav>
+        <main>
+          <div class="h1">Сводный отчёт</div>
+          <p class="sub">142 заявок · 89 000 000 ₽ · одобрено 23 400 000 ₽ (35%) · обн. 02.06 09:12</p>
+
+          <div class="kpi-row">
+            <div class="kpi"><div class="label">Лиды</div><div class="v">142</div></div>
+            <div class="kpi"><div class="label">В работе</div><div class="v">89</div></div>
+            <div class="kpi"><div class="label">Завершенные</div><div class="v">78</div></div>
+            <div class="kpi success"><div class="label">Одобрено</div><div class="v">31</div></div>
+            <div class="kpi warn"><div class="label">Конверсия</div><div class="v">35%</div></div>
+            <div class="kpi success"><div class="label">Успех</div><div class="v">40%</div></div>
+          </div>
+
+          <div class="alert-row">
+            <div class="alert"><span class="n">14</span>Лиды без действий 7+ дн.</div>
+            <div class="alert"><span class="n">4</span>Просрочено задач</div>
+            <div class="alert amber"><span class="n">3</span>Документы на отправку</div>
+            <div class="alert amber"><span class="n">5</span>Открытых запросов</div>
+          </div>
+
+          <div class="data-grid">
+            <div class="row lead">
+              <div class="row-head"><span class="stage">Лид</span><span class="age">12 дн.</span></div>
+              <h4>ООО «Ромашка»</h4>
+              <div class="meta">УСН-кредит · Т-Банк</div>
+              <div class="sum">5 000 000 ₽</div>
+              <div class="foot">Граф · 20.05</div>
+            </div>
+            <div class="row">
+              <div class="row-head"><span class="stage" style="color:var(--accent);">В работе</span><span class="age" style="color:var(--muted);">3 дн.</span></div>
+              <h4>ИП Петров</h4>
+              <div class="meta">Овердрафт · Сбер</div>
+              <div class="sum">2 000 000 ₽</div>
+              <div class="foot">Сидоров · 21.05</div>
+            </div>
+            <div class="row appr">
+              <div class="row-head"><span class="stage" style="color:var(--green);">Одобрено</span><span class="age" style="color:var(--green);">0 дн.</span></div>
+              <h4>ЗАО «Сфера»</h4>
+              <div class="meta">Кредит · ВТБ</div>
+              <div class="sum">8 000 000 ₽ <span style="color:var(--green);font-size:10px;">+7,5</span></div>
+              <div class="foot">Соколов · 02.06</div>
+            </div>
+            <div class="row lead">
+              <div class="row-head"><span class="stage">Лид</span><span class="age">8 дн.</span></div>
+              <h4>ИП Иванов</h4>
+              <div class="meta">УСН-overdraft · Альфа</div>
+              <div class="sum">3 500 000 ₽</div>
+              <div class="foot">Граф · 25.05</div>
+            </div>
+            <div class="row">
+              <div class="row-head"><span class="stage" style="color:var(--accent);">В работе</span><span class="age" style="color:var(--muted);">1 дн.</span></div>
+              <h4>ООО «Прометей»</h4>
+              <div class="meta">Кредит · ВТБ</div>
+              <div class="sum">12 000 000 ₽</div>
+              <div class="foot">Граф · 01.06</div>
+            </div>
+            <div class="row appr">
+              <div class="row-head"><span class="stage" style="color:var(--green);">Одобрено</span><span class="age" style="color:var(--green);">вчера</span></div>
+              <h4>ИП Орлова</h4>
+              <div class="meta">УСН-кредит · Тинькофф</div>
+              <div class="sum">1 800 000 ₽ <span style="color:var(--green);font-size:10px;">+1,8</span></div>
+              <div class="foot">Сидоров · 01.06</div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ -->
+  <!-- 4. iOS-GLASS                 -->
+  <!-- ============================ -->
+  <section class="style-block">
+    <h2>4 · iOS-glass / Modern Apple</h2>
+    <p class="style-meta">Полупрозрачные панели с backdrop-blur, большие радиусы 16-22px, плавные градиенты. Красиво, но требует свежего браузера и GPU.</p>
+    <div class="style-frame">
+      <div class="s4">
+        <div class="topbar">
+          <h3>Deal Monitor</h3>
+          <div class="actions">
+            <button class="icon-btn">↻</button>
+            <button class="icon-btn">⛶</button>
+            <span class="user-chip"><span class="avatar">ИГ</span>Иван Граф</span>
+          </div>
+        </div>
+        <nav class="tabs">
+          <button class="active">Сводный отчёт</button>
+          <button>Аналитики</button>
+          <button>Архив</button>
+          <button>База знаний</button>
+          <button>Запросы документов</button>
+          <button>Управление</button>
+        </nav>
+        <main>
+          <h1 class="h1">Сводный отчёт</h1>
+          <p class="sub">142 заявки · 89,0 млн ₽ · одобрено 23,4 млн ₽ (35%)</p>
+
+          <div class="kpi-row">
+            <div class="kpi"><div class="label">Лиды</div><div class="v">142</div><div class="delta">↗ +12%</div></div>
+            <div class="kpi"><div class="label">В работе</div><div class="v">89</div><div class="delta">↗ +5</div></div>
+            <div class="kpi"><div class="label">Завершенные</div><div class="v">78</div><div class="delta">↗ +8</div></div>
+            <div class="kpi"><div class="label">Одобрено</div><div class="v">31</div><div class="delta">↗ +3</div></div>
+          </div>
+
+          <div class="alert-row">
+            <div class="alert danger"><span class="n">14</span>Лиды без действий 7+ дней</div>
+            <div class="alert danger"><span class="n">4</span>Просрочено задач</div>
+            <div class="alert amber"><span class="n">3</span>Документы на отправку</div>
+          </div>
+
+          <div class="cards">
+            <article class="card lead">
+              <div class="card-head"><span class="pill">Лид</span><span class="age">12 дн.</span></div>
+              <h4>ООО «Ромашка»</h4>
+              <p class="sub">УСН-кредит · Т-Банк</p>
+              <div class="sum">5 000 000 ₽</div>
+              <div class="foot"><span>Граф</span><span>20.05</span></div>
+            </article>
+            <article class="card">
+              <div class="card-head"><span class="pill" style="background:rgba(0,122,255,0.15);color:var(--accent);">В работе</span></div>
+              <h4>ИП Петров</h4>
+              <p class="sub">Овердрафт · Сбер</p>
+              <div class="sum">2 000 000 ₽</div>
+              <div class="foot"><span>Сидоров</span><span>21.05</span></div>
+            </article>
+            <article class="card appr">
+              <div class="card-head"><span class="pill" style="background:rgba(52,199,89,0.15);color:#208b3c;">Одобрено</span></div>
+              <h4>ЗАО «Сфера»</h4>
+              <p class="sub">Кредит · ВТБ</p>
+              <div class="sum">8 000 000 ₽</div>
+              <div class="foot"><span>Соколов</span><span>02.06</span></div>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
