@@ -722,6 +722,7 @@ function normalizeDocumentRequest(raw = {}) {
     bank: cleanText(raw.bank),
     driveUrl: cleanText(raw.driveUrl),
     items: cleanText(raw.items),
+    period: cleanText(raw.period),
     status,
     createdBy: cleanText(raw.createdBy),
     createdByLogin: cleanText(raw.createdByLogin),
@@ -761,6 +762,9 @@ function validateDocumentRequest(req) {
   if (!req.items) {
     throw new Error("Список документов обязателен");
   }
+  if (!req.period) {
+    throw new Error("Период обязателен");
+  }
 }
 
 async function createDocumentRequest(payload, { author } = {}) {
@@ -789,6 +793,7 @@ async function createDocumentRequest(payload, { author } = {}) {
     bank: deal.bank,
     driveUrl: client?.driveUrl || "",
     items: payload.items,
+    period: payload.period,
     status: "open",
     createdBy: cleanText(author?.fullName),
     createdByLogin: cleanText(author?.login),

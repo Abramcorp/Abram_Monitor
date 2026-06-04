@@ -2689,6 +2689,7 @@ function renderDocumentRequestsView() {
           </div>
           <time>${headTime}</time>
         </div>
+        ${req.period ? `<div class="doc-request-period"><span>Период</span><strong>${escapeHtml(req.period)}</strong></div>` : ""}
         <div class="doc-request-items">${escapeHtml(req.items)}</div>
         ${attachmentsList}
         ${uploader}
