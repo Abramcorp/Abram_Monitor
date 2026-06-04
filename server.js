@@ -968,59 +968,8 @@ async function handleApi(request, response) {
   if (request.method === "POST" && pathname === "/api/document-requests/resend") {
     requireRole(request, ["admin", "documents_officer"]);
     const trace = `resend-${Date.now().toString(36)}`;
-    const tlog = (...args) => console.log(`[${trace}]`, ...args);
     try {
-      const all = await getDocumentRequests();
-      const active = all.filter((r) => r.status !== "delivered");
-      tlog("resending", active.length, "active requests");
-      const results = { open: 0, fulfilled: 0, errors: 0, details: [] };
-      // Резолвим users 1 раз для производительности.
-      const managers = await getManagers();
-      const allUsers = await users.listUsers();
-      // Параллельно — но осторожно: createForumTopic не любит большие batch.
-      // Делаем последовательно, чтобы не словить flood-limit Telegram.
-      for (const req of active) {
-        try {
-          const topicId = await resolveClientTopicId(req.clientName, req.manager);
-          if (req.status === "open") {
-            await telegram.notifyDocRequestCreated(req, { topicId });
-            results.open += 1;
-            results.details.push({ id: req.id, status: "open", clientName: req.clientName, topicId });
-          } else if (req.status === "fulfilled") {
-            // chatId аналитика
-            let recipientChatId = "";
-            const nameKey = String(req.manager || "").trim().toLowerCase();
-            const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
-            if (manager) {
-              const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
-                || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
-              recipientChatId = linked?.telegramChatId || "";
-            }
-            // Файлы из Drive (если есть и Drive подключён).
-            const attachments = Array.isArray(req.attachments) ? req.attachments.filter((a) => a.driveFileId) : [];
-            const sources = [];
-            const driveStatus = await googleDrive.getStatus();
-            if (driveStatus.connected && attachments.length) {
-              for (const att of attachments) {
-                try {
-                  const buffer = await googleDrive.getFileBuffer(att.driveFileId);
-                  sources.push({ fileName: att.fileName, mimeType: att.mimeType, buffer });
-                } catch (e) {
-                  tlog(`download ${att.fileName} failed:`, e.message);
-                }
-              }
-            }
-            await telegram.notifyDocRequestFulfilled(req, { actor: request.user, recipientChatId, attachmentSources: sources, topicId });
-            results.fulfilled += 1;
-            results.details.push({ id: req.id, status: "fulfilled", clientName: req.clientName, topicId, files: sources.length });
-          }
-        } catch (e) {
-          tlog("error on", req.id, e.message);
-          results.errors += 1;
-          results.details.push({ id: req.id, status: "error", error: e.message });
-        }
-      }
-      tlog("DONE open=", results.open, "fulfilled=", results.fulfilled, "errors=", results.errors);
+      const results = await performResendActiveRequests({ actor: request.user, trace });
       sendJson(response, 200, results);
     } catch (error) {
       console.error(`[${trace}] FATAL:`, error.message);
@@ -1459,12 +1408,116 @@ process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection]", reason?.stack || reason?.message || reason);
 });
 
+// ===== Переотправка уведомлений по активным запросам документов =====
+
+function daysSinceCreated(req) {
+  const since = req.status === "fulfilled" ? (req.fulfilledAt || req.createdAt) : req.createdAt;
+  if (!since) return null;
+  const ms = Date.now() - new Date(since).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.floor(ms / (24 * 3600 * 1000));
+}
+
+async function performResendActiveRequests({ actor = null, trace = `resend-${Date.now().toString(36)}` } = {}) {
+  const tlog = (...args) => console.log(`[${trace}]`, ...args);
+  const all = await getDocumentRequests();
+  const active = all.filter((r) => r.status !== "delivered");
+  tlog("resending", active.length, "active requests");
+  const results = { open: 0, fulfilled: 0, errors: 0, details: [] };
+  const managers = await getManagers();
+  const allUsers = await users.listUsers();
+  const driveStatus = await googleDrive.getStatus();
+  for (const req of active) {
+    try {
+      const topicId = await resolveClientTopicId(req.clientName, req.manager);
+      const processingDays = daysSinceCreated(req);
+      if (req.status === "open") {
+        await telegram.notifyDocRequestCreated(req, { topicId, processingDays });
+        results.open += 1;
+        results.details.push({ id: req.id, status: "open", clientName: req.clientName, processingDays, topicId });
+      } else if (req.status === "fulfilled") {
+        let recipientChatId = "";
+        const nameKey = String(req.manager || "").trim().toLowerCase();
+        const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
+        if (manager) {
+          const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
+            || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
+          recipientChatId = linked?.telegramChatId || "";
+        }
+        const attachments = Array.isArray(req.attachments) ? req.attachments.filter((a) => a.driveFileId) : [];
+        const sources = [];
+        if (driveStatus.connected && attachments.length) {
+          for (const att of attachments) {
+            try {
+              const buffer = await googleDrive.getFileBuffer(att.driveFileId);
+              sources.push({ fileName: att.fileName, mimeType: att.mimeType, buffer });
+            } catch (e) {
+              tlog(`download ${att.fileName} failed:`, e.message);
+            }
+          }
+        }
+        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays });
+        results.fulfilled += 1;
+        results.details.push({ id: req.id, status: "fulfilled", clientName: req.clientName, processingDays, topicId, files: sources.length });
+      }
+    } catch (e) {
+      tlog("error on", req.id, e.message);
+      results.errors += 1;
+      results.details.push({ id: req.id, status: "error", error: e.message });
+    }
+  }
+  tlog("DONE open=", results.open, "fulfilled=", results.fulfilled, "errors=", results.errors);
+  return results;
+}
+
+// ===== Ежедневный планировщик: 08:50 МСК =====
+const DAILY_RESEND_HOUR_MSK = 8;
+const DAILY_RESEND_MIN_MSK = 50;
+let lastDailyResendDate = ""; // защита от двойного срабатывания
+
+function moscowTimeParts() {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  });
+  const parts = fmt.formatToParts(new Date());
+  const v = (type) => parts.find((p) => p.type === type)?.value || "";
+  return {
+    date: `${v("year")}-${v("month")}-${v("day")}`,
+    hour: Number(v("hour")),
+    minute: Number(v("minute"))
+  };
+}
+
+function startDailyResendScheduler() {
+  if (process.env.DISABLE_DAILY_RESEND === "1") {
+    console.log("[scheduler] daily resend disabled by env DISABLE_DAILY_RESEND=1");
+    return;
+  }
+  setInterval(async () => {
+    try {
+      const t = moscowTimeParts();
+      if (t.hour !== DAILY_RESEND_HOUR_MSK || t.minute !== DAILY_RESEND_MIN_MSK) return;
+      if (lastDailyResendDate === t.date) return;
+      lastDailyResendDate = t.date;
+      console.log(`[scheduler] daily resend trigger at ${t.date} ${DAILY_RESEND_HOUR_MSK}:${DAILY_RESEND_MIN_MSK} MSK`);
+      const results = await performResendActiveRequests({ actor: null, trace: `daily-${t.date}` });
+      console.log(`[scheduler] daily resend done: open=${results.open} fulfilled=${results.fulfilled} errors=${results.errors}`);
+    } catch (error) {
+      console.warn("[scheduler] tick error:", error.message);
+    }
+  }, 30 * 1000).unref();
+  console.log(`[scheduler] daily resend armed for ${DAILY_RESEND_HOUR_MSK}:${String(DAILY_RESEND_MIN_MSK).padStart(2, "0")} MSK`);
+}
+
 async function start() {
   await initStore();
   await users.ensureBootstrapAdmin({ logger: console });
   server.listen(PORT, () => {
     console.log(`Deal Monitor is running at http://localhost:${PORT}`);
   });
+  startDailyResendScheduler();
 }
 
 if (require.main === module) {
