@@ -2544,6 +2544,109 @@ td select {
   }
 }
 
+/* ===== Сводный отчёт: секции заявок по статусам ===== */
+.stage-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.stage-section {
+  border: 1px solid var(--glass-line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.stage-section > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.stage-section > summary::-webkit-details-marker { display: none; }
+
+.stage-section-head {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  transition: background-color 120ms ease;
+}
+.stage-section > summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform 150ms ease;
+  margin-left: 2px;
+}
+.stage-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+.stage-section > summary:hover { background: rgba(0, 0, 0, 0.025); }
+
+.stage-section-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stage-section-label.is-success { background: var(--success-soft); color: var(--green-ink); }
+.stage-section-label.is-warning { background: var(--warn-soft); color: var(--amber-ink); }
+.stage-section-label.is-danger  { background: var(--danger-soft); color: var(--red-ink); }
+.stage-section-label.is-info    { background: var(--info-soft); color: var(--blue); }
+
+.stage-section-count {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.stage-section-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stage-section-body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--line);
+}
+.stage-section-body .deal-card-grid {
+  padding: 8px 0 0;
+}
+
+/* Цветная левая полоска для секции — синхронно с заявками */
+.stage-section.is-success { border-left: 3px solid var(--green); }
+.stage-section.is-warning { border-left: 3px solid var(--amber); }
+.stage-section.is-danger  { border-left: 3px solid var(--red); }
+.stage-section.is-info    { border-left: 3px solid var(--blue); }
+.stage-section.is-neutral { border-left: 3px solid var(--line-strong); }
+
+@media (max-width: 720px) {
+  .stage-section-head {
+    grid-template-columns: auto 1fr;
+    row-gap: 6px;
+  }
+  .stage-section-meta { grid-column: 1 / -1; text-align: left; }
+}
+
 .deal-dialog {
   width: min(720px, calc(100vw - 32px));
   padding: 0;
