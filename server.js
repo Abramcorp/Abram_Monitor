@@ -1190,6 +1190,25 @@ async function handleApi(request, response) {
       const fresh = (await getDocumentRequests()).find((item) => item.id === reqId);
       log("DONE uploaded=", uploaded.length, "errors=", errors.length);
       sendJson(response, 200, { documentRequest: fresh, uploaded, errors });
+      // Уведомление-индикатор в топик клиента: «📎 К запросу добавлено N, всего M».
+      // Только если был хотя бы один успешный файл и статус ещё не closed.
+      if (uploaded.length > 0 && fresh && fresh.status !== "delivered") {
+        (async () => {
+          try {
+            const topicId = await resolveClientTopicId(fresh.clientName, fresh.manager);
+            const uploadedNames = uploaded.map((u) => u.originalName || u.fileName).filter(Boolean);
+            const totalCount = Array.isArray(fresh.attachments) ? fresh.attachments.length : 0;
+            await telegram.notifyDocRequestPartialUpload(fresh, {
+              topicId,
+              uploadedNames,
+              totalCount,
+              actor: request.user
+            });
+          } catch (e) {
+            log("partial upload notify error:", e.message);
+          }
+        })().catch((e) => log("partial upload notify dispatch:", e.message));
+      }
       return;
     } catch (error) {
       console.error(`[${traceId}] FATAL:`, error.stack || error.message);

@@ -308,6 +308,24 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   return { ok: anySuccess, results };
 }
 
+// Индикатор частичной подгрузки: текст в топик клиента «📎 Добавлено N файлов,
+// всего: M». Не дублирует уведомления аналитику — только в топик.
+function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], totalCount = 0, actor } = {}) {
+  if (!isEnabled() || !req) return null;
+  const added = uploadedNames.length;
+  if (added === 0) return null;
+  const visibleNames = uploadedNames.slice(0, 5);
+  const moreLine = uploadedNames.length > 5 ? `… и ещё ${uploadedNames.length - 5}` : "";
+  const filesBlock = visibleNames.map((n) => `— ${escapeHtml(n)}`).join("\n");
+  const byTail = actor?.fullName ? ` (${escapeHtml(actor.fullName)})` : "";
+  const text = `📎 <b>К запросу добавлено: ${added}</b>${byTail}\n`
+    + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
+    + `Банк: ${escapeHtml(req.bank || "—")}\n`
+    + `Всего файлов в пакете: <b>${totalCount}</b>\n`
+    + `\n${filesBlock}${moreLine ? `\n${moreLine}` : ""}`;
+  return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
+}
+
 function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
   if (!isEnabled() || !req) return null;
   const periodLineC = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
@@ -346,6 +364,7 @@ module.exports = {
   deleteForumTopic,
   deleteMessage,
   notifyDocRequestCreated,
+  notifyDocRequestPartialUpload,
   notifyDocRequestFulfilled,
   notifyDocRequestConfirmed,
   notifyDealStageChange,
