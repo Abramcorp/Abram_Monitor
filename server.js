@@ -657,13 +657,13 @@ async function handleApi(request, response) {
   const clientArchiveMatch = pathname.match(/^\/api\/clients\/([^/]+)\/archive$/);
   if (request.method === "PATCH" && clientArchiveMatch) {
     const clientId = decodeURIComponent(clientArchiveMatch[1]);
+    const existingClient = (await getClients()).find((c) => c.id === clientId);
     if (scope) {
-      const existing = (await getClients()).find((client) => client.id === clientId);
-      if (!existing) {
+      if (!existingClient) {
         sendJson(response, 404, { error: "Client not found" });
         return;
       }
-      ensurePartnerOwnsManager(request, existing.manager);
+      ensurePartnerOwnsManager(request, existingClient.manager);
     }
     const client = await archiveClient(clientId);
     if (!client) {
@@ -671,19 +671,24 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { client });
+    // Удаляем топик клиента в Telegram (файлы на Drive не трогаем).
+    const topicId = existingClient?.telegramTopicId || client.telegramTopicId;
+    if (topicId) {
+      telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] archive: deleteForumTopic error:", e.message));
+    }
     return;
   }
 
   const clientMatch = pathname.match(/^\/api\/clients\/([^/]+)$/);
   if (request.method === "DELETE" && clientMatch) {
     const clientId = decodeURIComponent(clientMatch[1]);
+    const existingClient = (await getClients()).find((c) => c.id === clientId);
     if (scope) {
-      const existing = (await getClients()).find((client) => client.id === clientId);
-      if (!existing) {
+      if (!existingClient) {
         sendJson(response, 404, { error: "Client not found" });
         return;
       }
-      ensurePartnerOwnsManager(request, existing.manager);
+      ensurePartnerOwnsManager(request, existingClient.manager);
     }
     const client = await deleteClient(clientId);
     if (!client) {
@@ -691,6 +696,11 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { client });
+    // Удаляем топик клиента в Telegram (файлы на Drive остаются нетронутыми).
+    const topicId = existingClient?.telegramTopicId || client.telegramTopicId;
+    if (topicId) {
+      telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] delete: deleteForumTopic error:", e.message));
+    }
     return;
   }
 
