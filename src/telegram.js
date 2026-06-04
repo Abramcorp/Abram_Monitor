@@ -126,6 +126,32 @@ async function createForumTopic(name) {
   }
 }
 
+// Удаление одного сообщения в группе/топике. Тихо возвращает true/false.
+// Бот может удалить только свои сообщения, либо чужие если он админ группы.
+async function deleteMessage({ chatId, messageId } = {}) {
+  if (!BOT_TOKEN || !messageId) return false;
+  const targetChatId = chatId ? String(chatId) : CHAT_ID;
+  if (!targetChatId) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: targetChatId, message_id: Number(messageId) }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      console.warn(`[telegram] deleteMessage failed: status=${res.status} body=${JSON.stringify(json)}`);
+      return false;
+    }
+    console.log(`[telegram] deleteMessage ok: chat=${targetChatId} message_id=${messageId}`);
+    return true;
+  } catch (error) {
+    console.warn(`[telegram] deleteMessage error: ${error.message}`);
+    return false;
+  }
+}
+
 // Удаление топика в форум-группе. Возвращает true / false (тихо, без throw).
 // Требует у бота право Manage Topics.
 async function deleteForumTopic(threadId) {
@@ -318,8 +344,10 @@ module.exports = {
   sendDocument,
   createForumTopic,
   deleteForumTopic,
+  deleteMessage,
   notifyDocRequestCreated,
   notifyDocRequestFulfilled,
   notifyDocRequestConfirmed,
-  notifyDealStageChange
+  notifyDealStageChange,
+  escapeHtml
 };

@@ -723,6 +723,7 @@ function normalizeDocumentRequest(raw = {}) {
     driveUrl: cleanText(raw.driveUrl),
     items: cleanText(raw.items),
     period: cleanText(raw.period),
+    openMessageId: cleanText(raw.openMessageId),
     status,
     createdBy: cleanText(raw.createdBy),
     createdByLogin: cleanText(raw.createdByLogin),
@@ -822,6 +823,25 @@ async function createDocumentRequest(payload, { author } = {}) {
   }
   // Telegram-уведомление отправляется из server.js (там доступ к topicId клиента).
   return saved;
+}
+
+async function setDocumentRequestOpenMessageId(id, messageId) {
+  const patch = (current) => normalizeDocumentRequest({
+    ...current,
+    openMessageId: String(messageId == null ? "" : messageId),
+    updatedAt: new Date().toISOString()
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
 }
 
 async function addDocumentRequestAttachment(id, attachment) {
@@ -1238,6 +1258,7 @@ module.exports = {
   normalizeDocumentRequest,
   normalizeDocumentRequestAttachment,
   removeDocumentRequestAttachment,
+  setDocumentRequestOpenMessageId,
   setClientTelegramTopicId,
   normalizeManager,
   normalizeKnowledgeProgram,

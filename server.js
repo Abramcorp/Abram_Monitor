@@ -43,7 +43,7 @@ const users = require("./src/users");
 const { defaultStore: sessionStore } = require("./src/sessions");
 const googleDrive = require("./src/googleDrive");
 const telegram = require("./src/telegram");
-const { setClientTelegramTopicId } = require("./src/store");
+const { setClientTelegramTopicId, setDocumentRequestOpenMessageId } = require("./src/store");
 const Busboy = require("busboy");
 
 // Резолвит/создаёт topic-id в форум-группе для клиента.
@@ -67,6 +67,18 @@ async function resolveClientTopicId(clientName, managerName) {
       await setClientTelegramTopicId(cli.id, threadId);
     } catch (e) {
       console.warn("[telegram] failed to persist topicId:", e.message);
+    }
+    // Открывающее сообщение-якорь: остаётся в топике навсегда, чтобы топик
+    // не «опустошился» при последующих удалениях.
+    try {
+      const esc = telegram.escapeHtml;
+      const anchorText = `📌 <b>${esc(cli.name)}</b>\n`
+        + (managerName ? `Аналитик: ${esc(managerName)}\n` : "")
+        + (cli.driveUrl ? `<a href="${esc(cli.driveUrl)}">Папка клиента на Drive</a>\n` : "")
+        + `\nТопик создан автоматически. Все события по клиенту приходят сюда.`;
+      await telegram.sendTelegramMessage(anchorText, { topicId: threadId });
+    } catch (e) {
+      console.warn("[telegram] anchor message error:", e.message);
     }
     return threadId;
   } catch (error) {
@@ -963,9 +975,18 @@ async function handleApi(request, response) {
       const req = await createDocumentRequest(payload, { author: request.user });
       sendJson(response, 201, { documentRequest: req });
       // Telegram-уведомление о новом запросе в топик клиента (fire-and-forget).
+      // Сохраняем message_id, чтобы потом удалить сообщение при fulfillment.
       (async () => {
         const topicId = await resolveClientTopicId(req.clientName, req.manager);
-        await telegram.notifyDocRequestCreated(req, { topicId });
+        const res = await telegram.notifyDocRequestCreated(req, { topicId });
+        const messageId = res?.result?.message_id;
+        if (messageId) {
+          try {
+            await setDocumentRequestOpenMessageId(req.id, messageId);
+          } catch (e) {
+            console.warn("[telegram] save openMessageId failed:", e.message);
+          }
+        }
       })().catch((e) => console.warn("[telegram] notifyCreated dispatch:", e.message));
     } catch (error) {
       sendJson(response, 400, { error: error.message });
@@ -1286,6 +1307,15 @@ async function handleApi(request, response) {
           flog("calling notifyDocRequestFulfilled with", sources.length, "files, chat=", recipientChatId || "common", "topic=", topicId || "(none)");
           const result = await telegram.notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources, topicId });
           flog("TG result:", JSON.stringify(result?.ok !== undefined ? { ok: result.ok, count: result.results?.length } : result));
+          // Удаляем исходное сообщение «📥 Новый запрос документов» из топика —
+          // запрос закрыт, в топике остаётся только пакет файлов + якорное сообщение.
+          if (existing.openMessageId) {
+            const ok = await telegram.deleteMessage({ messageId: existing.openMessageId });
+            flog("openMessage deleted:", ok, "id=", existing.openMessageId);
+            if (ok) {
+              try { await setDocumentRequestOpenMessageId(updated.id, ""); } catch {}
+            }
+          }
         } catch (error) {
           flog("TG notify error:", error.message, error.stack);
         }
@@ -1442,7 +1472,17 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
       const topicId = await resolveClientTopicId(req.clientName, req.manager);
       const processingDays = daysSinceCreated(req);
       if (req.status === "open") {
-        await telegram.notifyDocRequestCreated(req, { topicId, processingDays });
+        // При переотправке удаляем старое уведомление и сохраняем id нового —
+        // чтобы в топике не накапливались дубли запроса.
+        if (req.openMessageId) {
+          await telegram.deleteMessage({ messageId: req.openMessageId }).catch(() => null);
+        }
+        const sentRes = await telegram.notifyDocRequestCreated(req, { topicId, processingDays });
+        const newMessageId = sentRes?.result?.message_id;
+        if (newMessageId) {
+          try { await setDocumentRequestOpenMessageId(req.id, newMessageId); }
+          catch (e) { tlog("save openMessageId failed:", e.message); }
+        }
         results.open += 1;
         results.details.push({ id: req.id, status: "open", clientName: req.clientName, processingDays, topicId });
       } else if (req.status === "fulfilled") {
