@@ -979,7 +979,7 @@ function summaryAlerts() {
   `).join("");
 
   const stalledHtml = hasStalledLeads ? `
-    <details class="alert-expand">
+    <details class="alert-expand" data-ui-state-key="alert|stalled-leads">
       <summary class="alert-pill is-danger alert-pill-expandable" role="button">
         <span class="alert-pill-value">${stalledLeadsList.length}</span>
         <span class="alert-pill-label">Лиды без действий 7+ дней</span>
@@ -1293,7 +1293,7 @@ function renderClientApplicationCards(applications, emptyText, type) {
       ${applications
         .map(
           (deal) => `
-            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}">
+            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
               <summary class="application-card-head">
                 <strong>${renderApplicationProgramTitle(deal)}</strong>
                 <span>${money(deal.amountRequested)}</span>
@@ -1376,7 +1376,7 @@ function renderClientApplicationCards(applications, emptyText, type) {
 function renderClientApplicationSections(client) {
   const renderSection = ([title, applications, count, emptyText, type, collapsible]) => collapsible
     ? `
-      <details class="application-group application-group-collapsible application-group-${escapeHtml(type)}">
+      <details class="application-group application-group-collapsible application-group-${escapeHtml(type)}" data-ui-state-key="${escapeHtml(uiStateKey("app-group", client.manager || "", client.client || "", type))}">
         <summary class="application-group-head">
           <h4>${title} (${count})</h4>
         </summary>
@@ -2772,7 +2772,7 @@ function renderDocumentRequestsView() {
       ` : ""}
       ${!active.length ? `<div class="empty">Активных запросов нет.</div>` : ""}
       ${archive.length ? `
-        <details class="doc-request-archive">
+        <details class="doc-request-archive" data-ui-state-key="doc-requests|archive">
           <summary class="doc-section-title">Архив запросов (${archive.length})</summary>
           ${renderDocRequestsByClient(archiveSorted, "archive", { archived: true })}
         </details>
@@ -3951,6 +3951,25 @@ function render() {
     return;
   }
 
+  // Снимаем снимок состояния UI ДО перерисовки:
+  // — какие <details> были раскрыты (по data-ui-state-key)
+  // — позиция скролла
+  // — значение и каретка активного input/textarea
+  const uiSnapshot = captureUiState();
+  const activeEl = document.activeElement;
+  let focusSnapshot = null;
+  if (activeEl && activeEl !== document.body && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.tagName === "SELECT")) {
+    focusSnapshot = {
+      id: activeEl.id || "",
+      name: activeEl.name || "",
+      dataField: activeEl.dataset?.field || "",
+      dataApplicationField: activeEl.dataset?.applicationField || "",
+      selectionStart: typeof activeEl.selectionStart === "number" ? activeEl.selectionStart : null,
+      selectionEnd: typeof activeEl.selectionEnd === "number" ? activeEl.selectionEnd : null,
+      value: activeEl.value
+    };
+  }
+
   renderViewTabs();
   updatePageHeader();
   updateActionVisibility();
@@ -3969,6 +3988,36 @@ function render() {
   const renderer = views[state.view] || (isDocumentsOfficer() ? renderDocumentRequestsView : renderSummary);
   app.innerHTML = renderer();
   bindDynamicControls();
+
+  // Восстанавливаем то, что снимали выше.
+  restoreUiState(uiSnapshot);
+  if (focusSnapshot) {
+    const target = findFocusTarget(focusSnapshot);
+    if (target) {
+      try { target.focus({ preventScroll: true }); } catch { /* ignore */ }
+      if (focusSnapshot.selectionStart != null && typeof target.setSelectionRange === "function") {
+        try { target.setSelectionRange(focusSnapshot.selectionStart, focusSnapshot.selectionEnd); }
+        catch { /* selection unsupported on this input type */ }
+      }
+    }
+  }
+}
+
+// Ищем элемент, на котором был фокус, после перерисовки.
+// Перебираем стратегии от самой надёжной к более слабой.
+function findFocusTarget(snap) {
+  if (!snap) return null;
+  if (snap.id) {
+    const byId = document.getElementById(snap.id);
+    if (byId) return byId;
+  }
+  if (snap.dataApplicationField && snap.dataField) {
+    return document.querySelector(`[data-application-field="${CSS.escape(snap.dataApplicationField)}"][data-field="${CSS.escape(snap.dataField)}"]`);
+  }
+  if (snap.name) {
+    return document.querySelector(`[name="${CSS.escape(snap.name)}"]`);
+  }
+  return null;
 }
 
 let queryFilterDebounceTimer = null;
