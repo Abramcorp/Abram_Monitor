@@ -733,6 +733,9 @@ function normalizeDocumentRequest(raw = {}) {
     items: cleanText(raw.items),
     period: cleanText(raw.period),
     openMessageId: cleanText(raw.openMessageId),
+    partialUploadMessageIds: Array.isArray(raw.partialUploadMessageIds)
+      ? raw.partialUploadMessageIds.map((v) => String(v == null ? "" : v)).filter(Boolean)
+      : [],
     status,
     createdBy: cleanText(raw.createdBy),
     createdByLogin: cleanText(raw.createdByLogin),
@@ -838,6 +841,53 @@ async function setDocumentRequestOpenMessageId(id, messageId) {
   const patch = (current) => normalizeDocumentRequest({
     ...current,
     openMessageId: String(messageId == null ? "" : messageId),
+    updatedAt: new Date().toISOString()
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+// Накопительно добавляет message_id уведомления о частичной подгрузке.
+// Используется чтобы потом подчистить все промежуточные сообщения из топика
+// в момент завершения запроса (fulfill).
+async function addDocumentRequestPartialUploadMessageId(id, messageId) {
+  const mid = String(messageId == null ? "" : messageId);
+  if (!mid) return null;
+  const patch = (current) => {
+    const list = Array.isArray(current.partialUploadMessageIds) ? current.partialUploadMessageIds.slice() : [];
+    if (!list.includes(mid)) list.push(mid);
+    return normalizeDocumentRequest({
+      ...current,
+      partialUploadMessageIds: list,
+      updatedAt: new Date().toISOString()
+    });
+  };
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+async function clearDocumentRequestPartialUploadMessageIds(id) {
+  const patch = (current) => normalizeDocumentRequest({
+    ...current,
+    partialUploadMessageIds: [],
     updatedAt: new Date().toISOString()
   });
   if (postgresStore.isEnabled()) {
@@ -1473,6 +1523,8 @@ module.exports = {
   normalizeDocumentRequestAttachment,
   removeDocumentRequestAttachment,
   setDocumentRequestOpenMessageId,
+  addDocumentRequestPartialUploadMessageId,
+  clearDocumentRequestPartialUploadMessageIds,
   setClientTelegramTopicId,
   normalizeManager,
   normalizeKnowledgeProgram,
