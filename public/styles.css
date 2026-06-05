@@ -3916,12 +3916,11 @@ td select {
   .kpi strong { font-size: 24px; }
   .kpi span { font-size: 13px; }
 
-  /* Аналитики — построчно (как раньше), но ограничиваем ширину карточек
-     и прижимаем их к левому краю, чтобы на 30" мониторе они не растягивались
-     во всю панель. Стиль такой же, как у верхней навигации (.tabs). */
+  /* Аналитики — построчно (одна колонка) на всю ширину панели:
+     карточки заявок внутри получают полные колонки и не перекрываются
+     при hover. Шапка аналитика просто длиннее — это нормально. */
   .manager-stack {
-    grid-template-columns: minmax(0, 1100px);
-    justify-content: start;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     align-items: start;
   }
@@ -3950,28 +3949,22 @@ td select {
     gap: 16px;
   }
 
-  /* БЗ — три колонки на широких; аналитики по-прежнему построчно. */
+  /* БЗ — три колонки на широких; аналитики по-прежнему построчно на всю ширину. */
   .knowledge-bank-stack {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
   }
   .manager-stack {
-    grid-template-columns: minmax(0, 1200px);
-    justify-content: start;
     gap: 14px;
   }
 }
 
 @media (min-width: 2400px) {
-  /* 4K+ — ещё гуще для воронок/карточек, аналитики остаются в одной колонке. */
+  /* 4K+ — ещё гуще для воронок/карточек, аналитики остаются в одной колонке на всю ширину. */
   .deal-card-grid {
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   }
   .knowledge-bank-stack {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .manager-stack {
-    grid-template-columns: minmax(0, 1320px);
-    justify-content: start;
   }
 }
