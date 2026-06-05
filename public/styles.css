@@ -2623,10 +2623,9 @@ td select {
 .stage-section > summary::-webkit-details-marker { display: none; }
 
 .stage-section-head {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   padding: 12px 16px;
   transition: background-color 120ms ease;
 }
@@ -2660,21 +2659,29 @@ td select {
 .stage-section-label.is-danger  { background: var(--danger-soft); color: var(--red-ink); }
 .stage-section-label.is-info    { background: var(--info-soft); color: var(--blue); }
 
+/* Кружок-счётчик */
 .stage-section-count {
-  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 50%;
+  background: rgba(11, 18, 32, 0.08);
+  color: var(--ink);
+  font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  letter-spacing: -0.01em;
+  flex-shrink: 0;
 }
 
 .stage-section-meta {
-  margin-left: auto;
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  white-space: nowrap;
 }
 
 .stage-section-body {
@@ -2708,10 +2715,9 @@ td select {
 .stage-client-group > summary::-webkit-details-marker { display: none; }
 
 .stage-client-group-head {
-  display: grid;
-  grid-template-columns: auto minmax(160px, 1.3fr) minmax(120px, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 9px 12px;
   transition: background-color 120ms ease;
 }
@@ -2750,6 +2756,8 @@ td select {
   color: var(--ink);
   font-size: 14px;
   overflow-wrap: anywhere;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .stage-client-meta {
@@ -2758,13 +2766,16 @@ td select {
   overflow-wrap: anywhere;
 }
 
+.stage-client-meta::before { content: "·"; margin-right: 6px; color: var(--line-strong); }
+
 .stage-client-sum {
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  white-space: nowrap;
 }
+.stage-client-sum::before { content: "·"; margin-right: 6px; color: var(--line-strong); }
 
 .stage-client-group-body {
   padding: 4px 12px 12px;
@@ -2775,18 +2786,16 @@ td select {
 }
 
 @media (max-width: 720px) {
-  .stage-client-group-head {
-    grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "count name"
-      "count meta"
-      "count sum";
-    row-gap: 2px;
-  }
-  .stage-client-count { grid-area: count; align-self: center; }
-  .stage-client-name  { grid-area: name; }
-  .stage-client-meta  { grid-area: meta; }
-  .stage-client-sum   { grid-area: sum; text-align: left; }
+  .stage-client-group-head { flex-wrap: wrap; }
+  .stage-client-meta::before,
+  .stage-client-sum::before { content: ""; margin: 0; }
+}
+
+/* Полоса с переключателем «По статусам / По клиентам» — под графиками. */
+.summary-groupby-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 16px 0 8px;
 }
 
 /* ===== Сводный по клиентам (top-level = клиент, внутри stages) ===== */
@@ -2847,10 +2856,9 @@ td select {
 .client-overview > summary::-webkit-details-marker { display: none; }
 
 .client-overview-head {
-  display: grid;
-  grid-template-columns: auto auto minmax(120px, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 12px 16px;
   transition: background-color 120ms ease;
 }
@@ -2892,15 +2900,16 @@ td select {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.client-overview-meta::before { content: "·"; margin-right: 6px; color: var(--line-strong); }
 
 .client-overview-sum {
   color: var(--ink);
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  text-align: right;
   white-space: nowrap;
 }
+.client-overview-sum::before { content: "·"; margin-right: 6px; color: var(--line-strong); }
 
 .client-overview-body {
   padding: 6px 14px 14px;
@@ -2931,18 +2940,9 @@ td select {
 }
 
 @media (max-width: 720px) {
-  .client-overview-head {
-    grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "marker name"
-      "marker meta"
-      "marker sum";
-    row-gap: 2px;
-  }
-  .client-overview-count { grid-area: marker; align-self: center; }
-  .client-overview-name  { grid-area: name; }
-  .client-overview-meta  { grid-area: meta; }
-  .client-overview-sum   { grid-area: sum; text-align: left; }
+  .client-overview-head { flex-wrap: wrap; }
+  .client-overview-meta::before,
+  .client-overview-sum::before { content: ""; margin: 0; }
 }
 
 /* Цветная левая полоска для секции — синхронно с заявками */

@@ -4037,14 +4037,14 @@ function renderSummary() {
             ${totalApp ? ` · одобрено <strong>${money(totalApp)}</strong>` : ""}
           </p>
         </div>
-        <div class="panel-head-actions">
-          <div class="segmented summary-groupby" role="tablist" aria-label="Группировка заявок">
-            <button class="${groupBy === "stage" ? "is-active" : ""}" data-summary-groupby="stage" type="button">По статусам</button>
-            <button class="${groupBy === "client" ? "is-active" : ""}" data-summary-groupby="client" type="button">По клиентам</button>
-          </div>
-        </div>
       </div>
       ${renderSummaryCharts(groups, state.board.status, totals)}
+      <div class="summary-groupby-bar">
+        <div class="segmented summary-groupby" role="tablist" aria-label="Группировка заявок">
+          <button class="${groupBy === "stage" ? "is-active" : ""}" data-summary-groupby="stage" type="button">По статусам</button>
+          <button class="${groupBy === "client" ? "is-active" : ""}" data-summary-groupby="client" type="button">По клиентам</button>
+        </div>
+      </div>
       ${listHtml}
     </section>
   `;
