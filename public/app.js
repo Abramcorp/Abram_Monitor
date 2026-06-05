@@ -5894,6 +5894,7 @@ async function startApplication() {
     }
     app.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
   }
+  setupLiveUpdates();
   // Если вернулись с Google OAuth callback — показать toast и почистить URL.
   try {
     const sp = new URLSearchParams(window.location.search);
@@ -5944,6 +5945,7 @@ if (loginForm) {
       pickInitialView();
       showAppShell();
       await loadData();
+      setupLiveUpdates();
     } catch (error) {
       if (loginError) {
         loginError.hidden = false;
@@ -5966,6 +5968,7 @@ if (logoutButton) {
       logoutButton.disabled = false;
     }
     storeToken("");
+    closeLiveUpdates();
     state.user = null;
     applyUserToBadge(null);
     state.dashboard = null;
@@ -6000,3 +6003,74 @@ document.addEventListener("visibilitychange", () => {
     // ignore — main app still usable; next manual ↻ will retry
   });
 });
+
+// ===== Live updates via Server-Sent Events =====
+// Бэк дёргает eventBus.emit("dashboard") на любую успешную мутацию,
+// SSE-эндпоинт /api/stream держит соединение, фронт реагирует
+// дебаунсенным reload-ом. UI-state сохраняется через captureUiState.
+let liveEventSource = null;
+let liveReloadTimer = null;
+const LIVE_RELOAD_DEBOUNCE_MS = 600;
+
+function isUiBusy() {
+  // Не перезагружаем во время заполнения формы / открытого диалога —
+  // иначе теряем ввод. Следующее событие или ручной ↻ нас догонит.
+  if (document.querySelector("dialog[open]")) return true;
+  const ae = document.activeElement;
+  if (ae && ae !== document.body) {
+    const tag = ae.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (ae.isContentEditable) return true;
+  }
+  return false;
+}
+
+function scheduleLiveReload() {
+  clearTimeout(liveReloadTimer);
+  liveReloadTimer = setTimeout(async () => {
+    if (isUiBusy()) {
+      // Откладываем — попробуем через секунду снова. Если событий не будет,
+      // фоновый visibility-refresh подберёт изменения при возврате на вкладку.
+      scheduleLiveReload();
+      return;
+    }
+    try {
+      const snapshot = captureUiState();
+      await loadData({
+        targets: ["dashboard", "clients", "managers", "tasks", "documentRequests"],
+        restoreUi: snapshot
+      });
+    } catch (error) {
+      // ignore: дёрнем ещё раз на следующее событие
+      if (typeof console !== "undefined") {
+        console.warn("[live] reload failed:", error?.message || error);
+      }
+    }
+  }, LIVE_RELOAD_DEBOUNCE_MS);
+}
+
+function setupLiveUpdates() {
+  closeLiveUpdates();
+  if (!("EventSource" in window)) return;
+  try {
+    const es = new EventSource("/api/stream");
+    liveEventSource = es;
+    es.addEventListener("change", () => scheduleLiveReload());
+    // hello/keep-alive — ничего не делаем
+    es.addEventListener("hello", () => {});
+    es.onerror = () => {
+      // Браузер сам пере-открывает SSE при разрыве — оставляем как есть.
+      // Если совсем не подключилось (404/401), будет пытаться каждые ~3с.
+    };
+  } catch (error) {
+    console.warn("[live] EventSource setup failed:", error?.message || error);
+  }
+}
+
+function closeLiveUpdates() {
+  clearTimeout(liveReloadTimer);
+  if (liveEventSource) {
+    try { liveEventSource.close(); } catch {}
+    liveEventSource = null;
+  }
+}

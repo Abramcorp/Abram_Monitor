@@ -43,6 +43,7 @@ const users = require("./src/users");
 const { defaultStore: sessionStore } = require("./src/sessions");
 const googleDrive = require("./src/googleDrive");
 const telegram = require("./src/telegram");
+const eventBus = require("./src/eventBus");
 const {
   setClientTelegramTopicId,
   setDocumentRequestOpenMessageId,
@@ -493,6 +494,17 @@ async function handleApi(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = url.pathname;
 
+  // Live-updates: после любой успешной мутации (POST/PATCH/DELETE с 2xx)
+  // дёргаем глобальный канал change → SSE-подписчики делают reload на клиенте.
+  // Стрим и логин-операции пропускаем — у них своя семантика.
+  if (request.method !== "GET" && request.method !== "HEAD" && !pathname.startsWith("/api/auth/") && pathname !== "/api/stream") {
+    response.on("finish", () => {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        try { eventBus.emit("dashboard"); } catch {}
+      }
+    });
+  }
+
   if (pathname.startsWith("/api/auth/")) {
     const handled = await handleAuth(request, response, pathname);
     if (handled) {
@@ -541,6 +553,41 @@ async function handleApi(request, response) {
   // documents_officer имеет доступ только к запросам документов.
   if (request.user.role === "documents_officer" && !pathname.startsWith("/api/document-requests")) {
     throw new AuthError(403, "Доступ только к запросам документов");
+  }
+
+  // Server-Sent Events: держим соединение, пушим события из eventBus.
+  // Клиент (app.js) на любое событие делает loadData() с debounce.
+  if (request.method === "GET" && pathname === "/api/stream") {
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no" // отключаем nginx-буферизацию, если она вдруг есть
+    });
+    // Первый ping чтобы EventSource перешёл в open.
+    response.write(`event: hello\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+    // Keep-alive каждые 25 сек — Railway/nginx идлит соединения.
+    const keepAlive = setInterval(() => {
+      try { response.write(`: keep-alive ${Date.now()}\n\n`); }
+      catch { clearInterval(keepAlive); }
+    }, 25000);
+    const off = eventBus.on((payload) => {
+      try {
+        response.write(`event: change\ndata: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        // соединение закрыто/сломано — отписываемся
+        off();
+        clearInterval(keepAlive);
+      }
+    });
+    const cleanup = () => {
+      off();
+      clearInterval(keepAlive);
+      try { response.end(); } catch {}
+    };
+    request.on("close", cleanup);
+    request.on("error", cleanup);
+    return;
   }
 
   const scope = partnerScope(request);
