@@ -2685,6 +2685,110 @@ td select {
   padding: 8px 0 0;
 }
 
+/* ===== Внутри stage-section — группировка заявок по клиенту ===== */
+.stage-client-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.stage-client-group {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+.stage-client-group > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.stage-client-group > summary::-webkit-details-marker { display: none; }
+
+.stage-client-group-head {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1.3fr) minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  transition: background-color 120ms ease;
+}
+.stage-client-group > summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform 150ms ease;
+  margin-left: 2px;
+}
+.stage-client-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+.stage-client-group > summary:hover {
+  background: rgba(0, 0, 0, 0.025);
+}
+
+.stage-client-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.08);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-client-name {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.stage-client-meta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.stage-client-sum {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stage-client-group-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+.stage-client-group-body .deal-card-grid {
+  padding: 8px 0 0;
+}
+
+@media (max-width: 720px) {
+  .stage-client-group-head {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "count name"
+      "count meta"
+      "count sum";
+    row-gap: 2px;
+  }
+  .stage-client-count { grid-area: count; align-self: center; }
+  .stage-client-name  { grid-area: name; }
+  .stage-client-meta  { grid-area: meta; }
+  .stage-client-sum   { grid-area: sum; text-align: left; }
+}
+
 /* Цветная левая полоска для секции — синхронно с заявками */
 .stage-section.is-success { border-left: 3px solid var(--green); }
 .stage-section.is-warning { border-left: 3px solid var(--amber); }

@@ -3955,7 +3955,51 @@ function renderDealsByStage() {
               <span class="stage-section-meta">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
             </summary>
             <div class="stage-section-body">
-              ${renderBoardApplicationRows(sortedItems, "manager")}
+              ${renderStageClientsGroup(id, sortedItems)}
+            </div>
+          </details>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+// Внутри stage-section группируем заявки по клиенту: каждый клиент —
+// свёрнутый <details> с шапкой (счётчик заявок + сумма + аналитик) и
+// сеткой карточек заявок внутри.
+function renderStageClientsGroup(stageId, items) {
+  if (!items.length) return `<div class="empty compact-empty">Заявок нет.</div>`;
+  const byClient = new Map();
+  for (const d of items) {
+    const key = d.client || "Без клиента";
+    if (!byClient.has(key)) byClient.set(key, []);
+    byClient.get(key).push(d);
+  }
+  const entries = [...byClient.entries()].sort((a, b) => {
+    // Сначала клиенты у кого свежее последнее действие.
+    const aLast = Math.max(...a[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    const bLast = Math.max(...b[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    if (aLast !== bLast) return bLast - aLast;
+    return a[0].localeCompare(b[0], "ru");
+  });
+  return `
+    <div class="stage-client-stack">
+      ${entries.map(([clientName, dealsOfClient]) => {
+        const sortedDeals = dealsOfClient.slice().sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+        const sumReq = sortedDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+        const sumApp = sortedDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
+        const analysts = [...new Set(sortedDeals.map((d) => d.manager).filter(Boolean))].join(", ");
+        const stateKey = uiStateKey("summary-stage-client", stageId, clientName);
+        return `
+          <details class="stage-client-group" data-ui-state-key="${escapeHtml(stateKey)}">
+            <summary class="stage-client-group-head">
+              <span class="stage-client-count">${sortedDeals.length}</span>
+              <span class="stage-client-name">${escapeHtml(clientName)}</span>
+              <span class="stage-client-meta">${analysts ? escapeHtml(analysts) : ""}</span>
+              <span class="stage-client-sum">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
+            </summary>
+            <div class="stage-client-group-body">
+              ${renderBoardApplicationRows(sortedDeals, "client")}
             </div>
           </details>
         `;
