@@ -490,15 +490,22 @@ textarea:focus-visible {
   margin-bottom: 16px;
 }
 
-/* Алерт-плашка раскрывается details'ом — внутри карточки заявок. */
+/* Алерт-плашка раскрывается details'ом — внутри карточки заявок.
+   Не растягиваем по всей ширине — пусть знает своё место слева. */
 .alert-expand {
-  flex: 1 1 280px;
+  flex: 0 0 auto;
+  align-self: flex-start;
   max-width: 100%;
+}
+.alert-expand[open] {
+  /* Когда раскрыта — даём ей чуть больше места под карточки внутри */
+  flex: 1 1 100%;
 }
 .alert-expand > summary { list-style: none; cursor: pointer; }
 .alert-expand > summary::-webkit-details-marker { display: none; }
 .alert-pill-expandable {
-  width: 100%;
+  display: inline-flex;
+  width: auto;
   justify-content: flex-start;
 }
 .alert-pill-chev {
@@ -2815,10 +2822,11 @@ td select {
   .stage-client-sum::before { content: ""; margin: 0; }
 }
 
-/* Полоса с переключателем «По статусам / По клиентам» — под графиками. */
+/* Полоса с переключателем «По статусам / По клиентам» — под графиками,
+   прижата к левому краю. */
 .summary-groupby-bar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin: 16px 0 8px;
 }
 
