@@ -46,6 +46,8 @@ const telegram = require("./src/telegram");
 const {
   setClientTelegramTopicId,
   setDocumentRequestOpenMessageId,
+  addDocumentRequestPartialUploadMessageId,
+  clearDocumentRequestPartialUploadMessageIds,
   getProgramTypes,
   createProgramType,
   updateProgramType,
@@ -1219,12 +1221,22 @@ async function handleApi(request, response) {
             const topicId = await resolveClientTopicId(fresh.clientName, fresh.manager);
             const uploadedNames = uploaded.map((u) => u.originalName || u.fileName).filter(Boolean);
             const totalCount = Array.isArray(fresh.attachments) ? fresh.attachments.length : 0;
-            await telegram.notifyDocRequestPartialUpload(fresh, {
+            const sent = await telegram.notifyDocRequestPartialUpload(fresh, {
               topicId,
               uploadedNames,
               totalCount,
               actor: request.user
             });
+            // Сохраняем message_id, чтобы при /fulfill удалить все промежуточные
+            // индикаторы частичной подгрузки из топика клиента.
+            const messageId = sent?.result?.message_id;
+            if (messageId) {
+              try {
+                await addDocumentRequestPartialUploadMessageId(fresh.id, messageId);
+              } catch (e) {
+                log("save partial messageId failed:", e.message);
+              }
+            }
           } catch (e) {
             log("partial upload notify error:", e.message);
           }
@@ -1372,6 +1384,22 @@ async function handleApi(request, response) {
             if (ok) {
               try { await setDocumentRequestOpenMessageId(updated.id, ""); } catch {}
             }
+          }
+          // Удаляем все промежуточные «📎 К запросу добавлено N» — они становятся
+          // неактуальны: финальный пакет уже отправлен в топик.
+          const partialIds = Array.isArray(existing.partialUploadMessageIds) ? existing.partialUploadMessageIds : [];
+          if (partialIds.length) {
+            let deleted = 0;
+            for (const mid of partialIds) {
+              try {
+                const ok = await telegram.deleteMessage({ messageId: mid });
+                if (ok) deleted += 1;
+              } catch (e) {
+                flog("delete partial message error:", mid, e.message);
+              }
+            }
+            flog(`partial messages cleaned: ${deleted}/${partialIds.length}`);
+            try { await clearDocumentRequestPartialUploadMessageIds(updated.id); } catch {}
           }
         } catch (error) {
           flog("TG notify error:", error.message, error.stack);
@@ -1644,6 +1672,16 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
           }
         }
         await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays });
+        // На всякий случай добиваем оставшиеся partial-сообщения (если первый /fulfill
+        // их не удалил из-за сетевой ошибки) — переотправка пакета должна давать
+        // чистый топик с одним финальным сообщением.
+        const partialIds = Array.isArray(req.partialUploadMessageIds) ? req.partialUploadMessageIds : [];
+        if (partialIds.length) {
+          for (const mid of partialIds) {
+            await telegram.deleteMessage({ messageId: mid }).catch(() => null);
+          }
+          try { await clearDocumentRequestPartialUploadMessageIds(req.id); } catch {}
+        }
         results.fulfilled += 1;
         results.details.push({ id: req.id, status: "fulfilled", clientName: req.clientName, processingDays, topicId, files: sources.length });
       }
