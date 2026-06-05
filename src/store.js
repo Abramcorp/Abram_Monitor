@@ -844,24 +844,52 @@ async function setDocumentRequestOpenMessageId(id, messageId) {
   return list[index];
 }
 
+// originalName = всё после префикса "YYYY-MM-DD_HH-mm__"; если префикса нет, возвращает имя как есть.
+function stripFilePrefix(fileName) {
+  const s = String(fileName || "");
+  const match = s.match(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}__(.+)$/);
+  return match ? match[1] : s;
+}
+
 async function addDocumentRequestAttachment(id, attachment) {
   const att = normalizeDocumentRequestAttachment(attachment);
-  const patch = (current) => normalizeDocumentRequest({
-    ...current,
-    attachments: [...(Array.isArray(current.attachments) ? current.attachments : []), att],
-    updatedAt: new Date().toISOString()
-  });
+  // Возвращает: { request, attachment, duplicate: bool }
+  // Дедуп: тот же driveFileId → точно дубль (один и тот же файл на Drive).
+  //        тот же originalName+size → семантически тот же файл из новой загрузки.
+  let duplicate = false;
+  const patch = (current) => {
+    const existing = Array.isArray(current.attachments) ? current.attachments : [];
+    const newOriginal = stripFilePrefix(att.fileName);
+    const isDup = existing.some((e) => {
+      if (att.driveFileId && e.driveFileId && e.driveFileId === att.driveFileId) return true;
+      const eOriginal = stripFilePrefix(e.fileName);
+      if (eOriginal && eOriginal === newOriginal && Number(e.size) > 0 && Number(e.size) === Number(att.size)) return true;
+      return false;
+    });
+    if (isDup) {
+      duplicate = true;
+      return normalizeDocumentRequest(current); // no-op
+    }
+    return normalizeDocumentRequest({
+      ...current,
+      attachments: [...existing, att],
+      updatedAt: new Date().toISOString()
+    });
+  };
+  let result;
   if (postgresStore.isEnabled()) {
     await initStore();
     const updated = await postgresStore.updateRow("document_requests", id, patch);
-    return updated ? normalizeDocumentRequest(updated) : null;
+    result = updated ? normalizeDocumentRequest(updated) : null;
+  } else {
+    const list = getDocumentRequests();
+    const index = list.findIndex((item) => item.id === id);
+    if (index === -1) return { request: null, attachment: null, duplicate: false };
+    list[index] = patch(list[index]);
+    saveDocumentRequests(list);
+    result = list[index];
   }
-  const list = getDocumentRequests();
-  const index = list.findIndex((item) => item.id === id);
-  if (index === -1) return null;
-  list[index] = patch(list[index]);
-  saveDocumentRequests(list);
-  return list[index];
+  return { request: result, attachment: duplicate ? null : att, duplicate };
 }
 
 async function removeDocumentRequestAttachment(id, attachmentId) {
@@ -896,14 +924,24 @@ async function removeDocumentRequestAttachment(id, attachmentId) {
 
 async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
   const now = await getMoscowNowIso();
-  const patch = (current) => normalizeDocumentRequest({
-    ...current,
-    status: "fulfilled",
-    fulfilledAt: now,
-    fulfilledBy: cleanText(actor?.fullName),
-    fulfilledByLogin: cleanText(actor?.login),
-    updatedAt: now
-  });
+  const patch = (current) => {
+    // Guard: переводить можно только из open → fulfilled.
+    // Иначе двойной клик / параллельный запрос мог бы перезаписать fulfilledAt.
+    const currentStatus = cleanText(current?.status) || "open";
+    if (currentStatus !== "open") {
+      const err = new Error("Запрос уже не в статусе «открыт»");
+      err.code = "INVALID_STATE";
+      throw err;
+    }
+    return normalizeDocumentRequest({
+      ...current,
+      status: "fulfilled",
+      fulfilledAt: now,
+      fulfilledBy: cleanText(actor?.fullName),
+      fulfilledByLogin: cleanText(actor?.login),
+      updatedAt: now
+    });
+  };
   let updated;
   if (postgresStore.isEnabled()) {
     await initStore();
@@ -934,14 +972,23 @@ async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
 
 async function confirmDocumentRequest(id, { actor } = {}) {
   const now = await getMoscowNowIso();
-  const patch = (current) => normalizeDocumentRequest({
-    ...current,
-    status: "delivered",
-    deliveredAt: now,
-    deliveredBy: cleanText(actor?.fullName),
-    deliveredByLogin: cleanText(actor?.login),
-    updatedAt: now
-  });
+  const patch = (current) => {
+    // Guard: переводить можно только из fulfilled → delivered.
+    const currentStatus = cleanText(current?.status) || "open";
+    if (currentStatus !== "fulfilled") {
+      const err = new Error("Подтверждать можно только запросы со статусом «документы загружены»");
+      err.code = "INVALID_STATE";
+      throw err;
+    }
+    return normalizeDocumentRequest({
+      ...current,
+      status: "delivered",
+      deliveredAt: now,
+      deliveredBy: cleanText(actor?.fullName),
+      deliveredByLogin: cleanText(actor?.login),
+      updatedAt: now
+    });
+  };
   let updated;
   if (postgresStore.isEnabled()) {
     await initStore();

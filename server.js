@@ -226,7 +226,7 @@ function buildSessionCookie(token, ttlMs, { secure = false } = {}) {
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=Strict",
     `Max-Age=${maxAge}`
   ];
   if (secure) {
@@ -236,24 +236,25 @@ function buildSessionCookie(token, ttlMs, { secure = false } = {}) {
 }
 
 function clearSessionCookie({ secure = false } = {}) {
-  const parts = [`${SESSION_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
+  const parts = [`${SESSION_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=0"];
   if (secure) {
     parts.push("Secure");
   }
   return parts.join("; ");
 }
 
+// На проде по умолчанию выставляем Secure (HTTPS-only). Снять можно только
+// явно через COOKIE_SECURE=false (для локальной разработки).
 function shouldUseSecureCookie(request) {
-  if (process.env.COOKIE_SECURE === "true") {
-    return true;
-  }
-  if (process.env.COOKIE_SECURE === "false") {
-    return false;
-  }
+  if (process.env.COOKIE_SECURE === "true") return true;
+  if (process.env.COOKIE_SECURE === "false") return false;
   const forwardedProto = request?.headers?.["x-forwarded-proto"];
   if (typeof forwardedProto === "string" && forwardedProto.split(",")[0].trim() === "https") {
     return true;
   }
+  // Defense-in-depth: на NODE_ENV=production требуем Secure, даже если прокси
+  // не прислал x-forwarded-proto.
+  if (process.env.NODE_ENV === "production") return true;
   return false;
 }
 
@@ -436,13 +437,13 @@ async function handleAuth(request, response, pathname) {
       return true;
     }
     const session = sessionStore.create(user.id);
-    // Возвращаем токен и в Set-Cookie (HttpOnly), и в JSON-теле:
-    // фронт хранит копию в localStorage и отправляет её как Bearer-фолбэк
-    // на случай если cookie теряются за прокси/настройками браузера.
+    // Возвращаем токен ТОЛЬКО в Set-Cookie (HttpOnly + Secure + SameSite=Strict).
+    // В JSON-теле — больше нет, чтобы исключить попадание токена в localStorage
+    // и его кражу через XSS.
     sendJson(
       response,
       200,
-      { user: users.publicUser(user), token: session.token, expiresAt: session.expiresAt },
+      { user: users.publicUser(user), expiresAt: session.expiresAt },
       { "Set-Cookie": buildSessionCookie(session.token, session.ttlMs, { secure: shouldUseSecureCookie(request) }) }
     );
     return true;
@@ -1156,8 +1157,15 @@ async function handleApi(request, response) {
                   uploadedByLogin: request.user.login || ""
                 };
                 try {
-                  await addDocumentRequestAttachment(reqId, att);
-                  uploaded.push({ ...att, originalName });
+                  const addRes = await addDocumentRequestAttachment(reqId, att);
+                  if (addRes?.duplicate) {
+                    log(`addAttachment skipped duplicate: ${originalName}`);
+                    errors.push({ fileName: originalName, error: "Дубликат: такой файл уже прикреплён" });
+                    // Чистим только что загруженный дубль в Drive, чтобы не плодить копии.
+                    await googleDrive.deleteFile(driveFile.id).catch(() => null);
+                  } else {
+                    uploaded.push({ ...att, originalName });
+                  }
                 } catch (e) {
                   log(`addAttachment error ${originalName}:`, e.message);
                   errors.push({ fileName: originalName, error: e.message });
@@ -1294,33 +1302,50 @@ async function handleApi(request, response) {
         flog("resolve recipientChatId error:", e.message);
       }
       flog("recipientChatId=", recipientChatId || "(empty → общий чат)", "linkedUser=", linkedUserLogin || "-");
-      const updated = await fulfillDocumentRequest(reqId, { actor: request.user });
+
+      // КАЧАЕМ файлы из Drive ДО смены статуса — иначе если кто-то удалит
+      // attachment между «fulfillDocumentRequest» и «getFileBuffer», статус
+      // переедет в fulfilled, а часть файлов не попадёт аналитику.
+      flog("downloading", attachments.length, "files from Drive (pre-status-flip)");
+      const sources = [];
+      for (const att of attachments) {
+        try {
+          const buffer = await googleDrive.getFileBuffer(att.driveFileId);
+          flog(`downloaded ${att.fileName}: ${buffer.length} bytes`);
+          sources.push({
+            fileName: att.fileName || "document",
+            mimeType: att.mimeType || "application/octet-stream",
+            buffer
+          });
+        } catch (error) {
+          flog(`download error ${att.fileName}:`, error.message);
+        }
+      }
+      if (!sources.length) {
+        sendJson(response, 500, { error: "Не удалось скачать ни один файл с Drive — пакет не отправлен" });
+        return;
+      }
+
+      // Меняем статус. Guard в fulfillDocumentRequest вернёт INVALID_STATE
+      // если кто-то параллельно уже перевёл запрос в fulfilled/delivered.
+      let updated;
+      try {
+        updated = await fulfillDocumentRequest(reqId, { actor: request.user });
+      } catch (error) {
+        if (error?.code === "INVALID_STATE") {
+          sendJson(response, 409, { error: error.message });
+          return;
+        }
+        throw error;
+      }
       if (!updated) {
         sendJson(response, 404, { error: "Document request not found" });
         return;
       }
       sendJson(response, 200, { documentRequest: updated });
-      // Отправка пакета в Telegram — fire-and-forget, файлы качаем в Buffer.
+
+      // Отправка пакета в Telegram — fire-and-forget, файлы уже в Buffer.
       (async () => {
-        flog("TG dispatch start: downloading", attachments.length, "files from Drive");
-        const sources = [];
-        for (const att of attachments) {
-          try {
-            const buffer = await googleDrive.getFileBuffer(att.driveFileId);
-            flog(`downloaded ${att.fileName}: ${buffer.length} bytes`);
-            sources.push({
-              fileName: att.fileName || "document",
-              mimeType: att.mimeType || "application/octet-stream",
-              buffer
-            });
-          } catch (error) {
-            flog(`download error ${att.fileName}:`, error.message);
-          }
-        }
-        if (!sources.length) {
-          flog("no sources to send to TG");
-          return;
-        }
         try {
           const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
           flog("calling notifyDocRequestFulfilled with", sources.length, "files, chat=", recipientChatId || "common", "topic=", topicId || "(none)");
@@ -1559,24 +1584,55 @@ function moscowTimeParts() {
   };
 }
 
+// Считает сколько миллисекунд до следующего наступления 08:50 в Europe/Moscow.
+// Использует Intl для определения МСК-смещения.
+function msUntilNextDailyResend() {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  });
+  const parts = fmt.formatToParts(new Date());
+  const v = (type) => parts.find((p) => p.type === type)?.value || "";
+  const mskNowMs = Date.UTC(Number(v("year")), Number(v("month")) - 1, Number(v("day")),
+    Number(v("hour")), Number(v("minute")), Number(v("second")));
+  const mskTargetToday = Date.UTC(Number(v("year")), Number(v("month")) - 1, Number(v("day")),
+    DAILY_RESEND_HOUR_MSK, DAILY_RESEND_MIN_MSK, 0);
+  let diff = mskTargetToday - mskNowMs;
+  if (diff <= 0) diff += 24 * 60 * 60 * 1000; // сегодняшний слот уже прошёл — ждём завтрашний
+  return diff;
+}
+
 function startDailyResendScheduler() {
   if (process.env.DISABLE_DAILY_RESEND === "1") {
     console.log("[scheduler] daily resend disabled by env DISABLE_DAILY_RESEND=1");
     return;
   }
-  setInterval(async () => {
-    try {
-      const t = moscowTimeParts();
-      if (t.hour !== DAILY_RESEND_HOUR_MSK || t.minute !== DAILY_RESEND_MIN_MSK) return;
-      if (lastDailyResendDate === t.date) return;
-      lastDailyResendDate = t.date;
-      console.log(`[scheduler] daily resend trigger at ${t.date} ${DAILY_RESEND_HOUR_MSK}:${DAILY_RESEND_MIN_MSK} MSK`);
-      const results = await performResendActiveRequests({ actor: null, trace: `daily-${t.date}` });
-      console.log(`[scheduler] daily resend done: open=${results.open} fulfilled=${results.fulfilled} errors=${results.errors}`);
-    } catch (error) {
-      console.warn("[scheduler] tick error:", error.message);
-    }
-  }, 30 * 1000).unref();
+  const scheduleNext = () => {
+    const ms = msUntilNextDailyResend();
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    console.log(`[scheduler] next daily resend in ${hours}ч ${minutes}м`);
+    const t = setTimeout(async () => {
+      try {
+        const today = moscowTimeParts().date;
+        if (lastDailyResendDate !== today) {
+          lastDailyResendDate = today;
+          console.log(`[scheduler] daily resend trigger at ${today} 08:50 MSK`);
+          const results = await performResendActiveRequests({ actor: null, trace: `daily-${today}` });
+          console.log(`[scheduler] daily resend done: open=${results.open} fulfilled=${results.fulfilled} errors=${results.errors}`);
+        } else {
+          console.log("[scheduler] daily resend skipped (already done today)");
+        }
+      } catch (error) {
+        console.warn("[scheduler] timer error:", error.message);
+      } finally {
+        scheduleNext(); // следующий слот — через ~24h
+      }
+    }, ms);
+    t.unref();
+  };
+  scheduleNext();
   console.log(`[scheduler] daily resend armed for ${DAILY_RESEND_HOUR_MSK}:${String(DAILY_RESEND_MIN_MSK).padStart(2, "0")} MSK`);
 }
 

@@ -195,9 +195,27 @@ async function deleteUser(id) {
   return publicUser(normalizeUser(removed));
 }
 
+// Заглушка-хеш: scrypt-of("__no-user__") в формате scrypt$N$salt$hash.
+// Считается лениво при первом запросе. Нужно, чтобы authenticate тратил
+// то же время CPU при отсутствующем пользователе, что и при существующем —
+// иначе тайминг-ответа позволяет перебрать список валидных логинов.
+let DUMMY_HASH_PROMISE = null;
+function getDummyHash() {
+  if (!DUMMY_HASH_PROMISE) {
+    DUMMY_HASH_PROMISE = hashPassword("__no-user-timing-stub__");
+  }
+  return DUMMY_HASH_PROMISE;
+}
+
 async function authenticate(login, password) {
   const user = await findUserByLogin(login);
   if (!user) {
+    // Жмём scrypt против фиктивного хеша, чтобы выровнять время ответа
+    // и не дать пользователю отличить «нет логина» от «неверный пароль».
+    try {
+      const dummy = await getDummyHash();
+      await verifyPassword(password, dummy);
+    } catch { /* ignore */ }
     return null;
   }
   const ok = await verifyPassword(password, user.passwordHash);

@@ -516,32 +516,17 @@ class UnauthorizedError extends Error {
 
 const AUTH_TOKEN_KEY = "am_session_token";
 
-function readStoredToken() {
-  try {
-    return localStorage.getItem(AUTH_TOKEN_KEY) || "";
-  } catch {
-    return "";
-  }
-}
+// Чистим устаревший localStorage-токен (был fallback'ом до перехода
+// на HttpOnly+Secure+SameSite=Strict cookie).
+try { localStorage.removeItem(AUTH_TOKEN_KEY); } catch { /* ignore */ }
 
-function storeToken(token) {
-  try {
-    if (token) {
-      localStorage.setItem(AUTH_TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-    }
-  } catch {
-    // localStorage недоступен — продолжаем только с cookie
-  }
-}
+// Совместимости ради оставляем функции — они теперь no-op.
+// Авторизация ходит только через cookie (credentials: "same-origin").
+function readStoredToken() { return ""; }
+function storeToken(_token) { /* no-op — токен живёт только в HttpOnly cookie */ }
 
 async function requestJson(url, options) {
   const headers = { "Content-Type": "application/json", ...(options?.headers || {}) };
-  const token = readStoredToken();
-  if (token && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${token}`;
-  }
 
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -5088,10 +5073,8 @@ async function handleUploadAttachment(input) {
   }
   showToast(`Загружаем ${files.length} ${files.length === 1 ? "файл" : "файлов"} на Drive…`, { type: "info" });
   try {
-    const token = localStorage.getItem("amBearerToken") || "";
     const res = await fetch(`/api/document-requests/${encodeURIComponent(reqId)}/attachments`, {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
       credentials: "same-origin",
       body: formData
     });
@@ -5443,13 +5426,10 @@ if (loginForm) {
       password: String(formData.get("password") || "")
     };
     try {
-      const { user, token } = await requestJson("/api/auth/login", {
+      const { user } = await requestJson("/api/auth/login", {
         method: "POST",
         body: JSON.stringify(payload)
       });
-      if (token) {
-        storeToken(token);
-      }
       state.user = user;
       applyUserToBadge(user);
       pickInitialView();
