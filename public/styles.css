@@ -3820,3 +3820,76 @@ td select {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ======================================================================
+   WIDE-MONITOR ADJUSTMENTS — 27"+ мониторы 2560×1440 и больше.
+   Контент не растягиваем на всю ширину (читаемая длина строк),
+   карточки крупнее, а воронки и БЗ — двухколоночные.
+   ====================================================================== */
+
+@media (min-width: 1500px) {
+  /* Карточки заявок — крупнее и чуть просторнее. */
+  .deal-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .deal-card {
+    padding: 16px 18px 14px;
+  }
+  .deal-card-client { font-size: 17px; }
+  .deal-card-amount strong { font-size: 19px; }
+
+  /* KPI плотнее — на широких экранах все KPI помещаются в один ряд. */
+  .kpi { min-height: 100px; padding: 16px 18px; }
+  .kpi strong { font-size: 24px; }
+  .kpi span { font-size: 13px; }
+
+  /* Аналитики и архив — две колонки карточек аналитиков в ряд. */
+  .manager-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+
+  /* База знаний — две колонки банков. */
+  .knowledge-bank-stack {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+
+  /* Чуть крупнее основной текст в карточках */
+  .doc-request-card { padding: 16px 18px; }
+  .doc-request-client { font-size: 21px; }
+  .stage-section-head, .client-overview-head { padding: 14px 18px; }
+}
+
+@media (min-width: 1900px) {
+  /* На 2K-2.5K — чуть больше воздуха и больше карточек в ряд. */
+  .panel + .panel { margin-top: 18px; }
+
+  /* Карточки заявок ещё чуть шире — приоритет на читаемость. */
+  .deal-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+
+  /* Аналитики и БЗ — три колонки на широких. */
+  .manager-stack,
+  .knowledge-bank-stack {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+
+@media (min-width: 2400px) {
+  /* 4K+ — ещё гуще. */
+  .deal-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  }
+  .manager-stack,
+  .knowledge-bank-stack {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
