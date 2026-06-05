@@ -43,7 +43,20 @@ const users = require("./src/users");
 const { defaultStore: sessionStore } = require("./src/sessions");
 const googleDrive = require("./src/googleDrive");
 const telegram = require("./src/telegram");
-const { setClientTelegramTopicId, setDocumentRequestOpenMessageId } = require("./src/store");
+const {
+  setClientTelegramTopicId,
+  setDocumentRequestOpenMessageId,
+  getProgramTypes,
+  createProgramType,
+  updateProgramType,
+  deleteProgramType,
+  getProgramCategories,
+  createProgramCategory,
+  updateProgramCategory,
+  deleteProgramCategory,
+  seedTaxonomyIfEmpty,
+  reloadTaxonomyCache
+} = require("./src/store");
 const Busboy = require("busboy");
 
 // Резолвит/создаёт topic-id в форум-группе для клиента.
@@ -1436,6 +1449,86 @@ async function handleApi(request, response) {
 
   // ===== Google Drive integration (admin) =====
 
+  // ===== Program types & categories taxonomy =====
+  // GET доступны всем авторизованным (нужны диалогу программы БЗ).
+  // CUD — admin only.
+
+  if (request.method === "GET" && pathname === "/api/program-types") {
+    sendJson(response, 200, { items: await getProgramTypes() });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/api/program-types") {
+    requireRole(request, ["admin"]);
+    const payload = await readBody(request);
+    try {
+      const item = await createProgramType(payload);
+      sendJson(response, 201, { item });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+  const programTypeMatch = pathname.match(/^\/api\/program-types\/([^/]+)$/);
+  if (request.method === "PATCH" && programTypeMatch) {
+    requireRole(request, ["admin"]);
+    const id = decodeURIComponent(programTypeMatch[1]);
+    const payload = await readBody(request);
+    try {
+      const item = await updateProgramType(id, payload);
+      if (!item) { sendJson(response, 404, { error: "Не найдено" }); return; }
+      sendJson(response, 200, { item });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+  if (request.method === "DELETE" && programTypeMatch) {
+    requireRole(request, ["admin"]);
+    const id = decodeURIComponent(programTypeMatch[1]);
+    const item = await deleteProgramType(id);
+    if (!item) { sendJson(response, 404, { error: "Не найдено" }); return; }
+    sendJson(response, 200, { item });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/program-categories") {
+    sendJson(response, 200, { items: await getProgramCategories() });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/api/program-categories") {
+    requireRole(request, ["admin"]);
+    const payload = await readBody(request);
+    try {
+      const item = await createProgramCategory(payload);
+      sendJson(response, 201, { item });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+  const programCatMatch = pathname.match(/^\/api\/program-categories\/([^/]+)$/);
+  if (request.method === "PATCH" && programCatMatch) {
+    requireRole(request, ["admin"]);
+    const id = decodeURIComponent(programCatMatch[1]);
+    const payload = await readBody(request);
+    try {
+      const item = await updateProgramCategory(id, payload);
+      if (!item) { sendJson(response, 404, { error: "Не найдено" }); return; }
+      sendJson(response, 200, { item });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+  if (request.method === "DELETE" && programCatMatch) {
+    requireRole(request, ["admin"]);
+    const id = decodeURIComponent(programCatMatch[1]);
+    const item = await deleteProgramCategory(id);
+    if (!item) { sendJson(response, 404, { error: "Не найдено" }); return; }
+    sendJson(response, 200, { item });
+    return;
+  }
+
   if (request.method === "GET" && pathname === "/api/integrations") {
     requireRole(request, ["admin"]);
     const google = await googleDrive.getStatus();
@@ -1639,6 +1732,10 @@ function startDailyResendScheduler() {
 async function start() {
   await initStore();
   await users.ensureBootstrapAdmin({ logger: console });
+  // Bootstrap taxonomy: засеваем дефолтные типы/категории если коллекции пустые,
+  // потом грузим актуальный список в process-кеш.
+  try { await seedTaxonomyIfEmpty(); } catch (e) { console.warn("[taxonomy] seed error:", e.message); }
+  try { await reloadTaxonomyCache(); } catch (e) { console.warn("[taxonomy] cache reload error:", e.message); }
   server.listen(PORT, () => {
     console.log(`Deal Monitor is running at http://localhost:${PORT}`);
   });

@@ -36,6 +36,14 @@ const COLLECTIONS = {
   integrations: {
     file: path.join(DATA_DIR, "integrations.json"),
     table: "app_integrations"
+  },
+  program_types: {
+    file: path.join(DATA_DIR, "program_types.json"),
+    table: "app_program_types"
+  },
+  program_categories: {
+    file: path.join(DATA_DIR, "program_categories.json"),
+    table: "app_program_categories"
   }
 };
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
@@ -219,6 +227,26 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
           created_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now()
         );
+
+        CREATE TABLE IF NOT EXISTS app_program_types (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS app_program_types_name_idx
+          ON app_program_types (lower(data->>'name'));
+
+        CREATE TABLE IF NOT EXISTS app_program_categories (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS app_program_categories_name_idx
+          ON app_program_categories (lower(data->>'name'));
 
         CREATE TABLE IF NOT EXISTS app_knowledge_programs (
           id text PRIMARY KEY,

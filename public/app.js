@@ -10,6 +10,8 @@ const state = {
   users: [],
   documentRequests: [],
   integrations: null,
+  programTypes: [],
+  programCategories: [],
   lastSeenFulfilledRequestIds: new Set(),
   user: null,
   filters: {
@@ -177,8 +179,11 @@ const APPLICATION_STAGE_LABELS = {
   blocked: "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)"
 };
 
-const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
-const PROGRAM_CATEGORIES = [
+// Дефолтные значения. Используются как fallback, пока не загрузились
+// актуальные списки с бэка. После loadData PROGRAM_TYPES/PROGRAM_CATEGORIES
+// проксируются на state.programTypes/programCategories (см. геттеры ниже).
+const DEFAULT_PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
+const DEFAULT_PROGRAM_CATEGORIES = [
   "1 КАТЕГОРИЯ",
   "2 КАТЕГОРИЯ",
   "3 КАТЕГОРИЯ",
@@ -188,6 +193,38 @@ const PROGRAM_CATEGORIES = [
   "ФИЗАВТО",
   "ТЕСТОВЫЕ БАНКИ"
 ];
+function PROGRAM_TYPES_LIST() {
+  return (state.programTypes && state.programTypes.length)
+    ? state.programTypes.map((it) => it.name)
+    : DEFAULT_PROGRAM_TYPES;
+}
+function PROGRAM_CATEGORIES_LIST() {
+  return (state.programCategories && state.programCategories.length)
+    ? state.programCategories.map((it) => it.name)
+    : DEFAULT_PROGRAM_CATEGORIES;
+}
+// Совместимость: старый код использует PROGRAM_TYPES / PROGRAM_CATEGORIES как массивы.
+// Перепишем все usages на функции, а старые имена оставим как proxy через геттер.
+const PROGRAM_TYPES = new Proxy([], {
+  get: (_t, p) => {
+    const arr = PROGRAM_TYPES_LIST();
+    if (p === Symbol.iterator) return arr[Symbol.iterator].bind(arr);
+    if (p === "length") return arr.length;
+    if (typeof p === "string" && /^\d+$/.test(p)) return arr[Number(p)];
+    const v = arr[p];
+    return typeof v === "function" ? v.bind(arr) : v;
+  }
+});
+const PROGRAM_CATEGORIES = new Proxy([], {
+  get: (_t, p) => {
+    const arr = PROGRAM_CATEGORIES_LIST();
+    if (p === Symbol.iterator) return arr[Symbol.iterator].bind(arr);
+    if (p === "length") return arr.length;
+    if (typeof p === "string" && /^\d+$/.test(p)) return arr[Number(p)];
+    const v = arr[p];
+    return typeof v === "function" ? v.bind(arr) : v;
+  }
+});
 const CATEGORY_FALLBACK_LABEL = "Без категории";
 const KNOWLEDGE_SECTIONS = {
   banks: "Банки",
@@ -561,6 +598,8 @@ const LOAD_DATA_TARGETS = {
   tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; }, notForRoles: ["documents_officer"] },
   users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, allowedRoles: ["admin"] },
   integrations: { url: "/api/integrations", apply: (payload) => { state.integrations = payload || null; }, allowedRoles: ["admin"] },
+  programTypes: { url: "/api/program-types", apply: (payload) => { state.programTypes = payload.items || []; }, notForRoles: ["documents_officer"] },
+  programCategories: { url: "/api/program-categories", apply: (payload) => { state.programCategories = payload.items || []; }, notForRoles: ["documents_officer"] },
   documentRequests: {
     url: "/api/document-requests",
     apply: (payload) => { applyDocumentRequests(payload.documentRequests || []); }
@@ -2839,8 +2878,43 @@ function renderAdminPanelView() {
         </div>
       </div>
     </section>
+    ${renderTaxonomyView("Типы программ", "program-type", state.programTypes || [])}
+    ${renderTaxonomyView("Категории программ", "program-category", state.programCategories || [])}
     ${renderUsersView()}
     ${renderIntegrationsView()}
+  `;
+}
+
+// Универсальный рендер списка taxonomy + inline-форма добавления.
+function renderTaxonomyView(title, kind, items) {
+  const rows = items.length
+    ? items.map((it) => `
+        <li class="taxonomy-row" data-taxonomy-id="${escapeHtml(it.id)}">
+          <span class="taxonomy-name" data-taxonomy-name>${escapeHtml(it.name)}</span>
+          <span class="taxonomy-actions">
+            <button class="ghost-button small-button" data-edit-taxonomy="${escapeHtml(kind)}" data-id="${escapeHtml(it.id)}" type="button">Изменить</button>
+            <button class="ghost-button small-button danger-button" data-delete-taxonomy="${escapeHtml(kind)}" data-id="${escapeHtml(it.id)}" data-name="${escapeHtml(it.name)}" type="button">Удалить</button>
+          </span>
+        </li>
+      `).join("")
+    : `<li class="taxonomy-empty">Пока пусто. Добавьте первое значение.</li>`;
+  return `
+    <section class="panel admin-panel-section">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">База знаний</p>
+          <h2>${escapeHtml(title)}</h2>
+          <p class="muted">Эти значения подставляются в селекты при создании и редактировании программ</p>
+        </div>
+        <div class="panel-head-actions">
+          <form class="taxonomy-add" data-taxonomy-add="${escapeHtml(kind)}">
+            <input type="text" name="name" placeholder="Новое значение" required maxlength="120">
+            <button class="primary-button small-button" type="submit">+ Добавить</button>
+          </form>
+        </div>
+      </div>
+      <ul class="taxonomy-list">${rows}</ul>
+    </section>
   `;
 }
 
@@ -4148,6 +4222,19 @@ function initDynamicControls() {
     }
   });
 
+  // Submit формы добавления нового значения в taxonomy (в Панели управления).
+  app.addEventListener("submit", async (event) => {
+    const form = event.target?.closest?.("[data-taxonomy-add]");
+    if (!form) return;
+    event.preventDefault();
+    const kind = form.dataset.taxonomyAdd;
+    const input = form.querySelector('input[name="name"]');
+    const name = (input?.value || "").trim();
+    if (!name) return;
+    await handleAddTaxonomy(kind, name);
+    if (input) input.value = "";
+  });
+
   app.addEventListener("change", async (event) => {
     const target = event.target;
     if (!target) {
@@ -4381,6 +4468,21 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       openDealActionDialog(addDealAction.dataset.addDealAction);
+      return;
+    }
+
+    const editTaxonomyBtn = target.closest("[data-edit-taxonomy]");
+    if (editTaxonomyBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleEditTaxonomy(editTaxonomyBtn);
+      return;
+    }
+    const deleteTaxonomyBtn = target.closest("[data-delete-taxonomy]");
+    if (deleteTaxonomyBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteTaxonomy(deleteTaxonomyBtn);
       return;
     }
 
@@ -4977,6 +5079,68 @@ async function handleDeleteUser(button) {
   try {
     await requestJson(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
     await loadData({ targets: ["users"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+// ==== Taxonomy (типы программ / категории программ) ====
+
+function taxonomyKindToTarget(kind) {
+  return kind === "program-type" ? "programTypes" : "programCategories";
+}
+
+function taxonomyKindToUrl(kind) {
+  return kind === "program-type" ? "/api/program-types" : "/api/program-categories";
+}
+
+async function handleAddTaxonomy(kind, name) {
+  try {
+    await requestJson(taxonomyKindToUrl(kind), {
+      method: "POST",
+      body: JSON.stringify({ name })
+    });
+    await loadData({ targets: [taxonomyKindToTarget(kind)] });
+    render();
+    showToast("Добавлено", { type: "success" });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleEditTaxonomy(button) {
+  const kind = button.dataset.editTaxonomy;
+  const id = button.dataset.id;
+  const row = button.closest(".taxonomy-row");
+  const currentName = row?.querySelector("[data-taxonomy-name]")?.textContent || "";
+  const next = window.prompt("Новое значение:", currentName);
+  if (next === null) return;
+  const trimmed = String(next).trim();
+  if (!trimmed) return;
+  if (trimmed === currentName) return;
+  try {
+    await requestJson(`${taxonomyKindToUrl(kind)}/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: trimmed })
+    });
+    await loadData({ targets: [taxonomyKindToTarget(kind)] });
+    render();
+    showToast("Изменено", { type: "success" });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleDeleteTaxonomy(button) {
+  const kind = button.dataset.deleteTaxonomy;
+  const id = button.dataset.id;
+  const name = button.dataset.name || "значение";
+  if (!window.confirm(`Удалить «${name}»? Программы с этим значением останутся, но в списке селекта его больше не будет.`)) return;
+  try {
+    await requestJson(`${taxonomyKindToUrl(kind)}/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await loadData({ targets: [taxonomyKindToTarget(kind)] });
+    render();
+    showToast("Удалено", { type: "info" });
   } catch (error) {
     window.alert(error.message);
   }

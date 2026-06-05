@@ -527,6 +527,59 @@ textarea:focus-visible {
 /* ===== Панель управления (admin) ===== */
 .admin-panel-section + .panel { margin-top: 16px; }
 
+/* Taxonomy: типы программ / категории программ */
+.taxonomy-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.taxonomy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--glass-line);
+  background: var(--panel);
+  border-radius: var(--r-md);
+}
+.taxonomy-name {
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.taxonomy-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.taxonomy-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px 14px;
+}
+.taxonomy-add {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.taxonomy-add input {
+  min-width: 220px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255,255,255,0.85);
+}
+.taxonomy-add input:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.18);
+}
+
 .alert-pill {
   display: inline-flex;
   align-items: center;
