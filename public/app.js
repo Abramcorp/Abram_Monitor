@@ -4012,41 +4012,56 @@ function renderStageClientsGroup(stageId, items) {
   `;
 }
 
-function summaryScopeMatches(deal, scope) {
-  if (scope === "current") return deal.statusGroup === "current";
-  if (scope === "completed") return deal.statusGroup === "completed";
-  return true; // "all"
+// Делит клиентов на "текущих" (есть хоть одна активная заявка) и
+// "завершённых" (все заявки в completed, либо вообще нет активных).
+// Клиенты без заявок — пропускаем.
+function summaryClientBuckets() {
+  const deals = state.dashboard?.deals || [];
+  const byClient = new Map(); // client -> {hasCurrent, total}
+  for (const d of deals) {
+    const key = d.client || "";
+    if (!key) continue;
+    const bucket = byClient.get(key) || { hasCurrent: false, total: 0 };
+    if (d.statusGroup === "current") bucket.hasCurrent = true;
+    bucket.total += 1;
+    byClient.set(key, bucket);
+  }
+  const current = new Set();
+  const completed = new Set();
+  for (const [name, b] of byClient) {
+    if (b.hasCurrent) current.add(name);
+    else completed.add(name);
+  }
+  return { current, completed };
 }
 
 function summaryScopedDeals() {
   const deals = state.dashboard?.deals || [];
   const scope = state.summary?.scope || "current";
   if (scope === "all") return deals;
-  return deals.filter((d) => summaryScopeMatches(d, scope));
+  const buckets = summaryClientBuckets();
+  const allowed = scope === "current" ? buckets.current : buckets.completed;
+  return deals.filter((d) => d.client && allowed.has(d.client));
 }
 
 // Подсчёты клиентов и заявок по scope для шапки селектора.
+// Заявки считаются как все заявки соответствующих клиентов (целиком).
 function summaryScopeCounts() {
   const deals = state.dashboard?.deals || [];
-  const currentClients = new Set();
-  const completedClients = new Set();
-  let currentCount = 0;
-  let completedCount = 0;
+  const buckets = summaryClientBuckets();
+  let currentDeals = 0;
+  let completedDeals = 0;
   for (const d of deals) {
-    if (d.statusGroup === "current") {
-      currentCount += 1;
-      if (d.client) currentClients.add(d.client);
-    } else if (d.statusGroup === "completed") {
-      completedCount += 1;
-      if (d.client) completedClients.add(d.client);
-    }
+    if (!d.client) continue;
+    if (buckets.current.has(d.client)) currentDeals += 1;
+    else if (buckets.completed.has(d.client)) completedDeals += 1;
   }
   return {
-    currentDeals: currentCount,
-    completedDeals: completedCount,
+    currentDeals,
+    completedDeals,
     allDeals: deals.length,
-    currentClients: currentClients.size,
-    completedClients: completedClients.size
+    currentClients: buckets.current.size,
+    completedClients: buckets.completed.size
   };
 }
 
