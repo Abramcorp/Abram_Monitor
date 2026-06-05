@@ -4012,25 +4012,30 @@ function renderStageClientsGroup(stageId, items) {
   `;
 }
 
-// Делит клиентов на "текущих" (есть хоть одна активная заявка) и
-// "завершённых" (все заявки в completed, либо вообще нет активных).
-// Клиенты без заявок — пропускаем.
-function summaryClientBuckets() {
-  const deals = state.dashboard?.deals || [];
-  const byClient = new Map(); // client -> {hasCurrent, total}
-  for (const d of deals) {
-    const key = d.client || "";
-    if (!key) continue;
-    const bucket = byClient.get(key) || { hasCurrent: false, total: 0 };
-    if (d.statusGroup === "current") bucket.hasCurrent = true;
-    bucket.total += 1;
-    byClient.set(key, bucket);
+// Делит клиентов на "текущих" и "завершённых" строго по флагу архива:
+//  • completed = клиент с archivedAt (помещён в архив)
+//  • current   = клиент без archivedAt (любая стадия заявок —
+//                от плановой до подписанной, либо вообще без заявок)
+// Заявки клиентов, которых нет в state.clients (например, удалённых),
+// относятся к current — чтобы не терять историю.
+const summaryClientKey = (s) => String(s || "").trim().toLowerCase();
+
+function summaryArchivedClientKeys() {
+  const archived = new Set();
+  for (const c of state.clients || []) {
+    if (c && c.archivedAt) archived.add(summaryClientKey(c.name));
   }
+  return archived;
+}
+
+function summaryClientBuckets() {
+  const archived = summaryArchivedClientKeys();
   const current = new Set();
   const completed = new Set();
-  for (const [name, b] of byClient) {
-    if (b.hasCurrent) current.add(name);
-    else completed.add(name);
+  for (const d of state.dashboard?.deals || []) {
+    if (!d.client) continue;
+    if (archived.has(summaryClientKey(d.client))) completed.add(d.client);
+    else current.add(d.client);
   }
   return { current, completed };
 }
@@ -4039,27 +4044,30 @@ function summaryScopedDeals() {
   const deals = state.dashboard?.deals || [];
   const scope = state.summary?.scope || "current";
   if (scope === "all") return deals;
-  const buckets = summaryClientBuckets();
-  const allowed = scope === "current" ? buckets.current : buckets.completed;
-  return deals.filter((d) => d.client && allowed.has(d.client));
+  const archived = summaryArchivedClientKeys();
+  if (scope === "completed") {
+    return deals.filter((d) => d.client && archived.has(summaryClientKey(d.client)));
+  }
+  // current — клиенты не в архиве (включая отсутствующих в справочнике).
+  return deals.filter((d) => d.client && !archived.has(summaryClientKey(d.client)));
 }
 
 // Подсчёты клиентов и заявок по scope для шапки селектора.
 // Заявки считаются как все заявки соответствующих клиентов (целиком).
 function summaryScopeCounts() {
-  const deals = state.dashboard?.deals || [];
+  const archived = summaryArchivedClientKeys();
   const buckets = summaryClientBuckets();
   let currentDeals = 0;
   let completedDeals = 0;
-  for (const d of deals) {
+  for (const d of state.dashboard?.deals || []) {
     if (!d.client) continue;
-    if (buckets.current.has(d.client)) currentDeals += 1;
-    else if (buckets.completed.has(d.client)) completedDeals += 1;
+    if (archived.has(summaryClientKey(d.client))) completedDeals += 1;
+    else currentDeals += 1;
   }
   return {
     currentDeals,
     completedDeals,
-    allDeals: deals.length,
+    allDeals: (state.dashboard?.deals || []).length,
     currentClients: buckets.current.size,
     completedClients: buckets.completed.size
   };
