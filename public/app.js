@@ -26,6 +26,9 @@ const state = {
     status: "current",
     groupBy: "manager"
   },
+  summary: {
+    groupBy: "stage" // "stage" | "client"
+  },
   summaryCharts: {
     period: "year"
   },
@@ -3955,7 +3958,51 @@ function renderDealsByStage() {
               <span class="stage-section-meta">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
             </summary>
             <div class="stage-section-body">
-              ${renderBoardApplicationRows(sortedItems, "manager")}
+              ${renderStageClientsGroup(id, sortedItems)}
+            </div>
+          </details>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+// Внутри stage-section группируем заявки по клиенту: каждый клиент —
+// свёрнутый <details> с шапкой (счётчик заявок + сумма + аналитик) и
+// сеткой карточек заявок внутри.
+function renderStageClientsGroup(stageId, items) {
+  if (!items.length) return `<div class="empty compact-empty">Заявок нет.</div>`;
+  const byClient = new Map();
+  for (const d of items) {
+    const key = d.client || "Без клиента";
+    if (!byClient.has(key)) byClient.set(key, []);
+    byClient.get(key).push(d);
+  }
+  const entries = [...byClient.entries()].sort((a, b) => {
+    // Сначала клиенты у кого свежее последнее действие.
+    const aLast = Math.max(...a[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    const bLast = Math.max(...b[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    if (aLast !== bLast) return bLast - aLast;
+    return a[0].localeCompare(b[0], "ru");
+  });
+  return `
+    <div class="stage-client-stack">
+      ${entries.map(([clientName, dealsOfClient]) => {
+        const sortedDeals = dealsOfClient.slice().sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+        const sumReq = sortedDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+        const sumApp = sortedDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
+        const analysts = [...new Set(sortedDeals.map((d) => d.manager).filter(Boolean))].join(", ");
+        const stateKey = uiStateKey("summary-stage-client", stageId, clientName);
+        return `
+          <details class="stage-client-group" data-ui-state-key="${escapeHtml(stateKey)}">
+            <summary class="stage-client-group-head">
+              <span class="stage-client-count">${sortedDeals.length}</span>
+              <span class="stage-client-name">${escapeHtml(clientName)}</span>
+              <span class="stage-client-meta">${analysts ? escapeHtml(analysts) : ""}</span>
+              <span class="stage-client-sum">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
+            </summary>
+            <div class="stage-client-group-body">
+              ${renderBoardApplicationRows(sortedDeals, "client")}
             </div>
           </details>
         `;
@@ -3974,22 +4021,110 @@ function renderSummary() {
   const totalReq = allDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
   const totalApp = allDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
 
+  const groupBy = state.summary?.groupBy === "client" ? "client" : "stage";
+  const h2Title = groupBy === "client" ? "Все заявки по клиентам" : "Все заявки по статусам";
+  const listHtml = groupBy === "client" ? renderDealsByClient() : renderDealsByStage();
+
   return `
     ${renderKpis()}
     ${summaryAlerts()}
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2 title="${escapeHtml(reportTimeAttr)}">Все заявки по статусам</h2>
+          <h2 title="${escapeHtml(reportTimeAttr)}">${h2Title}</h2>
           <p class="summary-totals-line">
             <strong>${allDeals.length}</strong> заявок · <strong>${money(totalReq)}</strong>
             ${totalApp ? ` · одобрено <strong>${money(totalApp)}</strong>` : ""}
           </p>
         </div>
+        <div class="panel-head-actions">
+          <div class="segmented summary-groupby" role="tablist" aria-label="Группировка заявок">
+            <button class="${groupBy === "stage" ? "is-active" : ""}" data-summary-groupby="stage" type="button">По статусам</button>
+            <button class="${groupBy === "client" ? "is-active" : ""}" data-summary-groupby="client" type="button">По клиентам</button>
+          </div>
+        </div>
       </div>
       ${renderSummaryCharts(groups, state.board.status, totals)}
-      ${renderDealsByStage()}
+      ${listHtml}
     </section>
+  `;
+}
+
+// Группировка: верхний уровень — клиент; внутри клиента — секции по статусам с карточками.
+function renderDealsByClient() {
+  const deals = state.dashboard?.deals || [];
+  if (!deals.length) return `<div class="empty">Нет заявок.</div>`;
+
+  const stages = state.dashboard?.stages?.all || [];
+  const stageLabelMap = Object.fromEntries(stages.map((s) => [s.id, s.label]));
+
+  const byClient = new Map();
+  for (const deal of deals) {
+    const key = deal.client || "Без клиента";
+    if (!byClient.has(key)) byClient.set(key, []);
+    byClient.get(key).push(deal);
+  }
+
+  const entries = [...byClient.entries()].sort((a, b) => {
+    const aLast = Math.max(...a[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    const bLast = Math.max(...b[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    if (aLast !== bLast) return bLast - aLast;
+    return a[0].localeCompare(b[0], "ru");
+  });
+
+  return `
+    <div class="client-overview-stack">
+      ${entries.map(([clientName, clientDeals]) => {
+        const analysts = [...new Set(clientDeals.map((d) => d.manager).filter(Boolean))].join(", ");
+        const totalCount = clientDeals.length;
+        const sumReq = clientDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+        const sumApp = clientDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
+        // Доминирующий статус — для цвета левой полоски карточки клиента.
+        const stageCounts = clientDeals.reduce((acc, d) => {
+          acc[d.stage] = (acc[d.stage] || 0) + 1; return acc;
+        }, {});
+        const dominantStage = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const tone = stageTone(dominantStage);
+        // Группировка внутри клиента по этапу.
+        const byStage = new Map();
+        for (const d of clientDeals) {
+          if (!byStage.has(d.stage)) byStage.set(d.stage, []);
+          byStage.get(d.stage).push(d);
+        }
+        const stageOrdered = [
+          ...SUMMARY_STAGE_ORDER.filter((id) => byStage.has(id)),
+          ...[...byStage.keys()].filter((id) => !SUMMARY_STAGE_ORDER.includes(id))
+        ];
+        const stateKey = uiStateKey("summary-client", clientName);
+        return `
+          <details class="client-overview is-${tone}" data-ui-state-key="${escapeHtml(stateKey)}">
+            <summary class="client-overview-head">
+              <span class="client-overview-count">${totalCount}</span>
+              <span class="client-overview-name">${escapeHtml(clientName)}</span>
+              <span class="client-overview-meta">${analysts ? escapeHtml(analysts) : ""}</span>
+              <span class="client-overview-sum">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
+            </summary>
+            <div class="client-overview-body">
+              ${stageOrdered.map((sid) => {
+                const items = byStage.get(sid) || [];
+                const label = stageLabelMap[sid] || items[0]?.stageLabel || sid;
+                const sTone = stageTone(sid);
+                const sorted = items.slice().sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+                return `
+                  <div class="client-overview-stage is-${sTone}">
+                    <div class="client-overview-stage-head">
+                      <span class="stage-section-label is-${sTone}">${escapeHtml(label)}</span>
+                      <span class="client-overview-stage-count">${items.length}</span>
+                    </div>
+                    ${renderBoardApplicationRows(sorted, "client")}
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </details>
+        `;
+      }).join("")}
+    </div>
   `;
 }
 
@@ -4290,6 +4425,14 @@ function initDynamicControls() {
     const programLink = target.closest(".knowledge-program-link, .application-program-link");
     if (programLink) {
       event.stopPropagation();
+      return;
+    }
+
+    const summaryGroupBy = target.closest("[data-summary-groupby]");
+    if (summaryGroupBy) {
+      state.summary = state.summary || {};
+      state.summary.groupBy = summaryGroupBy.dataset.summaryGroupby;
+      render();
       return;
     }
 
@@ -4624,9 +4767,25 @@ function findKnowledgeProgram(programId) {
   return null;
 }
 
+// Перестраивает <option> в селектах диалога БЗ из актуальных списков таксономии.
+function rebuildKnowledgeTaxonomySelects() {
+  const typeSelect = knowledgeForm?.elements?.programType;
+  const categorySelect = knowledgeForm?.elements?.category;
+  if (typeSelect) {
+    const types = PROGRAM_TYPES_LIST();
+    typeSelect.innerHTML = types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+  }
+  if (categorySelect) {
+    const cats = PROGRAM_CATEGORIES_LIST();
+    categorySelect.innerHTML = `<option value="">Без категории</option>`
+      + cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  }
+}
+
 function openKnowledgeDialog(entry = null) {
   fillDealFormOptions();
   knowledgeForm.reset();
+  rebuildKnowledgeTaxonomySelects();
   knowledgeForm.elements.programId.value = entry?.program?.id || "";
   knowledgeForm.elements.bank.value = entry?.bank?.bank || "";
   knowledgeForm.elements.bankPhone.value = entry?.bank?.phone || entry?.program?.bankPhone || "";
@@ -4635,8 +4794,29 @@ function openKnowledgeDialog(entry = null) {
   knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
   knowledgeForm.elements.termRange.value = entry?.program?.termRange || "";
   knowledgeForm.elements.reviewTermDeclared.value = entry?.program?.reviewTermDeclared || "";
-  knowledgeForm.elements.programType.value = PROGRAM_TYPES.includes(entry?.program?.programType) ? entry.program.programType : "Стандарт";
-  knowledgeForm.elements.category.value = PROGRAM_CATEGORIES.includes(entry?.program?.category) ? entry.program.category : "";
+  // Тип программы: если у программы значение из устаревшего/удалённого списка —
+  // добавляем как option на лету, чтобы при сохранении оно не сменилось.
+  const currentType = entry?.program?.programType || "";
+  const typeList = PROGRAM_TYPES_LIST();
+  const typeSel = knowledgeForm.elements.programType;
+  if (currentType && !typeList.includes(currentType) && typeSel) {
+    const opt = document.createElement("option");
+    opt.value = currentType;
+    opt.textContent = `${currentType} (нет в списке)`;
+    typeSel.appendChild(opt);
+  }
+  typeSel.value = currentType || (typeList.includes("Стандарт") ? "Стандарт" : typeList[0] || "");
+
+  const currentCat = entry?.program?.category || "";
+  const catList = PROGRAM_CATEGORIES_LIST();
+  const catSel = knowledgeForm.elements.category;
+  if (currentCat && !catList.includes(currentCat) && catSel) {
+    const opt = document.createElement("option");
+    opt.value = currentCat;
+    opt.textContent = `${currentCat} (нет в списке)`;
+    catSel.appendChild(opt);
+  }
+  catSel.value = currentCat;
 
   const requirements = entry?.program?.requirements || {};
   Object.keys(REQUIREMENT_LABELS).forEach((key) => {

@@ -2685,6 +2685,266 @@ td select {
   padding: 8px 0 0;
 }
 
+/* ===== Внутри stage-section — группировка заявок по клиенту ===== */
+.stage-client-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.stage-client-group {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+.stage-client-group > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.stage-client-group > summary::-webkit-details-marker { display: none; }
+
+.stage-client-group-head {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1.3fr) minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  transition: background-color 120ms ease;
+}
+.stage-client-group > summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  font-size: 10px;
+  transition: transform 150ms ease;
+  margin-left: 2px;
+}
+.stage-client-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+.stage-client-group > summary:hover {
+  background: rgba(0, 0, 0, 0.025);
+}
+
+.stage-client-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.08);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-client-name {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.stage-client-meta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.stage-client-sum {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stage-client-group-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+.stage-client-group-body .deal-card-grid {
+  padding: 8px 0 0;
+}
+
+@media (max-width: 720px) {
+  .stage-client-group-head {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "count name"
+      "count meta"
+      "count sum";
+    row-gap: 2px;
+  }
+  .stage-client-count { grid-area: count; align-self: center; }
+  .stage-client-name  { grid-area: name; }
+  .stage-client-meta  { grid-area: meta; }
+  .stage-client-sum   { grid-area: sum; text-align: left; }
+}
+
+/* ===== Сводный по клиентам (top-level = клиент, внутри stages) ===== */
+.segmented.summary-groupby {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(11,18,32,0.06);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+}
+.segmented.summary-groupby button {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.segmented.summary-groupby button:hover { color: var(--ink); }
+.segmented.summary-groupby button.is-active {
+  background: rgba(255,255,255,0.95);
+  color: var(--blue);
+  box-shadow: 0 1px 3px rgba(11,18,32,0.06);
+}
+
+.client-overview-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.client-overview {
+  border: 1px solid var(--glass-line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.client-overview.is-success { border-left-color: var(--green); }
+.client-overview.is-warning { border-left-color: var(--amber); }
+.client-overview.is-danger  { border-left-color: var(--red); }
+.client-overview.is-info    { border-left-color: var(--blue); }
+.client-overview.is-neutral { border-left-color: var(--line-strong); }
+
+.client-overview > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.client-overview > summary::-webkit-details-marker { display: none; }
+
+.client-overview-head {
+  display: grid;
+  grid-template-columns: auto auto minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  transition: background-color 120ms ease;
+}
+.client-overview > summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform 150ms ease;
+}
+.client-overview[open] > summary::before { transform: rotate(90deg); }
+.client-overview > summary:hover { background: rgba(0, 0, 0, 0.025); }
+
+.client-overview-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.08);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.client-overview-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.client-overview-meta {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.client-overview-sum {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.client-overview-body {
+  padding: 6px 14px 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.client-overview-stage {
+  padding: 8px 0 0;
+}
+
+.client-overview-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.client-overview-stage-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.client-overview-stage .deal-card-grid {
+  padding: 0;
+}
+
+@media (max-width: 720px) {
+  .client-overview-head {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "marker name"
+      "marker meta"
+      "marker sum";
+    row-gap: 2px;
+  }
+  .client-overview-count { grid-area: marker; align-self: center; }
+  .client-overview-name  { grid-area: name; }
+  .client-overview-meta  { grid-area: meta; }
+  .client-overview-sum   { grid-area: sum; text-align: left; }
+}
+
 /* Цветная левая полоска для секции — синхронно с заявками */
 .stage-section.is-success { border-left: 3px solid var(--green); }
 .stage-section.is-warning { border-left: 3px solid var(--amber); }
