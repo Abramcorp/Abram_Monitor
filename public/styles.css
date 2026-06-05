@@ -2507,14 +2507,33 @@ td select {
 .deal-card.is-info::before    { background: linear-gradient(180deg, var(--blue),  rgba(0,122,255,0));  opacity: 1; }
 
 /* Hover/focus — лёгкий подъём + тень. Без scale, чтобы карточка
-   не залезала на соседние при hover. */
+   не залезала на соседние при hover. Очень высокий z-index гарантирует,
+   что карточка поверх любых соседних шапок секций / клиентов. */
 .deal-card:hover,
 .deal-card:focus-within {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--shadow-deep);
   border-color: var(--line-strong);
-  z-index: 10;
+  z-index: 100;
   transition-delay: 0s;
+}
+
+/* Родительские контейнеры карточек создают свои stacking-context
+   (backdrop-filter + overflow:hidden). Чтобы выделенная карточка могла
+   визуально перекрыть соседние секции, временно:
+   — снимаем overflow:hidden у того контейнера, где сейчас наведена карточка;
+   — поднимаем z-index самого контейнера. */
+.stage-section:has(.deal-card:hover),
+.stage-section:has(.deal-card:focus-within),
+.stage-client-group:has(.deal-card:hover),
+.stage-client-group:has(.deal-card:focus-within),
+.client-overview:has(.deal-card:hover),
+.client-overview:has(.deal-card:focus-within),
+.alert-expand:has(.deal-card:hover),
+.alert-expand:has(.deal-card:focus-within) {
+  overflow: visible;
+  z-index: 50;
+  position: relative;
 }
 
 .deal-card-head {
