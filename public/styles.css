@@ -3916,10 +3916,13 @@ td select {
   .kpi strong { font-size: 24px; }
   .kpi span { font-size: 13px; }
 
-  /* Аналитики и архив — две колонки карточек аналитиков в ряд. */
+  /* Аналитики — построчно (как раньше), но ограничиваем ширину карточек
+     и прижимаем их к левому краю, чтобы на 30" мониторе они не растягивались
+     во всю панель. Стиль такой же, как у верхней навигации (.tabs). */
   .manager-stack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    grid-template-columns: minmax(0, 1100px);
+    justify-content: start;
+    gap: 12px;
     align-items: start;
   }
 
@@ -3947,21 +3950,28 @@ td select {
     gap: 16px;
   }
 
-  /* Аналитики и БЗ — три колонки на широких. */
-  .manager-stack,
+  /* БЗ — три колонки на широких; аналитики по-прежнему построчно. */
   .knowledge-bank-stack {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
   }
+  .manager-stack {
+    grid-template-columns: minmax(0, 1200px);
+    justify-content: start;
+    gap: 14px;
+  }
 }
 
 @media (min-width: 2400px) {
-  /* 4K+ — ещё гуще. */
+  /* 4K+ — ещё гуще для воронок/карточек, аналитики остаются в одной колонке. */
   .deal-card-grid {
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   }
-  .manager-stack,
   .knowledge-bank-stack {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .manager-stack {
+    grid-template-columns: minmax(0, 1320px);
+    justify-content: start;
   }
 }
