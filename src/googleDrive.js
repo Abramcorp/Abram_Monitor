@@ -219,10 +219,32 @@ function extractFolderIdFromUrl(url) {
   return "";
 }
 
+// Drive file/folder id format — alphanumerics, hyphen, underscore, plus специальное "root".
+// Любой другой контент в parentId — попытка query injection в Drive search syntax.
+const DRIVE_ID_PATTERN = /^(root|[A-Za-z0-9_-]+)$/;
+
+function assertValidDriveId(id) {
+  const s = String(id == null ? "" : id);
+  if (!s || !DRIVE_ID_PATTERN.test(s)) {
+    throw new Error("Некорректный Drive folder id (ожидается только латиница/цифры/_/-)");
+  }
+  return s;
+}
+
+// Экранирование строки для подстановки в Drive search query (Drive search expects
+// backslash-escaped single quotes). Сначала экранируем backslash, потом кавычку —
+// иначе \\' разворачивается обратно в '.
+function escapeDriveQueryString(value) {
+  return String(value == null ? "" : value)
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'");
+}
+
 async function findFolder(drive, name, parentId) {
-  const escapedName = String(name).replace(/'/g, "\\'");
+  const safeParent = assertValidDriveId(parentId);
+  const safeName = escapeDriveQueryString(name);
   const res = await drive.files.list({
-    q: `'${parentId}' in parents and name = '${escapedName}' and mimeType = '${FOLDER_MIME}' and trashed = false`,
+    q: `'${safeParent}' in parents and name = '${safeName}' and mimeType = '${FOLDER_MIME}' and trashed = false`,
     fields: "files(id, name)",
     pageSize: 1,
     supportsAllDrives: true,
@@ -232,11 +254,12 @@ async function findFolder(drive, name, parentId) {
 }
 
 async function createFolder(drive, name, parentId) {
+  const safeParent = assertValidDriveId(parentId);
   const res = await drive.files.create({
     requestBody: {
       name,
       mimeType: FOLDER_MIME,
-      parents: [parentId]
+      parents: [safeParent]
     },
     fields: "id, name",
     supportsAllDrives: true
@@ -252,6 +275,7 @@ async function ensureFolder(name, parentId) {
 }
 
 async function uploadStream({ fileName, parentId, stream, mimeType }) {
+  const safeParent = assertValidDriveId(parentId);
   const drive = await getDrive();
   if (stream && typeof stream.on === "function") {
     stream.on("error", () => {});
@@ -259,7 +283,7 @@ async function uploadStream({ fileName, parentId, stream, mimeType }) {
   const res = await drive.files.create({
     requestBody: {
       name: fileName,
-      parents: [parentId]
+      parents: [safeParent]
     },
     media: {
       mimeType: mimeType || "application/octet-stream",
@@ -274,13 +298,14 @@ async function uploadStream({ fileName, parentId, stream, mimeType }) {
 // Безопаснее, чем uploadStream: file уже в памяти, обходим баг
 // ERR_STREAM_PUSH_AFTER_EOF в googleapis при live-стримах (busboy → PassThrough).
 async function uploadBuffer({ fileName, parentId, buffer, mimeType }) {
+  const safeParent = assertValidDriveId(parentId);
   const drive = await getDrive();
   const body = Readable.from(buffer);
   body.on("error", () => {});
   const res = await drive.files.create({
     requestBody: {
       name: fileName,
-      parents: [parentId]
+      parents: [safeParent]
     },
     media: {
       mimeType: mimeType || "application/octet-stream",
