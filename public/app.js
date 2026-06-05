@@ -4767,9 +4767,25 @@ function findKnowledgeProgram(programId) {
   return null;
 }
 
+// Перестраивает <option> в селектах диалога БЗ из актуальных списков таксономии.
+function rebuildKnowledgeTaxonomySelects() {
+  const typeSelect = knowledgeForm?.elements?.programType;
+  const categorySelect = knowledgeForm?.elements?.category;
+  if (typeSelect) {
+    const types = PROGRAM_TYPES_LIST();
+    typeSelect.innerHTML = types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+  }
+  if (categorySelect) {
+    const cats = PROGRAM_CATEGORIES_LIST();
+    categorySelect.innerHTML = `<option value="">Без категории</option>`
+      + cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  }
+}
+
 function openKnowledgeDialog(entry = null) {
   fillDealFormOptions();
   knowledgeForm.reset();
+  rebuildKnowledgeTaxonomySelects();
   knowledgeForm.elements.programId.value = entry?.program?.id || "";
   knowledgeForm.elements.bank.value = entry?.bank?.bank || "";
   knowledgeForm.elements.bankPhone.value = entry?.bank?.phone || entry?.program?.bankPhone || "";
@@ -4778,8 +4794,29 @@ function openKnowledgeDialog(entry = null) {
   knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
   knowledgeForm.elements.termRange.value = entry?.program?.termRange || "";
   knowledgeForm.elements.reviewTermDeclared.value = entry?.program?.reviewTermDeclared || "";
-  knowledgeForm.elements.programType.value = PROGRAM_TYPES.includes(entry?.program?.programType) ? entry.program.programType : "Стандарт";
-  knowledgeForm.elements.category.value = PROGRAM_CATEGORIES.includes(entry?.program?.category) ? entry.program.category : "";
+  // Тип программы: если у программы значение из устаревшего/удалённого списка —
+  // добавляем как option на лету, чтобы при сохранении оно не сменилось.
+  const currentType = entry?.program?.programType || "";
+  const typeList = PROGRAM_TYPES_LIST();
+  const typeSel = knowledgeForm.elements.programType;
+  if (currentType && !typeList.includes(currentType) && typeSel) {
+    const opt = document.createElement("option");
+    opt.value = currentType;
+    opt.textContent = `${currentType} (нет в списке)`;
+    typeSel.appendChild(opt);
+  }
+  typeSel.value = currentType || (typeList.includes("Стандарт") ? "Стандарт" : typeList[0] || "");
+
+  const currentCat = entry?.program?.category || "";
+  const catList = PROGRAM_CATEGORIES_LIST();
+  const catSel = knowledgeForm.elements.category;
+  if (currentCat && !catList.includes(currentCat) && catSel) {
+    const opt = document.createElement("option");
+    opt.value = currentCat;
+    opt.textContent = `${currentCat} (нет в списке)`;
+    catSel.appendChild(opt);
+  }
+  catSel.value = currentCat;
 
   const requirements = entry?.program?.requirements || {};
   Object.keys(REQUIREMENT_LABELS).forEach((key) => {
