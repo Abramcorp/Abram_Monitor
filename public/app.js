@@ -4073,10 +4073,67 @@ function summaryScopeCounts() {
   };
 }
 
+// Локальная агрегация заявок по groupBy (manager/bank/client) — повторяет
+// форму dashboard.boardSummaries, но строится из произвольного набора
+// заявок (например, ограниченного скоупом «Текущие/Завершённые»).
+function buildScopedGroups(scopedDeals, groupBy = state.board.groupBy) {
+  const nameOf = (d) => {
+    if (groupBy === "bank") return d.bank || "Банк не выбран";
+    if (groupBy === "client") return d.client || "Клиент не выбран";
+    return d.manager || "Аналитик не выбран";
+  };
+  const map = new Map();
+  for (const d of scopedDeals) {
+    const name = nameOf(d);
+    let g = map.get(name);
+    if (!g) {
+      g = {
+        name, groupBy,
+        count: 0,
+        amountRequested: 0,
+        amountApproved: 0,
+        approvedAmount: 0,
+        plannedCount: 0, planCount: 0,
+        leadCount: 0, workingCount: 0, currentCount: 0,
+        completedCount: 0, successfulCount: 0, refusedCount: 0,
+        plannedAmountRequested: 0, leadAmountRequested: 0, workingAmountRequested: 0,
+        currentAmountRequested: 0, completedAmountRequested: 0, refusedAmountRequested: 0
+      };
+      map.set(name, g);
+    }
+    const amt = Number(d.amountRequested || 0);
+    g.count += 1;
+    g.amountRequested += amt;
+    g.amountApproved += Number(d.amountApproved || 0);
+    if (d.stage === "approved") {
+      g.successfulCount += 1;
+      g.approvedAmount += Number(d.amountApproved || 0);
+    } else if (d.stage === "rejected" || d.stage === "blocked") {
+      g.refusedCount += 1;
+      g.refusedAmountRequested += amt;
+    } else if (d.stage === "planned") {
+      g.plannedCount += 1; g.planCount += 1;
+      g.plannedAmountRequested += amt;
+    } else if (d.stage === "lead" || d.stage === "documents_requested") {
+      g.leadCount += 1;
+      g.leadAmountRequested += amt;
+    } else if (d.stage === "submitted") {
+      g.workingCount += 1;
+      g.workingAmountRequested += amt;
+    }
+    if (d.statusGroup === "current") {
+      g.currentCount += 1;
+      g.currentAmountRequested += amt;
+    } else if (d.statusGroup === "completed") {
+      g.completedCount += 1;
+      g.completedAmountRequested += amt;
+    }
+  }
+  return [...map.values()].sort((a, b) => b.amountRequested - a.amountRequested
+    || a.name.localeCompare(b.name, "ru"));
+}
+
 function renderSummary() {
-  // Графики берут текущие group/status, тоталы строки — current+по аналитикам.
-  const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
-  const totals = renderReportTotals(groups);
   const reportTime = state.dashboard.time || { iso: state.dashboard.generatedAt, source: "server" };
   const reportTimeAttr = `Обновлено ${formatDate(reportTime.iso)} MSK · источник: ${reportTime.source || "server"}`;
   const scopedDeals = summaryScopedDeals();
@@ -4090,8 +4147,24 @@ function renderSummary() {
     : "Все клиенты";
   const groupLabel = groupBy === "client" ? "по клиентам" : "по статусам";
   const h2Title = `${scopeLabel} · ${groupLabel}`;
-  const listHtml = groupBy === "client" ? renderDealsByClient() : renderDealsByStage();
   const counts = summaryScopeCounts();
+
+  // На время рендера графиков и тоталов подменяем state.dashboard.deals
+  // на scopedDeals — все build*-функции (period rows, series, top, outcome)
+  // читают именно state.dashboard.deals и так перестраиваются под скоуп.
+  // groups для отчётных тоталов и долей собираем локально из scopedDeals.
+  const originalDeals = state.dashboard.deals;
+  let chartsHtml = "";
+  let listHtml = "";
+  try {
+    state.dashboard.deals = scopedDeals;
+    const scopedGroups = buildScopedGroups(scopedDeals, state.board.groupBy);
+    const totals = renderReportTotals(scopedGroups);
+    chartsHtml = renderSummaryCharts(scopedGroups, state.board.status, totals);
+    listHtml = groupBy === "client" ? renderDealsByClient() : renderDealsByStage();
+  } finally {
+    state.dashboard.deals = originalDeals;
+  }
 
   return `
     ${renderKpis()}
@@ -4122,7 +4195,7 @@ function renderSummary() {
           </p>
         </div>
       </div>
-      ${renderSummaryCharts(groups, state.board.status, totals)}
+      ${chartsHtml}
       <div class="summary-groupby-bar">
         <div class="segmented summary-groupby" role="tablist" aria-label="Группировка заявок">
           <button class="${groupBy === "stage" ? "is-active" : ""}" data-summary-groupby="stage" type="button">По статусам</button>
