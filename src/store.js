@@ -15,8 +15,12 @@ const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
 const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
 const DOCUMENT_REQUESTS_FILE = path.join(DATA_DIR, "document_requests.json");
-const PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
-const PROGRAM_CATEGORIES = [
+// Дефолтные списки. Используются:
+//   а) для bootstrap (засев пустых коллекций при первом запуске);
+//   б) как fallback при чтении, если коллекции ещё не инициализированы.
+// Изменение типов/категорий — через API /api/program-types и /api/program-categories.
+const DEFAULT_PROGRAM_TYPES = ["Экспресс", "Стандарт", "Физическое лицо", "Добивка"];
+const DEFAULT_PROGRAM_CATEGORIES = [
   "1 КАТЕГОРИЯ",
   "2 КАТЕГОРИЯ",
   "3 КАТЕГОРИЯ",
@@ -26,6 +30,11 @@ const PROGRAM_CATEGORIES = [
   "ФИЗАВТО",
   "ТЕСТОВЫЕ БАНКИ"
 ];
+
+// Совместимость с легаси-кодом (нормализация программ): pre-merge сохраняем
+// те же имена, но теперь это динамические значения из БД при первом обращении.
+let PROGRAM_TYPES = [...DEFAULT_PROGRAM_TYPES];
+let PROGRAM_CATEGORIES = [...DEFAULT_PROGRAM_CATEGORIES];
 
 function readJson(filePath, fallback) {
   try {
@@ -1192,7 +1201,15 @@ function normalizeRequirements(source = {}) {
 
 function normalizeProgramType(value) {
   const text = cleanText(value);
-  return PROGRAM_TYPES.includes(text) ? text : "Стандарт";
+  if (!text) return "Стандарт";
+  // Сначала пробуем найти совпадение в актуальном (динамическом) списке —
+  // case-insensitive, чтобы данные не потерялись после переименования.
+  const match = PROGRAM_TYPES.find((t) => t.toLowerCase() === text.toLowerCase());
+  if (match) return match;
+  // Если в текущем списке нет такого — всё равно сохраняем как есть (free-form).
+  // Аналитики увидят как "прочие" в группировках; админ может либо добавить
+  // в список, либо переименовать программу.
+  return text;
 }
 
 function isLegacySourceNote(value) {
@@ -1201,12 +1218,11 @@ function isLegacySourceNote(value) {
 
 function normalizeProgramCategory(value) {
   const text = cleanText(value);
-  if (!text) {
-    return "";
-  }
+  if (!text) return "";
   const upper = text.toUpperCase();
   const match = PROGRAM_CATEGORIES.find((category) => category.toUpperCase() === upper);
-  return match || "";
+  if (match) return match;
+  return text;
 }
 
 function normalizeKnowledgeProgram(raw = {}) {
@@ -1273,6 +1289,157 @@ function normalizeKnowledgeEntries(entries) {
   return Array.from(bankMap.values()).sort((left, right) => left.bank.localeCompare(right.bank, "ru"));
 }
 
+// ===== Program types & categories (admin taxonomy) =====
+
+function normalizeTaxonomyItem(raw = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: cleanText(raw.id) || `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    name: cleanText(raw.name),
+    sortOrder: Number(raw.sortOrder) || 0,
+    createdAt: toIsoDate(raw.createdAt) || now,
+    updatedAt: toIsoDate(raw.updatedAt) || now
+  };
+}
+
+async function listTaxonomy(collection) {
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const rows = await postgresStore.listRows(collection);
+    return rows.map(normalizeTaxonomyItem).filter((it) => it.name).sort(taxonomySort);
+  }
+  // file-mode fallback (юзается локально)
+  const file = collection === "program_types"
+    ? path.join(DATA_DIR, "program_types.json")
+    : path.join(DATA_DIR, "program_categories.json");
+  return readJson(file, []).map(normalizeTaxonomyItem).filter((it) => it.name).sort(taxonomySort);
+}
+
+function taxonomySort(a, b) {
+  const so = (a.sortOrder || 0) - (b.sortOrder || 0);
+  if (so !== 0) return so;
+  return String(a.name || "").localeCompare(String(b.name || ""), "ru");
+}
+
+async function createTaxonomyItem(collection, payload) {
+  const item = normalizeTaxonomyItem({
+    name: payload.name,
+    sortOrder: payload.sortOrder,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  if (!item.name) throw new Error("Имя обязательно");
+  // dedup case-insensitive
+  const existing = await listTaxonomy(collection);
+  const lower = item.name.toLowerCase();
+  if (existing.some((e) => e.name.toLowerCase() === lower)) {
+    throw new Error("Такое значение уже есть");
+  }
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    await postgresStore.insertRow(collection, item);
+  } else {
+    const file = collection === "program_types"
+      ? path.join(DATA_DIR, "program_types.json")
+      : path.join(DATA_DIR, "program_categories.json");
+    const list = readJson(file, []);
+    list.push(item);
+    writeJson(file, list);
+  }
+  await reloadTaxonomyCache();
+  return item;
+}
+
+async function updateTaxonomyItem(collection, id, patch) {
+  const cleanPatch = {};
+  if (patch.name !== undefined) cleanPatch.name = cleanText(patch.name);
+  if (patch.sortOrder !== undefined) cleanPatch.sortOrder = Number(patch.sortOrder) || 0;
+  if (cleanPatch.name === "") throw new Error("Имя обязательно");
+  // dedup
+  if (cleanPatch.name) {
+    const existing = await listTaxonomy(collection);
+    const lower = cleanPatch.name.toLowerCase();
+    if (existing.some((e) => e.id !== id && e.name.toLowerCase() === lower)) {
+      throw new Error("Такое значение уже есть");
+    }
+  }
+  let updated;
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    updated = await postgresStore.updateRow(collection, id, (current) => normalizeTaxonomyItem({
+      ...current,
+      ...cleanPatch,
+      updatedAt: new Date().toISOString()
+    }));
+  } else {
+    const file = collection === "program_types"
+      ? path.join(DATA_DIR, "program_types.json")
+      : path.join(DATA_DIR, "program_categories.json");
+    const list = readJson(file, []);
+    const idx = list.findIndex((it) => it.id === id);
+    if (idx === -1) return null;
+    list[idx] = normalizeTaxonomyItem({ ...list[idx], ...cleanPatch, updatedAt: new Date().toISOString() });
+    writeJson(file, list);
+    updated = list[idx];
+  }
+  await reloadTaxonomyCache();
+  return updated ? normalizeTaxonomyItem(updated) : null;
+}
+
+async function deleteTaxonomyItem(collection, id) {
+  let removed;
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    removed = await postgresStore.deleteRow(collection, id);
+  } else {
+    const file = collection === "program_types"
+      ? path.join(DATA_DIR, "program_types.json")
+      : path.join(DATA_DIR, "program_categories.json");
+    const list = readJson(file, []);
+    const idx = list.findIndex((it) => it.id === id);
+    if (idx === -1) return null;
+    [removed] = list.splice(idx, 1);
+    writeJson(file, list);
+  }
+  await reloadTaxonomyCache();
+  return removed ? normalizeTaxonomyItem(removed) : null;
+}
+
+// Засев списков при первом старте, если коллекции пустые. Идемпотентно.
+async function seedTaxonomyIfEmpty() {
+  for (const [collection, defaults] of [
+    ["program_types", DEFAULT_PROGRAM_TYPES],
+    ["program_categories", DEFAULT_PROGRAM_CATEGORIES]
+  ]) {
+    const existing = await listTaxonomy(collection);
+    if (existing.length > 0) continue;
+    for (let i = 0; i < defaults.length; i += 1) {
+      try {
+        await createTaxonomyItem(collection, { name: defaults[i], sortOrder: (i + 1) * 10 });
+      } catch { /* ignore */ }
+    }
+  }
+}
+
+async function reloadTaxonomyCache() {
+  try {
+    const types = await listTaxonomy("program_types");
+    if (types.length) PROGRAM_TYPES = types.map((t) => t.name);
+    const cats = await listTaxonomy("program_categories");
+    if (cats.length) PROGRAM_CATEGORIES = cats.map((c) => c.name);
+  } catch { /* silent */ }
+}
+
+// Public API для server.js
+const getProgramTypes = () => listTaxonomy("program_types");
+const getProgramCategories = () => listTaxonomy("program_categories");
+const createProgramType = (payload) => createTaxonomyItem("program_types", payload);
+const updateProgramType = (id, patch) => updateTaxonomyItem("program_types", id, patch);
+const deleteProgramType = (id) => deleteTaxonomyItem("program_types", id);
+const createProgramCategory = (payload) => createTaxonomyItem("program_categories", payload);
+const updateProgramCategory = (id, patch) => updateTaxonomyItem("program_categories", id, patch);
+const deleteProgramCategory = (id) => deleteTaxonomyItem("program_categories", id);
+
 module.exports = {
   addDealAction,
   addDocumentRequestAttachment,
@@ -1316,5 +1483,15 @@ module.exports = {
   updateDeal,
   updateKnowledgeProgram,
   updateManager,
-  updateTask
+  updateTask,
+  getProgramTypes,
+  createProgramType,
+  updateProgramType,
+  deleteProgramType,
+  getProgramCategories,
+  createProgramCategory,
+  updateProgramCategory,
+  deleteProgramCategory,
+  seedTaxonomyIfEmpty,
+  reloadTaxonomyCache
 };
