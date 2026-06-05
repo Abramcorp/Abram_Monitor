@@ -27,7 +27,8 @@ const state = {
     groupBy: "manager"
   },
   summary: {
-    groupBy: "stage" // "stage" | "client"
+    groupBy: "stage", // "stage" | "client"
+    scope: "current"   // "current" | "completed" | "all"
   },
   summaryCharts: {
     period: "year"
@@ -3919,7 +3920,7 @@ const SUMMARY_STAGE_ORDER = [
 
 // Группировка заявок по этапу — раскрывающиеся секции с карточками.
 function renderDealsByStage() {
-  const deals = state.dashboard?.deals || [];
+  const deals = summaryScopedDeals();
   if (!deals.length) {
     return `<div class="empty">Нет заявок.</div>`;
   }
@@ -4011,29 +4012,89 @@ function renderStageClientsGroup(stageId, items) {
   `;
 }
 
+function summaryScopeMatches(deal, scope) {
+  if (scope === "current") return deal.statusGroup === "current";
+  if (scope === "completed") return deal.statusGroup === "completed";
+  return true; // "all"
+}
+
+function summaryScopedDeals() {
+  const deals = state.dashboard?.deals || [];
+  const scope = state.summary?.scope || "current";
+  if (scope === "all") return deals;
+  return deals.filter((d) => summaryScopeMatches(d, scope));
+}
+
+// Подсчёты клиентов и заявок по scope для шапки селектора.
+function summaryScopeCounts() {
+  const deals = state.dashboard?.deals || [];
+  const currentClients = new Set();
+  const completedClients = new Set();
+  let currentCount = 0;
+  let completedCount = 0;
+  for (const d of deals) {
+    if (d.statusGroup === "current") {
+      currentCount += 1;
+      if (d.client) currentClients.add(d.client);
+    } else if (d.statusGroup === "completed") {
+      completedCount += 1;
+      if (d.client) completedClients.add(d.client);
+    }
+  }
+  return {
+    currentDeals: currentCount,
+    completedDeals: completedCount,
+    allDeals: deals.length,
+    currentClients: currentClients.size,
+    completedClients: completedClients.size
+  };
+}
+
 function renderSummary() {
   // Графики берут текущие group/status, тоталы строки — current+по аналитикам.
   const groups = state.dashboard.boardSummaries?.[state.board.status]?.[state.board.groupBy] || [];
   const totals = renderReportTotals(groups);
   const reportTime = state.dashboard.time || { iso: state.dashboard.generatedAt, source: "server" };
   const reportTimeAttr = `Обновлено ${formatDate(reportTime.iso)} MSK · источник: ${reportTime.source || "server"}`;
-  const allDeals = state.dashboard?.deals || [];
-  const totalReq = allDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
-  const totalApp = allDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
+  const scopedDeals = summaryScopedDeals();
+  const totalReq = scopedDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+  const totalApp = scopedDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
 
   const groupBy = state.summary?.groupBy === "client" ? "client" : "stage";
-  const h2Title = groupBy === "client" ? "Все заявки по клиентам" : "Все заявки по статусам";
+  const scope = state.summary?.scope || "current";
+  const scopeLabel = scope === "current" ? "Текущие клиенты"
+    : scope === "completed" ? "Завершённые клиенты"
+    : "Все клиенты";
+  const groupLabel = groupBy === "client" ? "по клиентам" : "по статусам";
+  const h2Title = `${scopeLabel} · ${groupLabel}`;
   const listHtml = groupBy === "client" ? renderDealsByClient() : renderDealsByStage();
+  const counts = summaryScopeCounts();
 
   return `
     ${renderKpis()}
     ${summaryAlerts()}
     <section class="panel">
+      <div class="summary-scope-bar">
+        <div class="segmented summary-scope" role="tablist" aria-label="Скоуп заявок">
+          <button class="${scope === "current" ? "is-active" : ""}" data-summary-scope="current" type="button">
+            <span class="seg-label">Текущие</span>
+            <span class="seg-count">${counts.currentClients} клиентов · ${counts.currentDeals} заявок</span>
+          </button>
+          <button class="${scope === "completed" ? "is-active" : ""}" data-summary-scope="completed" type="button">
+            <span class="seg-label">Завершённые</span>
+            <span class="seg-count">${counts.completedClients} клиентов · ${counts.completedDeals} заявок</span>
+          </button>
+          <button class="${scope === "all" ? "is-active" : ""}" data-summary-scope="all" type="button">
+            <span class="seg-label">Все</span>
+            <span class="seg-count">${counts.allDeals} заявок</span>
+          </button>
+        </div>
+      </div>
       <div class="panel-head">
         <div>
-          <h2 title="${escapeHtml(reportTimeAttr)}">${h2Title}</h2>
+          <h2 title="${escapeHtml(reportTimeAttr)}">${escapeHtml(h2Title)}</h2>
           <p class="summary-totals-line">
-            <strong>${allDeals.length}</strong> заявок · <strong>${money(totalReq)}</strong>
+            <strong>${scopedDeals.length}</strong> заявок · <strong>${money(totalReq)}</strong>
             ${totalApp ? ` · одобрено <strong>${money(totalApp)}</strong>` : ""}
           </p>
         </div>
@@ -4052,7 +4113,7 @@ function renderSummary() {
 
 // Группировка: верхний уровень — клиент; внутри клиента — секции по статусам с карточками.
 function renderDealsByClient() {
-  const deals = state.dashboard?.deals || [];
+  const deals = summaryScopedDeals();
   if (!deals.length) return `<div class="empty">Нет заявок.</div>`;
 
   const stages = state.dashboard?.stages?.all || [];
@@ -4432,6 +4493,14 @@ function initDynamicControls() {
     if (summaryGroupBy) {
       state.summary = state.summary || {};
       state.summary.groupBy = summaryGroupBy.dataset.summaryGroupby;
+      render();
+      return;
+    }
+
+    const summaryScope = target.closest("[data-summary-scope]");
+    if (summaryScope) {
+      state.summary = state.summary || {};
+      state.summary.scope = summaryScope.dataset.summaryScope;
       render();
       return;
     }
