@@ -86,6 +86,14 @@ function validateDealDates(deal, previousDeal = null) {
   if (LEAD_BUCKET_STAGE_IDS.has(previousDeal?.stage) && deal.stage === "submitted" && !deal.inquiryAt) {
     throw new Error("Дата обращения обязательна при переходе на \"Подписали заявку\"");
   }
+  // Для статуса «Одобрено» сумма одобрения должна быть заполнена и положительна.
+  // Иначе теряется ключевой показатель — без него отчёты и уведомления неинформативны.
+  if (deal.stage === "approved") {
+    const approved = Number(deal.amountApproved || 0);
+    if (!Number.isFinite(approved) || approved <= 0) {
+      throw new Error("Укажите сумму одобрения перед переводом заявки в «Одобрено»");
+    }
+  }
 }
 
 function buildStatusChangeAction(previousDeal, nextDeal, actionAt) {

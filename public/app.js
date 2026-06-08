@@ -1328,7 +1328,7 @@ function renderClientApplicationCards(applications, emptyText, type) {
             <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
               <summary class="application-card-head">
                 <strong>${renderApplicationProgramTitle(deal)}</strong>
-                <span>${money(deal.amountRequested)}</span>
+                <span>${money(deal.amountRequested)}${deal.stage === "approved" && Number(deal.amountApproved) > 0 ? ` · <span class="application-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}</span>
                 <em>${escapeHtml(deal.stageLabel)}${renderDealDocumentBadge(deal)}</em>
                 <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
               </summary>
@@ -4621,6 +4621,20 @@ async function handleSaveApplication(saveButton) {
       return;
     }
     payload.comment = trimmed;
+  }
+
+  // Для перевода в «Одобрено» сумма одобрения обязательна и > 0 — без неё
+  // теряется ключевая метрика отчёта (бэк валидирует то же, это ранняя проверка).
+  if (nextStage === "approved") {
+    const approvedInput = card?.querySelector(`[data-field="amountApproved"]`);
+    const value = Number(approvedInput?.value || 0);
+    if (!Number.isFinite(value) || value <= 0) {
+      approvedInput?.focus();
+      approvedInput?.setCustomValidity("Укажите сумму одобрения перед переводом в «Одобрено»");
+      approvedInput?.reportValidity();
+      approvedInput?.addEventListener("input", () => approvedInput.setCustomValidity(""), { once: true });
+      return;
+    }
   }
 
   card?.querySelectorAll("[data-application-field]").forEach((input) => {
