@@ -1403,6 +1403,15 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* Сумма одобрения рядом с суммой заявки — выделяем зелёным,
+   видно сразу при свёрнутой карточке. */
+.application-amount-approved {
+  color: #2f7d3d;
+  font-weight: 700;
+  font-size: 13px;
+  margin-left: 4px;
+}
+
 .application-card-head small {
   color: var(--muted);
   font-size: 12px;
