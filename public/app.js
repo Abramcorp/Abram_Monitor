@@ -148,6 +148,7 @@ const BOARD_GROUP_LABELS = {
 };
 
 const SUMMARY_CHART_PERIOD_LABELS = {
+  week: "Неделя",
   month: "Месяц",
   quarter: "Квартал",
   half: "Полугодие",
@@ -155,7 +156,10 @@ const SUMMARY_CHART_PERIOD_LABELS = {
   all: "Все время"
 };
 
+// month-эквивалент для удобства summaryChartPeriodStart. week = специальный
+// случай (7 дней назад), обрабатывается отдельно.
 const SUMMARY_CHART_PERIOD_MONTHS = {
+  week: 0,
   month: 1,
   quarter: 3,
   half: 6,
@@ -3103,12 +3107,16 @@ function approvedDealDate(deal) {
 
 function summaryChartPeriodStart(period = state.summaryCharts.period) {
   const months = SUMMARY_CHART_PERIOD_MONTHS[period];
-  if (!months) {
-    return null;
-  }
-
   const clock = new Date(state.dashboard?.time?.iso || state.dashboard?.generatedAt || Date.now());
   if (Number.isNaN(clock.getTime())) {
+    return null;
+  }
+  if (period === "week") {
+    // последние 7 дней (включая сегодня)
+    const start = new Date(clock.getFullYear(), clock.getMonth(), clock.getDate() - 6);
+    return start;
+  }
+  if (!months) {
     return null;
   }
   return new Date(clock.getFullYear(), clock.getMonth() - months + 1, 1);
@@ -3124,7 +3132,7 @@ function isInSummaryChartPeriod(value, period = state.summaryCharts.period) {
 }
 
 function summaryChartBucketMode(period = state.summaryCharts.period) {
-  return period === "month" ? "day" : "month";
+  return (period === "week" || period === "month") ? "day" : "month";
 }
 
 function summaryChartClock() {
@@ -3711,6 +3719,184 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
   `;
 }
 
+// ===== Completed-scope summary charts =====
+// Для архивных клиентов нерелевантны «текущие лиды / заявки в работе».
+// Фокус: сумма одобрений и три ключевых конверсии (лид→заявка, заявка→одобрение,
+// сумма заявок→сумма одобрений), плюс изменения по периодам и топ-листы.
+
+function buildCompletedKpis(scopedDeals) {
+  let leadCount = 0;
+  let postLeadCount = 0;
+  let workingCount = 0;
+  let approvedCount = 0;
+  let refusedCount = 0;
+  let totalRequestedAmount = 0;
+  let totalApprovedAmount = 0;
+  let totalRefusedAmount = 0;
+  for (const d of scopedDeals) {
+    const amt = Number(d.amountRequested || 0);
+    totalRequestedAmount += amt;
+    if (d.stage === "lead" || d.stage === "documents_requested") {
+      leadCount += 1;
+    } else if (d.stage === "submitted") {
+      workingCount += 1;
+      postLeadCount += 1;
+    } else if (d.stage === "approved") {
+      approvedCount += 1;
+      postLeadCount += 1;
+      totalApprovedAmount += Number(d.amountApproved || 0);
+    } else if (d.stage === "rejected" || d.stage === "blocked") {
+      refusedCount += 1;
+      postLeadCount += 1;
+      totalRefusedAmount += amt;
+    }
+  }
+  return {
+    totalApprovedAmount,
+    totalRequestedAmount,
+    totalRefusedAmount,
+    leadToApp: percent(postLeadCount, leadCount + postLeadCount),
+    appToApproved: percent(approvedCount, workingCount + approvedCount + refusedCount),
+    amountToApproved: percent(totalApprovedAmount, totalRequestedAmount),
+    approvedCount,
+    refusedCount,
+    workingCount,
+    leadCount,
+    decidedCount: approvedCount + refusedCount + workingCount
+  };
+}
+
+// Бакеты по периоду: для каждого собираем кол-во и сумму одобрений (stage=approved).
+function buildCompletedApprovedPeriodRows(scopedDeals) {
+  const buckets = summaryChartFixedBuckets();
+  if (!buckets.length) return [];
+  const idx = new Map(buckets.map((b, i) => [b.key, i]));
+  const rows = buckets.map((b) => ({ ...b, count: 0, amount: 0 }));
+  for (const d of scopedDeals) {
+    if (d.stage !== "approved") continue;
+    const dateValue = approvedDealDate(d);
+    if (!isInSummaryChartPeriod(dateValue)) continue;
+    const bucket = summaryChartPeriodBucket(dateValue);
+    if (!bucket) continue;
+    const i = idx.get(bucket.key);
+    if (i == null) continue;
+    rows[i].count += 1;
+    rows[i].amount += Number(d.amountApproved || 0);
+  }
+  return rows;
+}
+
+function completedGroupName(deal, groupBy = state.board.groupBy) {
+  if (groupBy === "bank") return deal.bank || "Банк не выбран";
+  if (groupBy === "client") return deal.client || "Клиент не выбран";
+  return deal.manager || "Аналитик не выбран";
+}
+
+function buildCompletedTopApprovedRows(scopedDeals, groupBy = state.board.groupBy) {
+  const map = new Map();
+  for (const d of scopedDeals) {
+    if (d.stage !== "approved") continue;
+    const name = completedGroupName(d, groupBy);
+    if (!map.has(name)) map.set(name, { name, groupBy, approvedAmount: 0, successfulCount: 0 });
+    const row = map.get(name);
+    row.approvedAmount += Number(d.amountApproved || 0);
+    row.successfulCount += 1;
+  }
+  return [...map.values()]
+    .sort((a, b) => b.approvedAmount - a.approvedAmount || b.successfulCount - a.successfulCount || a.name.localeCompare(b.name, "ru"))
+    .slice(0, 8);
+}
+
+function buildCompletedTopConversionRows(scopedDeals, groupBy = state.board.groupBy) {
+  const map = new Map();
+  for (const d of scopedDeals) {
+    const name = completedGroupName(d, groupBy);
+    if (!map.has(name)) map.set(name, { name, groupBy, total: 0, approved: 0, conversionRate: 0 });
+    const row = map.get(name);
+    row.total += 1;
+    if (d.stage === "approved") row.approved += 1;
+  }
+  for (const r of map.values()) {
+    r.conversionRate = r.total ? Math.round((r.approved / r.total) * 100) : 0;
+  }
+  return [...map.values()]
+    .filter((r) => r.total >= 2) // отсеиваем "1 заявка → 100%" — это шум
+    .sort((a, b) => b.conversionRate - a.conversionRate || b.approved - a.approved || a.name.localeCompare(b.name, "ru"))
+    .slice(0, 8);
+}
+
+function renderSummaryChartsCompleted(scopedDeals) {
+  const kpi = buildCompletedKpis(scopedDeals);
+  const periodKey = state.summaryCharts.period;
+  const chartPeriodLabel = SUMMARY_CHART_PERIOD_LABELS[periodKey].toLowerCase();
+  const periodRows = buildCompletedApprovedPeriodRows(scopedDeals);
+  const topByAmount = buildCompletedTopApprovedRows(scopedDeals, state.board.groupBy);
+  const topByConversion = buildCompletedTopConversionRows(scopedDeals, state.board.groupBy);
+
+  // Доли — value участвует в раскладке сегментов donut; amount просто красивая
+  // подпись. Для amount-донута value = округлённая сумма в тысячах, чтобы
+  // сегменты строились корректно (donutSegments отбрасывает нулевые value).
+  const donutCount = [
+    { label: "Одобрено", value: kpi.approvedCount, color: "#37a169" },
+    { label: "Отказы/блок", value: kpi.refusedCount, color: "#d64545" }
+  ];
+  const donutAmount = [
+    { label: "Одобрено", value: Math.round(kpi.totalApprovedAmount / 1000), amount: kpi.totalApprovedAmount, color: "#37a169" },
+    { label: "Отказано (запрошено)", value: Math.round(kpi.totalRefusedAmount / 1000), amount: kpi.totalRefusedAmount, color: "#d64545" }
+  ];
+
+  return `
+    <section class="kpi-grid summary-completed-kpi">
+      <article class="kpi"><strong>${money(kpi.totalApprovedAmount)}</strong><span>Сумма одобрений</span></article>
+      <article class="kpi"><strong>${kpi.leadToApp}%</strong><span>Лиды → заявки</span></article>
+      <article class="kpi"><strong>${kpi.appToApproved}%</strong><span>Заявки → одобрения</span></article>
+      <article class="kpi"><strong>${kpi.amountToApproved}%</strong><span>Сумма заявок → одобрено</span></article>
+    </section>
+    <div class="chart-filter-row" aria-label="Настройки графиков">
+      <label>
+        Период
+        <select id="summaryChartPeriod">
+          ${Object.entries(SUMMARY_CHART_PERIOD_LABELS)
+            .map(([v, l]) => `<option value="${v}" ${periodKey === v ? "selected" : ""}>${l}</option>`)
+            .join("")}
+        </select>
+      </label>
+    </div>
+    <section class="summary-dashboard-grid">
+      <article class="summary-chart-card">
+        <p class="eyebrow">Доли</p>
+        <h3>Одобрено vs отказы (по количеству)</h3>
+        ${renderDonutChart(donutCount, "заявок")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Доли</p>
+        <h3>Одобрено vs отказы (по сумме)</h3>
+        ${renderDonutChart(donutAmount, "тыс. ₽")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Период · ${chartPeriodLabel}</p>
+        <h3>Количество одобрений</h3>
+        ${renderAreaChart(periodRows, "label", "count", "approvals")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Период · ${chartPeriodLabel}</p>
+        <h3>Сумма одобрений</h3>
+        ${renderAreaChart(periodRows, "label", "amount", "approvals-amount")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Объём</p>
+        <h3>Топ по сумме одобрений</h3>
+        ${renderBarRows(topByAmount, "name", "approvedAmount", "groupBy")}
+      </article>
+      <article class="summary-chart-card">
+        <p class="eyebrow">Эффективность</p>
+        <h3>Топ по конверсии в одобрение</h3>
+        ${renderBarRows(topByConversion, "name", "conversionRate", "groupBy")}
+      </article>
+    </section>
+  `;
+}
+
 function renderCompleted() {
   const deals = filteredDeals("completed");
   const byResult = state.dashboard.completedAnalytics.byResult.map((item) => ({ ...item, className: item.id }));
@@ -4160,7 +4346,12 @@ function renderSummary() {
     state.dashboard.deals = scopedDeals;
     const scopedGroups = buildScopedGroups(scopedDeals, state.board.groupBy);
     const totals = renderReportTotals(scopedGroups);
-    chartsHtml = renderSummaryCharts(scopedGroups, state.board.status, totals);
+    // Для архивных клиентов — отдельный набор диаграмм: сумма одобрений,
+    // конверсии (лид→заявка, заявка→одобрение, сумма→сумма одобрено) и
+    // изменения по неделям/месяцам/кварталам/году/всему времени.
+    chartsHtml = scope === "completed"
+      ? renderSummaryChartsCompleted(scopedDeals)
+      : renderSummaryCharts(scopedGroups, state.board.status, totals);
     listHtml = groupBy === "client" ? renderDealsByClient() : renderDealsByStage();
   } finally {
     state.dashboard.deals = originalDeals;

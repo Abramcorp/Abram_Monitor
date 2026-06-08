@@ -426,6 +426,13 @@ textarea:focus-visible {
   margin-bottom: 14px;
 }
 
+/* Для completed-режима KPI идут под шапкой панели — отступы аккуратнее
+   и колонки чуть шире, чтобы суммы и % не переносились. */
+.summary-completed-kpi.kpi-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin: 8px 0 12px;
+}
+
 .kpi,
 .panel {
   border: 1px solid var(--glass-line);
