@@ -50,6 +50,31 @@ function processingLine(processingDays) {
   return `⏳ В обработке: <b>${label}</b>\n`;
 }
 
+// Форматируем сумму в рублях: «1 250 000 ₽». Пустую/нулевую/невалидную
+// возвращаем пустой строкой — вызывающий просто не покажет строку.
+const moneyFormatter = new Intl.NumberFormat("ru-RU", {
+  style: "currency",
+  currency: "RUB",
+  maximumFractionDigits: 0
+});
+function formatMoneyRu(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return moneyFormatter.format(n);
+}
+
+// Строки про сумму. Если есть только запрошенная — одна строка;
+// если есть и одобренная — две. Если ничего — пустая строка.
+function amountLines({ amountRequested, amountApproved } = {}) {
+  const req = formatMoneyRu(amountRequested);
+  const app = formatMoneyRu(amountApproved);
+  if (!req && !app) return "";
+  let out = "";
+  if (req) out += `Сумма заявки: <b>${req}</b>\n`;
+  if (app) out += `Одобрено: <b>${app}</b>\n`;
+  return out;
+}
+
 async function sendTelegramMessage(text, { topicId, chatId } = {}) {
   if (!BOT_TOKEN) {
     return null;
@@ -178,7 +203,7 @@ async function deleteForumTopic(threadId) {
   }
 }
 
-function notifyDocRequestCreated(req, { topicId, processingDays } = {}) {
+function notifyDocRequestCreated(req, { topicId, processingDays, amountRequested, amountApproved } = {}) {
   if (!isEnabled() || !req) return null;
   const itemsText = truncate(req.items || "");
   const itemsBlock = itemsText
@@ -193,6 +218,7 @@ function notifyDocRequestCreated(req, { topicId, processingDays } = {}) {
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Банк: ${escapeHtml(req.bank || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + amountLines({ amountRequested, amountApproved })
     + periodLine
     + processingLine(processingDays)
     + itemsBlock;
@@ -256,7 +282,7 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
   }
 }
 
-async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId, processingDays } = {}) {
+async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId, processingDays, amountRequested, amountApproved } = {}) {
   if (!BOT_TOKEN || !req) return null;
   const isResend = typeof processingDays === "number";
   const headEmoji = isResend ? "🔁" : "📦";
@@ -267,6 +293,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
     + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + amountLines({ amountRequested, amountApproved })
     + periodLineF
     + (actor?.fullName ? `Подготовил: ${escapeHtml(actor.fullName)}\n` : "")
     + processingLine(processingDays)
@@ -310,7 +337,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
 
 // Индикатор частичной подгрузки: текст в топик клиента «📎 Добавлено N файлов,
 // всего: M». Не дублирует уведомления аналитику — только в топик.
-function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], totalCount = 0, actor } = {}) {
+function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], totalCount = 0, actor, amountRequested, amountApproved } = {}) {
   if (!isEnabled() || !req) return null;
   const added = uploadedNames.length;
   if (added === 0) return null;
@@ -321,12 +348,13 @@ function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], total
   const text = `📎 <b>К запросу добавлено: ${added}</b>${byTail}\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Банк: ${escapeHtml(req.bank || "—")}\n`
+    + amountLines({ amountRequested, amountApproved })
     + `Всего файлов в пакете: <b>${totalCount}</b>\n`
     + `\n${filesBlock}${moreLine ? `\n${moreLine}` : ""}`;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
 
-function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
+function notifyDocRequestConfirmed(req, { actor, topicId, amountRequested, amountApproved } = {}) {
   if (!isEnabled() || !req) return null;
   const periodLineC = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
   const text = `✅ <b>Документы получены</b>\n`
@@ -334,6 +362,7 @@ function notifyDocRequestConfirmed(req, { actor, topicId } = {}) {
     + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(req.program || "—")}\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + amountLines({ amountRequested, amountApproved })
     + periodLineC
     + `Подтвердил: ${escapeHtml(actor?.fullName || "—")}`;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
@@ -351,6 +380,7 @@ function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId } =
     + `Клиент: <b>${escapeHtml(deal.client || "—")}</b>\n`
     + `Банк: <b>${escapeHtml(deal.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(deal.program || "—")}\n`
+    + amountLines({ amountRequested: deal.amountRequested, amountApproved: deal.amountApproved })
     + `${escapeHtml(prevStageLabel || "—")} → <b>${escapeHtml(newStageLabel || "—")}</b>\n`
     + `Аналитик: ${escapeHtml(deal.manager || "—")}`;
   return sendTelegramMessage(text, { chatId });
