@@ -64,6 +64,23 @@ const Busboy = require("busboy");
 
 // Резолвит/создаёт topic-id в форум-группе для клиента.
 // Возвращает строковый thread_id или "" если не удалось.
+// Тянем сумму заявки из связанного deal по dealId — чтобы пробрасывать
+// её в telegram-уведомления по запросам документов.
+async function resolveDealAmountsForDocRequest(req) {
+  try {
+    if (!req?.dealId) return {};
+    const deals = await getDeals();
+    const deal = deals.find((d) => d.id === req.dealId);
+    if (!deal) return {};
+    return {
+      amountRequested: Number(deal.amountRequested || 0),
+      amountApproved: Number(deal.amountApproved || 0)
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function resolveClientTopicId(clientName, managerName) {
   try {
     if (!clientName) return "";
@@ -1041,7 +1058,8 @@ async function handleApi(request, response) {
       // Сохраняем message_id, чтобы потом удалить сообщение при fulfillment.
       (async () => {
         const topicId = await resolveClientTopicId(req.clientName, req.manager);
-        const res = await telegram.notifyDocRequestCreated(req, { topicId });
+        const amounts = await resolveDealAmountsForDocRequest(req);
+        const res = await telegram.notifyDocRequestCreated(req, { topicId, ...amounts });
         const messageId = res?.result?.message_id;
         if (messageId) {
           try {
@@ -1268,11 +1286,13 @@ async function handleApi(request, response) {
             const topicId = await resolveClientTopicId(fresh.clientName, fresh.manager);
             const uploadedNames = uploaded.map((u) => u.originalName || u.fileName).filter(Boolean);
             const totalCount = Array.isArray(fresh.attachments) ? fresh.attachments.length : 0;
+            const amounts = await resolveDealAmountsForDocRequest(fresh);
             const sent = await telegram.notifyDocRequestPartialUpload(fresh, {
               topicId,
               uploadedNames,
               totalCount,
-              actor: request.user
+              actor: request.user,
+              ...amounts
             });
             // Сохраняем message_id, чтобы при /fulfill удалить все промежуточные
             // индикаторы частичной подгрузки из топика клиента.
@@ -1420,8 +1440,9 @@ async function handleApi(request, response) {
       (async () => {
         try {
           const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
+          const amounts = await resolveDealAmountsForDocRequest(updated);
           flog("calling notifyDocRequestFulfilled with", sources.length, "files, chat=", recipientChatId || "common", "topic=", topicId || "(none)");
-          const result = await telegram.notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources, topicId });
+          const result = await telegram.notifyDocRequestFulfilled(updated, { actor: request.user, recipientChatId, attachmentSources: sources, topicId, ...amounts });
           flog("TG result:", JSON.stringify(result?.ok !== undefined ? { ok: result.ok, count: result.results?.length } : result));
           // Удаляем исходное сообщение «📥 Новый запрос документов» из топика —
           // запрос закрыт, в топике остаётся только пакет файлов + якорное сообщение.
@@ -1496,7 +1517,8 @@ async function handleApi(request, response) {
     // Telegram-уведомление о подтверждении в топик клиента (fire-and-forget).
     (async () => {
       const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
-      await telegram.notifyDocRequestConfirmed(updated, { actor: request.user, topicId });
+      const amounts = await resolveDealAmountsForDocRequest(updated);
+      await telegram.notifyDocRequestConfirmed(updated, { actor: request.user, topicId, ...amounts });
     })().catch((e) => console.warn("[telegram] notifyConfirmed dispatch:", e.message));
     return;
   }
@@ -1683,13 +1705,14 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
     try {
       const topicId = await resolveClientTopicId(req.clientName, req.manager);
       const processingDays = daysSinceCreated(req);
+      const amounts = await resolveDealAmountsForDocRequest(req);
       if (req.status === "open") {
         // При переотправке удаляем старое уведомление и сохраняем id нового —
         // чтобы в топике не накапливались дубли запроса.
         if (req.openMessageId) {
           await telegram.deleteMessage({ messageId: req.openMessageId }).catch(() => null);
         }
-        const sentRes = await telegram.notifyDocRequestCreated(req, { topicId, processingDays });
+        const sentRes = await telegram.notifyDocRequestCreated(req, { topicId, processingDays, ...amounts });
         const newMessageId = sentRes?.result?.message_id;
         if (newMessageId) {
           try { await setDocumentRequestOpenMessageId(req.id, newMessageId); }
@@ -1718,7 +1741,7 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
             }
           }
         }
-        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays });
+        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, ...amounts });
         // На всякий случай добиваем оставшиеся partial-сообщения (если первый /fulfill
         // их не удалил из-за сетевой ошибки) — переотправка пакета должна давать
         // чистый топик с одним финальным сообщением.
