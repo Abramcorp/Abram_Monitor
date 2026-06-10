@@ -268,7 +268,9 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
   // Native FormData + Blob (Node 20+ web standard, совместим с native fetch).
   const form = new FormData();
   form.append("chat_id", targetChatId);
-  if (!chatId && topicId) {
+  // Топик применяется при любом chatId. Для не-форум чатов (ЛС, обычная
+  // группа) Telegram просто проигнорирует message_thread_id.
+  if (topicId) {
     const n = Number(topicId);
     if (Number.isFinite(n) && n > 0) {
       form.append("message_thread_id", String(n));
@@ -343,26 +345,39 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
     if (!CHAT_ID) return null;
     return sendTelegramMessage(text, { topicId: groupTopicId });
   }
-  // Есть файлы: шлём поштучно, caption ставим только на первый.
+  // Файлы есть. Раньше caption с шапкой клеили к первому документу — но
+  // Telegram режет caption до 1024 символов и при удалённом сообщении-запросе
+  // получатель оставался без контекста. Теперь шапка идёт ОТДЕЛЬНЫМ
+  // сообщением, документы — без caption.
   const usePersonal = Boolean(targetChatId);
   const fallbackChatId = CHAT_ID;
-  let firstSent = false;
+
+  // Шапка: пробуем личку, при провале — в групповой топик.
+  let headerSentToPersonal = false;
+  if (usePersonal) {
+    const r = await sendTelegramMessage(text, { chatId: targetChatId });
+    if (r && r.ok !== false) headerSentToPersonal = true;
+  }
+  if (!headerSentToPersonal && fallbackChatId) {
+    await sendTelegramMessage(text, { topicId: groupTopicId });
+  }
+
+  // Файлы: каждый без caption. Если личка дала шапку — шлём файлы в личку,
+  // иначе в групповой топик.
   let anySuccess = false;
   const results = [];
   for (const src of attachmentSources) {
-    const caption = firstSent ? "" : text;
     let res = null;
-    if (usePersonal) {
-      res = await sendDocument({ chatId: targetChatId, fileSource: src, caption });
-      // Если личка не сработала на ПЕРВОМ файле — переключаемся на групповой чат для всех
-      if ((!res || res.ok === false) && !firstSent && fallbackChatId) {
-        res = await sendDocument({ chatId: fallbackChatId, topicId: groupTopicId, fileSource: src, caption });
+    if (headerSentToPersonal) {
+      res = await sendDocument({ chatId: targetChatId, fileSource: src });
+      // Если файл не уехал в личку — пробуем группу.
+      if ((!res || res.ok === false) && fallbackChatId) {
+        res = await sendDocument({ chatId: fallbackChatId, topicId: groupTopicId, fileSource: src });
       }
     } else if (fallbackChatId) {
-      res = await sendDocument({ chatId: fallbackChatId, topicId: groupTopicId, fileSource: src, caption });
+      res = await sendDocument({ chatId: fallbackChatId, topicId: groupTopicId, fileSource: src });
     }
     results.push(res);
-    firstSent = true;
     if (res && res.ok !== false) anySuccess = true;
   }
   return { ok: anySuccess, results };
