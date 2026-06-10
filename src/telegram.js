@@ -96,8 +96,9 @@ async function sendTelegramMessage(text, { topicId, chatId } = {}) {
     parse_mode: "HTML",
     disable_web_page_preview: true
   };
-  // Топик имеет смысл только для общего супергруппового чата, не для ЛС/другого id.
-  if (!chatId && topicId) {
+  // Топики поддерживают форум-группы. Если chatId — обычный чат (ЛС/группа без
+  // топиков), Telegram просто проигнорирует message_thread_id.
+  if (topicId) {
     const n = Number(topicId);
     if (Number.isFinite(n) && n > 0) {
       payload.message_thread_id = n;
@@ -125,9 +126,10 @@ async function sendTelegramMessage(text, { topicId, chatId } = {}) {
 // Создаёт топик в форум-группе. Возвращает { ok, message_thread_id } или null.
 // Группа должна быть супергруппой с включённым forum mode, и бот должен иметь
 // право Manage Topics (по умолчанию у админов есть).
-async function createForumTopic(name) {
-  if (!BOT_TOKEN || !CHAT_ID) {
-    console.warn("[telegram] createForumTopic: BOT_TOKEN/CHAT_ID not set");
+async function createForumTopic(name, { chatId } = {}) {
+  const targetChatId = chatId ? String(chatId) : CHAT_ID;
+  if (!BOT_TOKEN || !targetChatId) {
+    console.warn("[telegram] createForumTopic: BOT_TOKEN/chatId not set");
     return null;
   }
   try {
@@ -135,18 +137,18 @@ async function createForumTopic(name) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        chat_id: CHAT_ID,
+        chat_id: targetChatId,
         name: String(name || "").slice(0, 128) || "Клиент"
       }),
       signal: AbortSignal.timeout(10000)
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
-      console.warn(`[telegram] createForumTopic failed: status=${res.status} body=${JSON.stringify(json)}`);
+      console.warn(`[telegram] createForumTopic failed: chat=${targetChatId} status=${res.status} body=${JSON.stringify(json)}`);
       return null;
     }
     const threadId = json.result?.message_thread_id;
-    console.log(`[telegram] createForumTopic ok: name="${name}" thread_id=${threadId}`);
+    console.log(`[telegram] createForumTopic ok: chat=${targetChatId} name="${name}" thread_id=${threadId}`);
     return { ok: true, message_thread_id: threadId };
   } catch (error) {
     console.warn(`[telegram] createForumTopic error: ${error.message}`);
@@ -184,23 +186,24 @@ async function deleteMessage({ chatId, messageId } = {}) {
 // Требует у бота право Manage Topics.
 // Мягкое «архивирование» топика — закрытие. Сообщения остаются,
 // но писать в него больше нельзя. Используется при архивации клиента.
-async function closeForumTopic(threadId) {
+async function closeForumTopic(threadId, { chatId } = {}) {
+  const targetChatId = chatId ? String(chatId) : CHAT_ID;
   const n = Number(threadId);
-  if (!BOT_TOKEN || !CHAT_ID) return false;
+  if (!BOT_TOKEN || !targetChatId) return false;
   if (!Number.isFinite(n) || n <= 0) return false;
   try {
     const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/closeForumTopic`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: CHAT_ID, message_thread_id: n }),
+      body: JSON.stringify({ chat_id: targetChatId, message_thread_id: n }),
       signal: AbortSignal.timeout(10000)
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
-      console.warn(`[telegram] closeForumTopic failed: status=${res.status} body=${JSON.stringify(json)}`);
+      console.warn(`[telegram] closeForumTopic failed: chat=${targetChatId} status=${res.status} body=${JSON.stringify(json)}`);
       return false;
     }
-    console.log(`[telegram] closeForumTopic ok: thread_id=${n}`);
+    console.log(`[telegram] closeForumTopic ok: chat=${targetChatId} thread_id=${n}`);
     return true;
   } catch (error) {
     console.warn(`[telegram] closeForumTopic error: ${error.message}`);
@@ -208,23 +211,24 @@ async function closeForumTopic(threadId) {
   }
 }
 
-async function deleteForumTopic(threadId) {
-  if (!BOT_TOKEN || !CHAT_ID || !threadId) return false;
+async function deleteForumTopic(threadId, { chatId } = {}) {
+  const targetChatId = chatId ? String(chatId) : CHAT_ID;
+  if (!BOT_TOKEN || !targetChatId || !threadId) return false;
   const n = Number(threadId);
   if (!Number.isFinite(n) || n <= 0) return false;
   try {
     const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteForumTopic`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: CHAT_ID, message_thread_id: n }),
+      body: JSON.stringify({ chat_id: targetChatId, message_thread_id: n }),
       signal: AbortSignal.timeout(10000)
     });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
-      console.warn(`[telegram] deleteForumTopic failed: status=${res.status} body=${JSON.stringify(json)}`);
+      console.warn(`[telegram] deleteForumTopic failed: chat=${targetChatId} status=${res.status} body=${JSON.stringify(json)}`);
       return false;
     }
-    console.log(`[telegram] deleteForumTopic ok: thread_id=${n}`);
+    console.log(`[telegram] deleteForumTopic ok: chat=${targetChatId} thread_id=${n}`);
     return true;
   } catch (error) {
     console.warn(`[telegram] deleteForumTopic error: ${error.message}`);
@@ -466,11 +470,12 @@ function buildClientStatusReportText({ clientName, manager, deals = [], trigger 
     + dealsBlock;
 }
 
-// Суммарный отчёт Биг Боссу — шлём в его привязанный личный чат.
-// chatId резолвится вызывающим (server.js) через resolveBossChatId.
-function notifyBossClientReport(report, { chatId } = {}) {
+// Суммарный отчёт Биг Боссу — шлём в его привязанный чат. Если чат —
+// форум-группа и есть topicId, отчёт пойдёт в нужный топик клиента.
+// chatId/topicId резолвятся вызывающим (server.js).
+function notifyBossClientReport(report, { chatId, topicId } = {}) {
   if (!BOT_TOKEN || !chatId || !report?.deals?.length) return null;
-  return sendTelegramMessage(buildClientStatusReportText(report), { chatId });
+  return sendTelegramMessage(buildClientStatusReportText(report), { chatId, topicId });
 }
 
 // Боковая конфигурация — оставляем для обратной совместимости (env-fallback

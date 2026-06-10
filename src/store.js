@@ -456,6 +456,9 @@ function normalizeClient(raw = {}) {
     instructionUrl: cleanText(raw.instructionUrl || raw.instructionLink),
     comment: cleanText(raw.comment),
     telegramTopicId: cleanText(raw.telegramTopicId),
+    // Отдельный топик в чате Биг Босса (форум-группа). Кэшируется здесь,
+    // чтобы при отправке отчёта не создавать дубль.
+    telegramBossTopicId: cleanText(raw.telegramBossTopicId),
     archivedAt,
     createdAt,
     updatedAt: updatedAt || createdAt
@@ -466,6 +469,25 @@ async function setClientTelegramTopicId(id, topicId) {
   const patch = (current) => normalizeClient({
     ...current,
     telegramTopicId: String(topicId || ""),
+    updatedAt: new Date().toISOString()
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("clients", id, patch);
+    return updated ? normalizeClient(updated) : null;
+  }
+  const list = getClients();
+  const index = list.findIndex((c) => c.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  writeJson(CLIENTS_FILE, list);
+  return list[index];
+}
+
+async function setClientTelegramBossTopicId(id, topicId) {
+  const patch = (current) => normalizeClient({
+    ...current,
+    telegramBossTopicId: String(topicId || ""),
     updatedAt: new Date().toISOString()
   });
   if (postgresStore.isEnabled()) {
@@ -1642,6 +1664,7 @@ module.exports = {
   addDocumentRequestPartialUploadMessageId,
   clearDocumentRequestPartialUploadMessageIds,
   setClientTelegramTopicId,
+  setClientTelegramBossTopicId,
   normalizeManager,
   normalizeKnowledgeProgram,
   normalizeTask,

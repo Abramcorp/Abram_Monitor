@@ -50,6 +50,7 @@ const telegram = require("./src/telegram");
 const eventBus = require("./src/eventBus");
 const {
   setClientTelegramTopicId,
+  setClientTelegramBossTopicId,
   setDocumentRequestOpenMessageId,
   addDocumentRequestPartialUploadMessageId,
   clearDocumentRequestPartialUploadMessageIds,
@@ -100,6 +101,49 @@ function buildBossClientReport(clientName, manager, activeDeals, trigger = "chec
     };
   });
   return { clientName, manager, deals, trigger };
+}
+
+// Резолвит/создаёт topic-id в чате Биг Босса для клиента. Если чат Босса —
+// форум-группа (Topics включены), создаём отдельный топик под каждого клиента
+// и кэшируем его id в client.telegramBossTopicId. Если форум не включён или
+// нет прав — возвращаем "" и отчёт уйдёт в общий чат.
+async function resolveBossClientTopicId(clientName, managerName, bossChatId) {
+  try {
+    if (!bossChatId || !clientName) return "";
+    const clients = await getClients();
+    const nameLc = String(clientName).trim().toLowerCase();
+    const mgrLc = String(managerName || "").trim().toLowerCase();
+    const cli = clients.find((c) =>
+      String(c.name || "").trim().toLowerCase() === nameLc &&
+      String(c.manager || "").trim().toLowerCase() === mgrLc
+    ) || clients.find((c) => String(c.name || "").trim().toLowerCase() === nameLc);
+    if (!cli) return "";
+    if (cli.telegramBossTopicId) return String(cli.telegramBossTopicId);
+    // Создаём новый.
+    const topicName = managerName ? `${cli.name} (${managerName})` : cli.name;
+    const result = await telegram.createForumTopic(topicName, { chatId: bossChatId });
+    if (!result?.message_thread_id) return "";
+    const threadId = String(result.message_thread_id);
+    try {
+      await setClientTelegramBossTopicId(cli.id, threadId);
+    } catch (e) {
+      console.warn("[boss-topic] persist error:", e.message);
+    }
+    // Якорное сообщение — чтобы топик не «опустошался» при удалениях.
+    try {
+      const esc = telegram.escapeHtml;
+      const anchor = `📌 <b>${esc(cli.name)}</b>\n`
+        + (managerName ? `Аналитик: ${esc(managerName)}\n` : "")
+        + `\nТопик создан автоматически. Суммарные отчёты по клиенту приходят сюда.`;
+      await telegram.sendTelegramMessage(anchor, { chatId: bossChatId, topicId: threadId });
+    } catch (e) {
+      console.warn("[boss-topic] anchor error:", e.message);
+    }
+    return threadId;
+  } catch (error) {
+    console.warn("[boss-topic] resolve error:", error.message);
+    return "";
+  }
 }
 
 // Активный клиент = есть в справочнике clients и без archivedAt.
@@ -834,7 +878,8 @@ async function handleApi(request, response) {
             const report = buildBossClientReport(existing.client, existing.manager, activeDeals);
             const bossChatId = await resolveBossChatId();
             if (bossChatId) {
-              await telegram.notifyBossClientReport(report, { chatId: bossChatId });
+              const topicId = await resolveBossClientTopicId(existing.client, existing.manager, bossChatId);
+              await telegram.notifyBossClientReport(report, { chatId: bossChatId, topicId });
             } else {
               console.warn("[boss-report] нет привязанного chatId Биг Босса — отчёт не отправлен");
             }
@@ -873,7 +918,8 @@ async function handleApi(request, response) {
     for (const { client, manager, deals } of groups.values()) {
       try {
         const report = buildBossClientReport(client, manager, deals, "refresh");
-        const res = await telegram.notifyBossClientReport(report, { chatId: bossChatId });
+        const topicId = await resolveBossClientTopicId(client, manager, bossChatId);
+        const res = await telegram.notifyBossClientReport(report, { chatId: bossChatId, topicId });
         if (res && res.ok !== false) sent.push({ client, manager, count: deals.length });
       } catch (e) {
         console.warn("[refresh-status]", client, e.message);
@@ -932,17 +978,27 @@ async function handleApi(request, response) {
       console.warn("[archive] bulkBlockClientDeals error:", e.message);
     }
     sendJson(response, 200, { client, blockedDeals: blockedCount });
-    // Архивация: закрываем топик (сообщения сохраняются, писать нельзя).
+    // Архивация: закрываем топики (общий + boss-топик в чате Босса).
     // Если Telegram не умеет close (старый клиент/нет прав) — fallback на delete.
     const topicId = existingClient?.telegramTopicId || client.telegramTopicId;
-    if (topicId) {
-      (async () => {
+    const bossTopicId = existingClient?.telegramBossTopicId || client.telegramBossTopicId;
+    (async () => {
+      if (topicId) {
         const closed = await telegram.closeForumTopic(topicId).catch(() => false);
         if (!closed) {
           await telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] archive: topic cleanup error:", e.message));
         }
-      })().catch(() => {});
-    }
+      }
+      if (bossTopicId) {
+        const bossChatId = await resolveBossChatId();
+        if (bossChatId) {
+          const closed = await telegram.closeForumTopic(bossTopicId, { chatId: bossChatId }).catch(() => false);
+          if (!closed) {
+            await telegram.deleteForumTopic(bossTopicId, { chatId: bossChatId }).catch((e) => console.warn("[telegram] archive: boss topic cleanup error:", e.message));
+          }
+        }
+      }
+    })().catch(() => {});
     return;
   }
 
@@ -963,11 +1019,20 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { client });
-    // Удаляем топик клиента в Telegram (файлы на Drive остаются нетронутыми).
+    // Удаляем оба топика клиента (общий + boss). Файлы на Drive не трогаем.
     const topicId = existingClient?.telegramTopicId || client.telegramTopicId;
-    if (topicId) {
-      telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] delete: deleteForumTopic error:", e.message));
-    }
+    const bossTopicId = existingClient?.telegramBossTopicId || client.telegramBossTopicId;
+    (async () => {
+      if (topicId) {
+        await telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] delete: topic cleanup error:", e.message));
+      }
+      if (bossTopicId) {
+        const bossChatId = await resolveBossChatId();
+        if (bossChatId) {
+          await telegram.deleteForumTopic(bossTopicId, { chatId: bossChatId }).catch((e) => console.warn("[telegram] delete: boss topic cleanup error:", e.message));
+        }
+      }
+    })().catch(() => {});
     return;
   }
 
