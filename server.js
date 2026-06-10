@@ -11,6 +11,7 @@ const {
   addDealAction,
   addDocumentRequestAttachment,
   archiveClient,
+  bulkBlockClientDeals,
   confirmDocumentRequest,
   createBank,
   createClient,
@@ -99,6 +100,24 @@ function buildBossClientReport(clientName, manager, activeDeals, trigger = "chec
     };
   });
   return { clientName, manager, deals, trigger };
+}
+
+// Активный клиент = есть в справочнике clients и без archivedAt.
+// Используется в утренних пингах и при «Обновить статусы»: даже если
+// у архивных/удалённых клиентов остались deals в активных стадиях —
+// они не должны попадать в отчёты и уведомления.
+async function buildActiveClientKeySet() {
+  const clients = await getClients();
+  const set = new Set();
+  for (const c of clients) {
+    if (c.archivedAt) continue;
+    const k = `${String(c.manager || "").trim().toLowerCase()}|${String(c.name || "").trim().toLowerCase()}`;
+    set.add(k);
+  }
+  return set;
+}
+function dealClientKey(deal) {
+  return `${String(deal.manager || "").trim().toLowerCase()}|${String(deal.client || "").trim().toLowerCase()}`;
 }
 
 // Резолвим chatId Биг Босса. По договорённости — это пользователь системы
@@ -796,8 +815,13 @@ async function handleApi(request, response) {
     const updated = await markDealChecked(dealId);
     sendJson(response, 200, { deal: updated });
     // Проверяем остаток непроверенных активных заявок по клиенту.
+    // Архивных/удалённых клиентов в отчёт не шлём.
     (async () => {
       try {
+        const activeKeys = await buildActiveClientKeySet();
+        if (!activeKeys.has(dealClientKey(existing))) {
+          return;
+        }
         const allDeals = await getDeals();
         const sameClient = allDeals.filter((d) =>
           String(d.client || "").trim().toLowerCase() === String(existing.client || "").trim().toLowerCase() &&
@@ -829,10 +853,14 @@ async function handleApi(request, response) {
     requireRole(request, ["admin"]);
     const allDeals = await getDeals();
     // Группируем по (manager, client).
+    const activeKeys = await buildActiveClientKeySet();
+    // Архивных/удалённых пропускаем — у них не должно быть отчётов даже
+    // при наличии активных заявок в БД.
     const groups = new Map();
     for (const d of allDeals) {
       if (!CHECKABLE_STAGES.has(d.stage)) continue;
-      const key = `${(d.manager || "").trim().toLowerCase()} ${(d.client || "").trim().toLowerCase()}`;
+      if (!activeKeys.has(dealClientKey(d))) continue;
+      const key = dealClientKey(d);
       if (!groups.has(key)) groups.set(key, { client: d.client, manager: d.manager, deals: [] });
       groups.get(key).deals.push(d);
     }
@@ -896,7 +924,14 @@ async function handleApi(request, response) {
       sendJson(response, 404, { error: "Client not found" });
       return;
     }
-    sendJson(response, 200, { client });
+    // Все незавершённые заявки клиента → blocked, причина «Закончили работу с клиентом».
+    let blockedCount = 0;
+    try {
+      blockedCount = await bulkBlockClientDeals(client.name, client.manager, "Закончили работу с клиентом");
+    } catch (e) {
+      console.warn("[archive] bulkBlockClientDeals error:", e.message);
+    }
+    sendJson(response, 200, { client, blockedDeals: blockedCount });
     // Архивация: закрываем топик (сообщения сохраняются, писать нельзя).
     // Если Telegram не умеет close (старый клиент/нет прав) — fallback на delete.
     const topicId = existingClient?.telegramTopicId || client.telegramTopicId;
@@ -1914,10 +1949,13 @@ async function sendMorningCheckPings({ trace = `morning-${Date.now()}` } = {}) {
   const allDeals = await getDeals();
   const managers = await getManagers();
   const allUsers = await users.listUsers();
+  const activeKeys = await buildActiveClientKeySet();
   // Группируем активные заявки по аналитику и внутри — по клиенту.
+  // Архивных/удалённых клиентов исключаем — их статусы не нужно проверять.
   const byAnalyst = new Map(); // analystName(lc) → Map<clientName, count>
   for (const d of allDeals) {
     if (!CHECKABLE_STAGES.has(d.stage)) continue;
+    if (!activeKeys.has(dealClientKey(d))) continue;
     const key = String(d.manager || "").trim().toLowerCase();
     if (!key) continue;
     if (!byAnalyst.has(key)) byAnalyst.set(key, { analystName: d.manager, byClient: new Map() });
