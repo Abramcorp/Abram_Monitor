@@ -13,6 +13,9 @@
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
 const TOPIC_DOCUMENTS = process.env.TELEGRAM_TOPIC_DOCUMENTS || "";
+// Биг Босс — личный чат, куда уходит суммарный отчёт по клиенту, когда
+// все его активные заявки проверены за день. Без топиков.
+const BOSS_CHAT_ID = process.env.TELEGRAM_BOSS_CHAT_ID || "";
 
 function isEnabled() {
   return Boolean(BOT_TOKEN && CHAT_ID);
@@ -179,6 +182,32 @@ async function deleteMessage({ chatId, messageId } = {}) {
 
 // Удаление топика в форум-группе. Возвращает true / false (тихо, без throw).
 // Требует у бота право Manage Topics.
+// Мягкое «архивирование» топика — закрытие. Сообщения остаются,
+// но писать в него больше нельзя. Используется при архивации клиента.
+async function closeForumTopic(threadId) {
+  const n = Number(threadId);
+  if (!BOT_TOKEN || !CHAT_ID) return false;
+  if (!Number.isFinite(n) || n <= 0) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/closeForumTopic`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: CHAT_ID, message_thread_id: n }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) {
+      console.warn(`[telegram] closeForumTopic failed: status=${res.status} body=${JSON.stringify(json)}`);
+      return false;
+    }
+    console.log(`[telegram] closeForumTopic ok: thread_id=${n}`);
+    return true;
+  } catch (error) {
+    console.warn(`[telegram] closeForumTopic error: ${error.message}`);
+    return false;
+  }
+}
+
 async function deleteForumTopic(threadId) {
   if (!BOT_TOKEN || !CHAT_ID || !threadId) return false;
   const n = Number(threadId);
@@ -386,11 +415,66 @@ function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId } =
   return sendTelegramMessage(text, { chatId });
 }
 
+// Утреннее уведомление аналитику в личку: «Проверьте заявки клиентов».
+// clientsList: [{ clientName, count }, ...].
+function notifyAnalystDailyCheck({ chatId, analystName, clientsList = [] }) {
+  if (!BOT_TOKEN || !chatId) return null;
+  if (!clientsList.length) return null;
+  const lines = clientsList.map((c) => `— <b>${escapeHtml(c.clientName)}</b>: ${c.count} ${pluralRu(c.count, "заявка", "заявки", "заявок")}`).join("\n");
+  const total = clientsList.reduce((sum, c) => sum + Number(c.count || 0), 0);
+  const text = `🔔 <b>Проверьте заявки клиентов</b>\n`
+    + (analystName ? `Аналитик: <b>${escapeHtml(analystName)}</b>\n` : "")
+    + `Активных непроверенных: <b>${total}</b> у ${clientsList.length} ${pluralRu(clientsList.length, "клиента", "клиентов", "клиентов")}\n\n`
+    + lines
+    + `\n\nОткройте приложение — на карточке каждой заявки появится кнопка «Заявка проверена».`;
+  return sendTelegramMessage(text, { chatId });
+}
+
+function pluralRu(n, one, few, many) {
+  const mod100 = n % 100;
+  const mod10 = n % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
+
+// Суммарный отчёт Биг Боссу по одному клиенту — когда аналитик
+// проверил все активные заявки клиента за день. Поля по каждой заявке:
+// статус, дней в статусе, сумма, банк, программа, последнее действие.
+function notifyBossClientReport({ clientName, manager, deals = [], trigger = "checked" }) {
+  if (!BOT_TOKEN || !BOSS_CHAT_ID || !deals.length) return null;
+  const headEmoji = trigger === "refresh" ? "🔄" : "✅";
+  const headText = trigger === "refresh" ? "Обновление статусов" : "Все заявки клиента проверены";
+  const dealsBlock = deals.map((d) => {
+    const stageLine = `<b>${escapeHtml(d.stageLabel || "—")}</b>`
+      + (d.daysInStage != null ? ` · ${formatDaysRu(d.daysInStage)} в статусе` : "");
+    const lastLine = d.lastActionText
+      ? `\n  ↳ ${escapeHtml(d.lastActionText)}${d.lastActionDate ? ` (${escapeHtml(d.lastActionDate)})` : ""}`
+      : "";
+    const amount = formatMoneyRu(d.amountRequested);
+    const moneyLine = amount ? `${amount}` : "";
+    return `• ${stageLine}\n  ${escapeHtml(d.bank || "—")} · ${escapeHtml(d.program || "—")}${moneyLine ? ` · ${moneyLine}` : ""}${lastLine}`;
+  }).join("\n\n");
+  const text = `${headEmoji} <b>${headText}</b>\n`
+    + `Клиент: <b>${escapeHtml(clientName)}</b>\n`
+    + `Аналитик: ${escapeHtml(manager || "—")}\n`
+    + `Активных заявок: <b>${deals.length}</b>\n\n`
+    + dealsBlock;
+  return sendTelegramMessage(text, { chatId: BOSS_CHAT_ID });
+}
+
+function isBossConfigured() {
+  return Boolean(BOT_TOKEN && BOSS_CHAT_ID);
+}
+
 module.exports = {
   isEnabled,
+  isBossConfigured,
   sendTelegramMessage,
   sendDocument,
   createForumTopic,
+  closeForumTopic,
   deleteForumTopic,
   deleteMessage,
   notifyDocRequestCreated,
@@ -398,5 +482,7 @@ module.exports = {
   notifyDocRequestFulfilled,
   notifyDocRequestConfirmed,
   notifyDealStageChange,
+  notifyAnalystDailyCheck,
+  notifyBossClientReport,
   escapeHtml
 };
