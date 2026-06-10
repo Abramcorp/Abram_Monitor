@@ -582,6 +582,18 @@ function dealNeedsCheck(deal) {
 function clientUncheckedCount(applications = []) {
   return applications.reduce((n, d) => n + (dealNeedsCheck(d) ? 1 : 0), 0);
 }
+// Для шапки аналитика — список клиентов с хотя бы одной непроверенной заявкой.
+function managerUncheckedClientNames(manager) {
+  const clients = manager?.clients || [];
+  const out = [];
+  for (const c of clients) {
+    if (c.isArchived) continue;
+    if (clientUncheckedCount(c.applications || []) > 0) {
+      out.push(c.client);
+    }
+  }
+  return out;
+}
 
 function getStageDateRequirements(stage, currentStage = "") {
   const requirements = [];
@@ -1369,8 +1381,10 @@ function renderClientApplicationCards(applications, emptyText, type) {
     <div class="client-application-list">
       ${applications
         .map(
-          (deal) => `
-            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
+          (deal) => {
+            const needsCheck = dealNeedsCheck(deal);
+            return `
+            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}${needsCheck ? " needs-check" : ""}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
               <summary class="application-card-head">
                 <strong>${renderApplicationProgramTitle(deal)}</strong>
                 <span>${money(deal.amountRequested)}${deal.stage === "approved" && Number(deal.amountApproved) > 0 ? ` · <span class="application-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}</span>
@@ -1379,13 +1393,9 @@ function renderClientApplicationCards(applications, emptyText, type) {
                   ? `<small class="application-reason">Причина: <strong>${escapeHtml(deal.comment)}</strong></small>`
                   : ""}
                 <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
+                ${needsCheck ? `<button class="primary-button small-button check-deal-button check-deal-summary-button" data-check-deal="${escapeHtml(deal.id)}" type="button" title="Подтвердить, что заявку посмотрели сегодня">✓ Заявка проверена</button>` : ""}
               </summary>
               <div class="application-card-body">
-                ${dealNeedsCheck(deal) ? `
-                  <button class="primary-button small-button check-deal-button" data-check-deal="${escapeHtml(deal.id)}" type="button" title="Подтвердить, что заявку посмотрели сегодня">
-                    ✓ Заявка проверена
-                  </button>
-                ` : ""}
                 <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
                   + Действие
                 </button>
@@ -1451,7 +1461,8 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 </div>
               </div>
             </details>
-          `
+          `;
+          }
         )
         .join("")}
     </div>
@@ -1940,9 +1951,17 @@ function renderManagerLinkControl(manager) {
 
 function renderManagerCard(manager) {
   const deliveryClass = managerHasDocDelivery(manager) ? " has-doc-delivery" : "";
+  const uncheckedClients = managerUncheckedClientNames(manager);
+  const checkBanner = uncheckedClients.length
+    ? `<div class="manager-check-banner" role="status">
+        <span class="client-check-banner-pulse"></span>
+        ПРОВЕРИТЬ ЗАЯВКИ: ${uncheckedClients.map((n) => escapeHtml(n)).join(", ")}
+      </div>`
+    : "";
   return `
     <details class="manager-section manager-accordion${deliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
       <summary class="manager-head">
+        ${checkBanner}
         ${renderManagerTaskBadge(manager)}
         ${renderManagerDocStrip(manager)}
         <div>
