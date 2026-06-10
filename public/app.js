@@ -1330,6 +1330,9 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 <strong>${renderApplicationProgramTitle(deal)}</strong>
                 <span>${money(deal.amountRequested)}${deal.stage === "approved" && Number(deal.amountApproved) > 0 ? ` · <span class="application-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}</span>
                 <em>${escapeHtml(deal.stageLabel)}${renderDealDocumentBadge(deal)}</em>
+                ${(deal.stage === "rejected" || deal.stage === "blocked") && deal.comment
+                  ? `<small class="application-reason">Причина: <strong>${escapeHtml(deal.comment)}</strong></small>`
+                  : ""}
                 <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
               </summary>
               <div class="application-card-body">
@@ -4048,6 +4051,9 @@ function renderBoardApplicationRows(applications, groupBy) {
                 ${deal.amountApproved ? `<span class="deal-card-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}
               </div>
               ${docBadge ? `<div class="deal-card-doc-row">${docBadge}</div>` : ""}
+              ${(deal.stage === "rejected" || deal.stage === "blocked") && deal.comment
+                ? `<div class="deal-card-reason"><span class="deal-card-reason-label">Причина</span><span class="deal-card-reason-text">${escapeHtml(deal.comment)}</span></div>`
+                : ""}
               <footer class="deal-card-foot">
                 <span>Аналитик: <strong>${escapeHtml(deal.manager)}</strong></span>
                 <span>Заявка: <strong>${formatDate(deal.applicationDate)}</strong></span>

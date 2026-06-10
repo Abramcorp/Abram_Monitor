@@ -2522,6 +2522,42 @@ td select {
 .deal-card.is-danger::before  { background: linear-gradient(180deg, var(--red),   rgba(255,59,48,0));  opacity: 1; }
 .deal-card.is-info::before    { background: linear-gradient(180deg, var(--blue),  rgba(0,122,255,0));  opacity: 1; }
 
+/* Причина отказа/непринятия — заметная плашка под суммой. */
+.deal-card-reason {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.22);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.deal-card-reason-label {
+  color: var(--red);
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.deal-card-reason-text {
+  color: var(--ink);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+/* Причина в шапке свёрнутой карточки заявки (Аналитики). */
+.application-reason {
+  color: var(--red) !important;
+  font-style: normal !important;
+}
+.application-reason strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 /* Кнопка «↗ Перейти» по центру верхнего края карточки — видна всегда;
    ведёт на аналитики в новой вкладке (см. jumpToDealFromUrl). */
 .deal-card-jump {
