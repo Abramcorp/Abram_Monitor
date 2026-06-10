@@ -439,11 +439,10 @@ function pluralRu(n, one, few, many) {
   return many;
 }
 
-// Суммарный отчёт Биг Боссу по одному клиенту — когда аналитик
-// проверил все активные заявки клиента за день. Поля по каждой заявке:
-// статус, дней в статусе, сумма, банк, программа, последнее действие.
-function notifyBossClientReport({ clientName, manager, deals = [], trigger = "checked" }) {
-  if (!BOT_TOKEN || !BOSS_CHAT_ID || !deals.length) return null;
+// Общий текст-формат для суммарного отчёта по клиенту — используется и в
+// личке Биг Боссу, и в топике клиента в общей группе. Поля по заявке:
+// статус, дней в статусе, банк/программа/сумма, последнее действие.
+function buildClientStatusReportText({ clientName, manager, deals = [], trigger = "checked" }) {
   const headEmoji = trigger === "refresh" ? "🔄" : "✅";
   const headText = trigger === "refresh" ? "Обновление статусов" : "Все заявки клиента проверены";
   const dealsBlock = deals.map((d) => {
@@ -456,12 +455,25 @@ function notifyBossClientReport({ clientName, manager, deals = [], trigger = "ch
     const moneyLine = amount ? `${amount}` : "";
     return `• ${stageLine}\n  ${escapeHtml(d.bank || "—")} · ${escapeHtml(d.program || "—")}${moneyLine ? ` · ${moneyLine}` : ""}${lastLine}`;
   }).join("\n\n");
-  const text = `${headEmoji} <b>${headText}</b>\n`
+  return `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(clientName)}</b>\n`
     + `Аналитик: ${escapeHtml(manager || "—")}\n`
     + `Активных заявок: <b>${deals.length}</b>\n\n`
     + dealsBlock;
-  return sendTelegramMessage(text, { chatId: BOSS_CHAT_ID });
+}
+
+// Суммарный отчёт Биг Боссу в личку — когда аналитик проверил все
+// активные заявки клиента за день (или при ручном refresh от админа).
+function notifyBossClientReport(report) {
+  if (!BOT_TOKEN || !BOSS_CHAT_ID || !report?.deals?.length) return null;
+  return sendTelegramMessage(buildClientStatusReportText(report), { chatId: BOSS_CHAT_ID });
+}
+
+// Тот же отчёт, но в топик клиента в общей форум-группе — чтобы команда
+// тоже видела сводку, не только Биг Босс. topicId обязателен.
+function notifyClientStatusReportToTopic(report, { topicId } = {}) {
+  if (!isEnabled() || !report?.deals?.length || !topicId) return null;
+  return sendTelegramMessage(buildClientStatusReportText(report), { topicId });
 }
 
 function isBossConfigured() {
@@ -484,5 +496,6 @@ module.exports = {
   notifyDealStageChange,
   notifyAnalystDailyCheck,
   notifyBossClientReport,
+  notifyClientStatusReportToTopic,
   escapeHtml
 };
