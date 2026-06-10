@@ -536,6 +536,64 @@ async function archiveClientPostgres(id) {
   return updated ? normalizeClient(updated) : null;
 }
 
+// Все незавершённые заявки клиента переводим в stage=blocked с указанной
+// причиной (закрытие работы с клиентом). Возвращает количество переведённых.
+// «Незавершённая» = statusGroup === "current" (planned/lead/documents_requested/submitted).
+async function bulkBlockClientDeals(clientName, managerName, reason) {
+  const reasonText = String(reason || "").trim() || "Закончили работу с клиентом";
+  const nameKey = String(clientName || "").trim().toLowerCase();
+  const mgrKey = String(managerName || "").trim().toLowerCase();
+  if (!nameKey) return 0;
+  const matches = (d) => {
+    if (String(d.client || "").trim().toLowerCase() !== nameKey) return false;
+    if (mgrKey && String(d.manager || "").trim().toLowerCase() !== mgrKey) return false;
+    return d.statusGroup === "current";
+  };
+  let blocked = 0;
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const all = await postgresStore.listRows("deals");
+    const target = all.map(normalizeDeal).filter(matches);
+    for (const deal of target) {
+      try {
+        await postgresStore.updateRow("deals", deal.id, (raw) => {
+          const previous = normalizeDeal(raw);
+          const now = new Date().toISOString();
+          const next = normalizeDeal({
+            ...previous,
+            stage: "blocked",
+            comment: reasonText,
+            updatedAt: now
+          });
+          const action = buildStatusChangeAction(previous, next, now);
+          return action ? normalizeDeal({ ...next, actions: [...(next.actions || []), action] }) : next;
+        });
+        blocked += 1;
+      } catch (e) {
+        console.warn("[bulkBlockClientDeals] update error:", deal.id, e.message);
+      }
+    }
+    return blocked;
+  }
+  const deals = getDeals();
+  for (let i = 0; i < deals.length; i += 1) {
+    if (!matches(deals[i])) continue;
+    const previous = deals[i];
+    const now = new Date().toISOString();
+    const next = normalizeDeal({
+      ...previous,
+      stage: "blocked",
+      comment: reasonText,
+      updatedAt: now
+    });
+    const action = buildStatusChangeAction(previous, next, now);
+    deals[i] = action ? normalizeDeal({ ...next, actions: [...(next.actions || []), action] }) : next;
+    blocked += 1;
+  }
+  if (blocked > 0) saveDeals(deals);
+  return blocked;
+}
+
 async function deleteClient(id) {
   if (postgresStore.isEnabled()) {
     await initStore();
@@ -1551,6 +1609,7 @@ module.exports = {
   addDealAction,
   addDocumentRequestAttachment,
   archiveClient,
+  bulkBlockClientDeals,
   buildInitialCommentAction,
   buildStatusChangeAction,
   createBank,

@@ -559,9 +559,25 @@ function dealCheckedToday(deal) {
   const todayMsk = moscowDayKey(state.dashboard?.time?.iso || new Date().toISOString());
   return moscowDayKey(deal.lastCheckedAt) === todayMsk;
 }
+// Проверка не нужна для архивных/удалённых клиентов — у них не может быть
+// активной работы, баннер и кнопку прячем.
+function dealClientIsArchivedOrMissing(deal) {
+  const list = state.clients || [];
+  const nameKey = String(deal.client || "").trim().toLowerCase();
+  const mgrKey = String(deal.manager || "").trim().toLowerCase();
+  if (!nameKey) return false;
+  const match = list.find((c) =>
+    String(c.name || "").trim().toLowerCase() === nameKey &&
+    (!mgrKey || String(c.manager || "").trim().toLowerCase() === mgrKey)
+  ) || list.find((c) => String(c.name || "").trim().toLowerCase() === nameKey);
+  if (!match) return true; // удалён из справочника
+  return Boolean(match.archivedAt);
+}
 function dealNeedsCheck(deal) {
   if (!deal || !CHECKABLE_STAGES.has(deal.stage)) return false;
-  return !dealCheckedToday(deal);
+  if (dealCheckedToday(deal)) return false;
+  if (dealClientIsArchivedOrMissing(deal)) return false;
+  return true;
 }
 function clientUncheckedCount(applications = []) {
   return applications.reduce((n, d) => n + (dealNeedsCheck(d) ? 1 : 0), 0);
@@ -1627,7 +1643,9 @@ function renderClientLinks(client) {
 function renderClientSummary(client, options = {}) {
   const settings = typeof options === "object" ? options : {};
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
-  const uncheckedCount = clientUncheckedCount(client.applications || []);
+  // У архивных клиентов баннер «Проверка статусов» не показываем — даже если
+  // остались активные заявки. Архив — финальный статус клиента.
+  const uncheckedCount = client.isArchived ? 0 : clientUncheckedCount(client.applications || []);
   return `
     ${uncheckedCount > 0 ? `<div class="client-check-banner" role="status" aria-label="Требуется проверка статусов">
       <span class="client-check-banner-pulse"></span>
