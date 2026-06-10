@@ -788,7 +788,19 @@ async function handleApi(request, response) {
         if (remaining.length === 0) {
           const activeDeals = sameClient.filter((d) => CHECKABLE_STAGES.has(d.stage));
           if (activeDeals.length) {
-            await telegram.notifyBossClientReport(buildBossClientReport(existing.client, existing.manager, activeDeals));
+            const report = buildBossClientReport(existing.client, existing.manager, activeDeals);
+            // 1) В личку Биг Боссу.
+            await telegram.notifyBossClientReport(report);
+            // 2) Дополнительно — в топик клиента в общей форум-группе,
+            // чтобы команда тоже видела сводку.
+            try {
+              const topicId = await resolveClientTopicId(existing.client, existing.manager);
+              if (topicId) {
+                await telegram.notifyClientStatusReportToTopic(report, { topicId });
+              }
+            } catch (e) {
+              console.warn("[boss-report] topic dispatch error:", e.message);
+            }
           }
         }
       } catch (e) {
@@ -814,8 +826,19 @@ async function handleApi(request, response) {
     const sent = [];
     for (const { client, manager, deals } of groups.values()) {
       try {
-        const res = await telegram.notifyBossClientReport(buildBossClientReport(client, manager, deals, "refresh"));
+        const report = buildBossClientReport(client, manager, deals, "refresh");
+        const res = await telegram.notifyBossClientReport(report);
         if (res && res.ok !== false) sent.push({ client, manager, count: deals.length });
+        // Дублируем отчёт в топик клиента (если резолвится). Не валим общую
+        // отправку при ошибке топика — продолжаем по остальным клиентам.
+        try {
+          const topicId = await resolveClientTopicId(client, manager);
+          if (topicId) {
+            await telegram.notifyClientStatusReportToTopic(report, { topicId });
+          }
+        } catch (te) {
+          console.warn("[refresh-status] topic", client, te.message);
+        }
       } catch (e) {
         console.warn("[refresh-status]", client, e.message);
       }
