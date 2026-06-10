@@ -1396,11 +1396,6 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 ${needsCheck ? `<button class="primary-button small-button check-deal-button check-deal-summary-button" data-check-deal="${escapeHtml(deal.id)}" type="button" title="Подтвердить, что заявку посмотрели сегодня">✓ Заявка проверена</button>` : ""}
               </summary>
               <div class="application-card-body">
-                ${dealNeedsCheck(deal) ? `
-                  <button class="primary-button small-button check-deal-button" data-check-deal="${escapeHtml(deal.id)}" type="button" title="Подтвердить, что заявку посмотрели сегодня">
-                    ✓ Заявка проверена
-                  </button>
-                ` : ""}
                 <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
                   + Действие
                 </button>
