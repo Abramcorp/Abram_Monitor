@@ -439,22 +439,26 @@ function pluralRu(n, one, few, many) {
   return many;
 }
 
-// Общий текст-формат для суммарного отчёта по клиенту — используется и в
-// личке Биг Боссу, и в топике клиента в общей группе. Поля по заявке:
-// статус, дней в статусе, банк/программа/сумма, последнее действие.
+// Общий текст-формат для суммарного отчёта по клиенту. По каждой
+// активной заявке: Банк / Программа / Сумма + текущий статус (дней в
+// статусе) + последнее изменение.
 function buildClientStatusReportText({ clientName, manager, deals = [], trigger = "checked" }) {
   const headEmoji = trigger === "refresh" ? "🔄" : "✅";
   const headText = trigger === "refresh" ? "Обновление статусов" : "Все заявки клиента проверены";
   const dealsBlock = deals.map((d) => {
-    const stageLine = `<b>${escapeHtml(d.stageLabel || "—")}</b>`
-      + (d.daysInStage != null ? ` · ${formatDaysRu(d.daysInStage)} в статусе` : "");
-    const lastLine = d.lastActionText
-      ? `\n  ↳ ${escapeHtml(d.lastActionText)}${d.lastActionDate ? ` (${escapeHtml(d.lastActionDate)})` : ""}`
-      : "";
     const amount = formatMoneyRu(d.amountRequested);
-    const moneyLine = amount ? `${amount}` : "";
-    return `• ${stageLine}\n  ${escapeHtml(d.bank || "—")} · ${escapeHtml(d.program || "—")}${moneyLine ? ` · ${moneyLine}` : ""}${lastLine}`;
-  }).join("\n\n");
+    const daysTail = d.daysInStage != null ? ` (${formatDaysRu(d.daysInStage)})` : "";
+    const lastChange = d.lastActionText
+      ? `${escapeHtml(d.lastActionText)}${d.lastActionDate ? ` (${escapeHtml(d.lastActionDate)})` : ""}`
+      : "—";
+    return `Банк: <b>${escapeHtml(d.bank || "—")}</b>\n`
+      + `Программа: ${escapeHtml(d.program || "—")}\n`
+      + `Сумма заявки: <b>${amount || "—"}</b>\n`
+      + `\n`
+      + `Текущий статус: <b>${escapeHtml(d.stageLabel || "—")}</b>${daysTail}\n`
+      + `\n`
+      + `Последнее изменение: ${lastChange}`;
+  }).join("\n\n———\n\n");
   return `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(clientName)}</b>\n`
     + `Аналитик: ${escapeHtml(manager || "—")}\n`
@@ -462,20 +466,15 @@ function buildClientStatusReportText({ clientName, manager, deals = [], trigger 
     + dealsBlock;
 }
 
-// Суммарный отчёт Биг Боссу в личку — когда аналитик проверил все
-// активные заявки клиента за день (или при ручном refresh от админа).
-function notifyBossClientReport(report) {
-  if (!BOT_TOKEN || !BOSS_CHAT_ID || !report?.deals?.length) return null;
-  return sendTelegramMessage(buildClientStatusReportText(report), { chatId: BOSS_CHAT_ID });
+// Суммарный отчёт Биг Боссу — шлём в его привязанный личный чат.
+// chatId резолвится вызывающим (server.js) через resolveBossChatId.
+function notifyBossClientReport(report, { chatId } = {}) {
+  if (!BOT_TOKEN || !chatId || !report?.deals?.length) return null;
+  return sendTelegramMessage(buildClientStatusReportText(report), { chatId });
 }
 
-// Тот же отчёт, но в топик клиента в общей форум-группе — чтобы команда
-// тоже видела сводку, не только Биг Босс. topicId обязателен.
-function notifyClientStatusReportToTopic(report, { topicId } = {}) {
-  if (!isEnabled() || !report?.deals?.length || !topicId) return null;
-  return sendTelegramMessage(buildClientStatusReportText(report), { topicId });
-}
-
+// Боковая конфигурация — оставляем для обратной совместимости (env-fallback
+// в server.js). Реально boss-chatId резолвится из таблицы users в server.js.
 function isBossConfigured() {
   return Boolean(BOT_TOKEN && BOSS_CHAT_ID);
 }
@@ -496,6 +495,5 @@ module.exports = {
   notifyDealStageChange,
   notifyAnalystDailyCheck,
   notifyBossClientReport,
-  notifyClientStatusReportToTopic,
   escapeHtml
 };

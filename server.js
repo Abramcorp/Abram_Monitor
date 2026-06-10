@@ -101,6 +101,25 @@ function buildBossClientReport(clientName, manager, activeDeals, trigger = "chec
   return { clientName, manager, deals, trigger };
 }
 
+// Резолвим chatId Биг Босса. По договорённости — это пользователь системы
+// с fullName «Биг Босс» (case-insensitive) или login bigboss/boss; берём
+// его привязанный telegramChatId. Если такой пользователь не найден или
+// chatId не привязан — fallback на env TELEGRAM_BOSS_CHAT_ID.
+async function resolveBossChatId() {
+  try {
+    const all = await users.listUsers();
+    const candidate = all.find((u) => {
+      const fn = String(u.fullName || "").trim().toLowerCase();
+      const lg = String(u.login || "").trim().toLowerCase();
+      return fn === "биг босс" || fn.includes("биг босс") || lg === "bigboss" || lg === "boss";
+    });
+    if (candidate?.telegramChatId) return String(candidate.telegramChatId);
+  } catch (e) {
+    console.warn("[boss] resolve from users error:", e.message);
+  }
+  return process.env.TELEGRAM_BOSS_CHAT_ID || "";
+}
+
 // Тянем сумму заявки из связанного deal по dealId — чтобы пробрасывать
 // её в telegram-уведомления по запросам документов.
 async function resolveDealAmountsForDocRequest(req) {
@@ -789,17 +808,11 @@ async function handleApi(request, response) {
           const activeDeals = sameClient.filter((d) => CHECKABLE_STAGES.has(d.stage));
           if (activeDeals.length) {
             const report = buildBossClientReport(existing.client, existing.manager, activeDeals);
-            // 1) В личку Биг Боссу.
-            await telegram.notifyBossClientReport(report);
-            // 2) Дополнительно — в топик клиента в общей форум-группе,
-            // чтобы команда тоже видела сводку.
-            try {
-              const topicId = await resolveClientTopicId(existing.client, existing.manager);
-              if (topicId) {
-                await telegram.notifyClientStatusReportToTopic(report, { topicId });
-              }
-            } catch (e) {
-              console.warn("[boss-report] topic dispatch error:", e.message);
+            const bossChatId = await resolveBossChatId();
+            if (bossChatId) {
+              await telegram.notifyBossClientReport(report, { chatId: bossChatId });
+            } else {
+              console.warn("[boss-report] нет привязанного chatId Биг Босса — отчёт не отправлен");
             }
           }
         }
@@ -823,27 +836,22 @@ async function handleApi(request, response) {
       if (!groups.has(key)) groups.set(key, { client: d.client, manager: d.manager, deals: [] });
       groups.get(key).deals.push(d);
     }
+    const bossChatId = await resolveBossChatId();
+    if (!bossChatId) {
+      sendJson(response, 200, { sent: 0, total: groups.size, bossConfigured: false, details: [], error: "Биг Босс не настроен: не найден пользователь с fullName «Биг Босс» и привязанным telegramChatId" });
+      return;
+    }
     const sent = [];
     for (const { client, manager, deals } of groups.values()) {
       try {
         const report = buildBossClientReport(client, manager, deals, "refresh");
-        const res = await telegram.notifyBossClientReport(report);
+        const res = await telegram.notifyBossClientReport(report, { chatId: bossChatId });
         if (res && res.ok !== false) sent.push({ client, manager, count: deals.length });
-        // Дублируем отчёт в топик клиента (если резолвится). Не валим общую
-        // отправку при ошибке топика — продолжаем по остальным клиентам.
-        try {
-          const topicId = await resolveClientTopicId(client, manager);
-          if (topicId) {
-            await telegram.notifyClientStatusReportToTopic(report, { topicId });
-          }
-        } catch (te) {
-          console.warn("[refresh-status] topic", client, te.message);
-        }
       } catch (e) {
         console.warn("[refresh-status]", client, e.message);
       }
     }
-    sendJson(response, 200, { sent: sent.length, total: groups.size, bossConfigured: telegram.isBossConfigured(), details: sent });
+    sendJson(response, 200, { sent: sent.length, total: groups.size, bossConfigured: true, details: sent });
     return;
   }
 
