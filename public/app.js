@@ -1952,21 +1952,28 @@ function renderManagerLinkControl(manager) {
 function renderManagerCard(manager) {
   const deliveryClass = managerHasDocDelivery(manager) ? " has-doc-delivery" : "";
   const uncheckedClients = managerUncheckedClientNames(manager);
+  // Баннер строится с заголовком на отдельной строке + каждый клиент построчно.
+  // Сразу под «Аналитик: <имя>», чтобы взгляд аналитика сразу падал на список.
   const checkBanner = uncheckedClients.length
     ? `<div class="manager-check-banner" role="status">
-        <span class="client-check-banner-pulse"></span>
-        ПРОВЕРИТЬ ЗАЯВКИ: ${uncheckedClients.map((n) => escapeHtml(n)).join(", ")}
+        <div class="manager-check-banner-head">
+          <span class="client-check-banner-pulse"></span>
+          ПРОВЕРИТЬ ЗАЯВКИ:
+        </div>
+        <ul class="manager-check-banner-list">
+          ${uncheckedClients.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}
+        </ul>
       </div>`
     : "";
   return `
     <details class="manager-section manager-accordion${deliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("manager", manager.manager))}">
       <summary class="manager-head">
-        ${checkBanner}
         ${renderManagerTaskBadge(manager)}
         ${renderManagerDocStrip(manager)}
         <div>
           <p class="eyebrow">Аналитик</p>
           <h3>${escapeHtml(manager.manager)}</h3>
+          ${checkBanner}
           ${renderManagerLinkControl(manager)}
         </div>
         <div class="manager-metrics">

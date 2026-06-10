@@ -2584,23 +2584,40 @@ details.client-application-card.needs-check {
   50%      { box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.35); }
 }
 
-/* Баннер «ПРОВЕРИТЬ ЗАЯВКИ: …» в шапке аналитика. */
+/* Баннер «ПРОВЕРИТЬ ЗАЯВКИ:» в шапке аналитика — заголовок + клиенты построчно.
+   Идёт сразу под «Аналитик: <имя>». */
 .manager-check-banner {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px 5px 10px;
-  border-radius: 999px;
-  background: rgba(255, 59, 48, 0.12);
+  display: block;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(255, 59, 48, 0.10);
   color: var(--red);
   border: 1px solid rgba(255, 59, 48, 0.35);
+  animation: client-check-pulse 1.4s ease-in-out infinite;
+  margin: 6px 0 0;
+  max-width: 100%;
+}
+.manager-check-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  animation: client-check-pulse 1.4s ease-in-out infinite;
-  margin: 0 0 6px;
-  max-width: 100%;
+}
+.manager-check-banner-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 0 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.manager-check-banner-list li {
+  padding: 1px 0;
   overflow-wrap: anywhere;
 }
 
