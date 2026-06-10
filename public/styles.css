@@ -2522,6 +2522,38 @@ td select {
 .deal-card.is-danger::before  { background: linear-gradient(180deg, var(--red),   rgba(255,59,48,0));  opacity: 1; }
 .deal-card.is-info::before    { background: linear-gradient(180deg, var(--blue),  rgba(0,122,255,0));  opacity: 1; }
 
+/* Кнопка «↗ Перейти» в углу карточки — на hover поднимается; ведёт на
+   аналитики в новой вкладке (см. jumpToDealFromUrl). */
+.deal-card-jump {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--blue);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 3px 8px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  z-index: 5;
+}
+.deal-card:hover .deal-card-jump,
+.deal-card:focus-within .deal-card-jump,
+.deal-card-jump:focus-visible {
+  opacity: 1;
+}
+
+/* Подсветка карточки заявки в Аналитиках после deep-link перехода. */
+details.client-application-card.is-flash > summary {
+  animation: deal-jump-flash 2.4s ease;
+}
+@keyframes deal-jump-flash {
+  0%   { background: rgba(255, 234, 128, 0.55); }
+  100% { background: transparent; }
+}
+
 /* Hover/focus — лёгкий подъём + тень. Без scale, чтобы карточка
    не залезала на соседние при hover. Очень высокий z-index гарантирует,
    что карточка поверх любых соседних шапок секций / клиентов. */

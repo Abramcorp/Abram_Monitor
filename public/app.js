@@ -4053,6 +4053,7 @@ function renderBoardApplicationRows(applications, groupBy) {
                 <span>Заявка: <strong>${formatDate(deal.applicationDate)}</strong></span>
                 <span>Действие: <strong>${formatDate(deal.lastActionAt)}</strong></span>
               </footer>
+              <a class="deal-card-jump" href="/?deal=${encodeURIComponent(deal.id)}" target="_blank" rel="noopener noreferrer" title="Открыть карточку клиента в Аналитиках (новая вкладка)">↗ Перейти</a>
             </article>
           `;
         })
@@ -6100,6 +6101,8 @@ async function startApplication() {
     app.innerHTML = `<div class="empty">Ошибка загрузки: ${escapeHtml(error.message)}</div>`;
   }
   setupLiveUpdates();
+  // ?deal=<id> — переход на карточку клиента в Аналитиках по deal-id из новой вкладки.
+  try { await jumpToDealFromUrl(); } catch {}
   // Если вернулись с Google OAuth callback — показать toast и почистить URL.
   try {
     const sp = new URLSearchParams(window.location.search);
@@ -6151,6 +6154,7 @@ if (loginForm) {
       showAppShell();
       await loadData();
       setupLiveUpdates();
+      try { await jumpToDealFromUrl(); } catch {}
     } catch (error) {
       if (loginError) {
         loginError.hidden = false;
@@ -6278,4 +6282,59 @@ function closeLiveUpdates() {
     try { liveEventSource.close(); } catch {}
     liveEventSource = null;
   }
+}
+
+// ===== Deep-link на карточку заявки в Аналитиках =====
+// Используется кнопкой «↗ Перейти» в deal-card сводного отчёта: открывает
+// новую вкладку с /?deal=<id>, бутстрап читает параметр, переключается
+// на view=funnels, раскрывает аналитика → клиента → саму карточку заявки
+// и скроллит к ней. URL после этого чистится, чтобы при F5 не повторялось.
+async function jumpToDealFromUrl() {
+  const sp = new URLSearchParams(window.location.search);
+  const dealId = sp.get("deal");
+  if (!dealId) return;
+  // Сразу чистим URL — иначе при перезагрузке всё снова сработает.
+  sp.delete("deal");
+  const newSearch = sp.toString();
+  window.history.replaceState({}, "", window.location.pathname + (newSearch ? `?${newSearch}` : ""));
+
+  const deal = (state.dashboard?.deals || []).find((d) => d.id === dealId);
+  if (!deal) {
+    showToast("Заявка не найдена — возможно удалена", { type: "error" });
+    return;
+  }
+  const targetView = VIEWS.find((v) => v.id === "funnels" && (!v.allowedRoles || v.allowedRoles.includes(currentRole())));
+  if (!targetView) {
+    showToast("У вас нет доступа к Аналитикам", { type: "error" });
+    return;
+  }
+  state.view = "funnels";
+  render();
+  // После render — открываем аккордеоны до самой карточки и скроллим к ней.
+  requestAnimationFrame(() => {
+    const keys = [
+      uiStateKey("manager", deal.manager || ""),
+      uiStateKey("client", deal.manager || "", deal.client || "", "active"),
+      uiStateKey("deal-card", deal.id)
+    ];
+    for (const key of keys) {
+      const el = document.querySelector(`details[data-ui-state-key="${cssEscape(key)}"]`);
+      if (el) el.open = true;
+    }
+    const target = document.querySelector(`details[data-ui-state-key="${cssEscape(uiStateKey("deal-card", deal.id))}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("is-flash");
+      setTimeout(() => target.classList.remove("is-flash"), 2400);
+    } else {
+      showToast("Карточка заявки не нашлась в Аналитиках", { type: "warning" });
+    }
+  });
+}
+
+// Минимальный CSS.escape для использования в querySelector — uiStateKey
+// может содержать пайпы, двоеточия и %-кодированные символы.
+function cssEscape(value) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, (c) => "\\" + c);
 }
