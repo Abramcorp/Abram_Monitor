@@ -184,6 +184,10 @@ function normalizeDeal(raw = {}) {
     actions,
     timeline: cleanText(raw.timeline),
     comment: cleanText(raw.comment),
+    // Ежедневная проверка статусов: метка времени последней проверки
+    // (нажатие «Заявка проверена»). Сбрасывается логически каждое утро
+    // в 08:50 МСК — фронт сравнивает дату с текущим МСК-днём.
+    lastCheckedAt: toIsoDate(raw.lastCheckedAt),
     createdAt,
     updatedAt
   };

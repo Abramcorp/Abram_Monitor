@@ -25,6 +25,9 @@ const {
   deleteManager,
   deleteTask,
   fulfillDocumentRequest,
+  markDealChecked,
+  dealNeedsCheck,
+  CHECKABLE_STAGES,
   getBanks,
   getClients,
   getDeals,
@@ -64,6 +67,40 @@ const Busboy = require("busboy");
 
 // Резолвит/создаёт topic-id в форум-группе для клиента.
 // Возвращает строковый thread_id или "" если не удалось.
+// Сколько дней заявка провела в текущем статусе. Берём дату начала
+// от наиболее свежей из: signedAt (для submitted) / inquiryAt (для lead)
+// / fallback updatedAt → createdAt.
+function daysInStage(deal) {
+  const stageStart = deal.stage === "submitted"
+    ? (deal.signedAt || deal.updatedAt || deal.createdAt)
+    : deal.stage === "lead"
+      ? (deal.inquiryAt || deal.updatedAt || deal.createdAt)
+      : (deal.updatedAt || deal.createdAt);
+  if (!stageStart) return null;
+  const ms = Date.now() - new Date(stageStart).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.floor(ms / (24 * 3600 * 1000));
+}
+
+// Готовит данные для notifyBossClientReport по одному клиенту.
+function buildBossClientReport(clientName, manager, activeDeals, trigger = "checked") {
+  const deals = activeDeals.map((d) => {
+    const lastAction = Array.isArray(d.actions) && d.actions.length
+      ? d.actions[d.actions.length - 1]
+      : null;
+    return {
+      stageLabel: d.stageLabel,
+      daysInStage: daysInStage(d),
+      bank: d.bank,
+      program: d.program,
+      amountRequested: d.amountRequested,
+      lastActionText: lastAction?.action || "",
+      lastActionDate: lastAction?.actionAt ? new Date(lastAction.actionAt).toLocaleDateString("ru-RU") : ""
+    };
+  });
+  return { clientName, manager, deals, trigger };
+}
+
 // Тянем сумму заявки из связанного deal по dealId — чтобы пробрасывать
 // её в telegram-уведомления по запросам документов.
 async function resolveDealAmountsForDocRequest(req) {
@@ -721,6 +758,72 @@ async function handleApi(request, response) {
     return;
   }
 
+  // PATCH /api/deals/:id/check — отметить заявку как «проверенную» на сегодня.
+  // Если после этого у клиента не осталось непроверенных активных заявок,
+  // шлём суммарный отчёт Биг Боссу в личку.
+  const dealCheckMatch = pathname.match(/^\/api\/deals\/([^/]+)\/check$/);
+  if (request.method === "PATCH" && dealCheckMatch) {
+    const dealId = decodeURIComponent(dealCheckMatch[1]);
+    const existing = (await getDeals()).find((d) => d.id === dealId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Deal not found" });
+      return;
+    }
+    if (scope) ensurePartnerOwnsManager(request, existing.manager);
+    if (!CHECKABLE_STAGES.has(existing.stage)) {
+      sendJson(response, 400, { error: "Эту заявку проверять не нужно — статус не входит в список ежедневной проверки" });
+      return;
+    }
+    const updated = await markDealChecked(dealId);
+    sendJson(response, 200, { deal: updated });
+    // Проверяем остаток непроверенных активных заявок по клиенту.
+    (async () => {
+      try {
+        const allDeals = await getDeals();
+        const sameClient = allDeals.filter((d) =>
+          String(d.client || "").trim().toLowerCase() === String(existing.client || "").trim().toLowerCase() &&
+          String(d.manager || "").trim().toLowerCase() === String(existing.manager || "").trim().toLowerCase()
+        );
+        const remaining = sameClient.filter((d) => dealNeedsCheck(d));
+        if (remaining.length === 0) {
+          const activeDeals = sameClient.filter((d) => CHECKABLE_STAGES.has(d.stage));
+          if (activeDeals.length) {
+            await telegram.notifyBossClientReport(buildBossClientReport(existing.client, existing.manager, activeDeals));
+          }
+        }
+      } catch (e) {
+        console.warn("[boss-report] dispatch error:", e.message);
+      }
+    })().catch(() => {});
+    return;
+  }
+
+  // POST /api/admin/refresh-status — админ дёргает суммарный отчёт по
+  // каждому клиенту с активными заявками. Результат: count отправленных.
+  if (request.method === "POST" && pathname === "/api/admin/refresh-status") {
+    requireRole(request, ["admin"]);
+    const allDeals = await getDeals();
+    // Группируем по (manager, client).
+    const groups = new Map();
+    for (const d of allDeals) {
+      if (!CHECKABLE_STAGES.has(d.stage)) continue;
+      const key = `${(d.manager || "").trim().toLowerCase()} ${(d.client || "").trim().toLowerCase()}`;
+      if (!groups.has(key)) groups.set(key, { client: d.client, manager: d.manager, deals: [] });
+      groups.get(key).deals.push(d);
+    }
+    const sent = [];
+    for (const { client, manager, deals } of groups.values()) {
+      try {
+        const res = await telegram.notifyBossClientReport(buildBossClientReport(client, manager, deals, "refresh"));
+        if (res && res.ok !== false) sent.push({ client, manager, count: deals.length });
+      } catch (e) {
+        console.warn("[refresh-status]", client, e.message);
+      }
+    }
+    sendJson(response, 200, { sent: sent.length, total: groups.size, bossConfigured: telegram.isBossConfigured(), details: sent });
+    return;
+  }
+
   if (request.method === "GET" && pathname === "/api/banks") {
     sendJson(response, 200, { banks: await getBanks() });
     return;
@@ -763,10 +866,16 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { client });
-    // Удаляем топик клиента в Telegram (файлы на Drive не трогаем).
+    // Архивация: закрываем топик (сообщения сохраняются, писать нельзя).
+    // Если Telegram не умеет close (старый клиент/нет прав) — fallback на delete.
     const topicId = existingClient?.telegramTopicId || client.telegramTopicId;
     if (topicId) {
-      telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] archive: deleteForumTopic error:", e.message));
+      (async () => {
+        const closed = await telegram.closeForumTopic(topicId).catch(() => false);
+        if (!closed) {
+          await telegram.deleteForumTopic(topicId).catch((e) => console.warn("[telegram] archive: topic cleanup error:", e.message));
+        }
+      })().catch(() => {});
     }
     return;
   }
@@ -1765,6 +1874,50 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
   return results;
 }
 
+// Утреннее уведомление аналитикам: для каждого аналитика с активными
+// заявками собираем список (клиент → количество активных) и шлём
+// в его привязанный TG-чат. CHECKABLE_STAGES активные = lead /
+// documents_requested / submitted.
+async function sendMorningCheckPings({ trace = `morning-${Date.now()}` } = {}) {
+  const tlog = (...args) => console.log(`[${trace}]`, ...args);
+  const allDeals = await getDeals();
+  const managers = await getManagers();
+  const allUsers = await users.listUsers();
+  // Группируем активные заявки по аналитику и внутри — по клиенту.
+  const byAnalyst = new Map(); // analystName(lc) → Map<clientName, count>
+  for (const d of allDeals) {
+    if (!CHECKABLE_STAGES.has(d.stage)) continue;
+    const key = String(d.manager || "").trim().toLowerCase();
+    if (!key) continue;
+    if (!byAnalyst.has(key)) byAnalyst.set(key, { analystName: d.manager, byClient: new Map() });
+    const slot = byAnalyst.get(key);
+    const cur = slot.byClient.get(d.client) || 0;
+    slot.byClient.set(d.client, cur + 1);
+  }
+  let sent = 0;
+  for (const [key, { analystName, byClient }] of byAnalyst) {
+    try {
+      const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === key);
+      if (!manager) continue;
+      const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
+        || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === key);
+      const chatId = linked?.telegramChatId || "";
+      if (!chatId) {
+        tlog("skip", analystName, "— no telegramChatId");
+        continue;
+      }
+      const clientsList = [...byClient.entries()]
+        .map(([clientName, count]) => ({ clientName, count }))
+        .sort((a, b) => b.count - a.count || a.clientName.localeCompare(b.clientName, "ru"));
+      const res = await telegram.notifyAnalystDailyCheck({ chatId, analystName, clientsList });
+      if (res && res.ok !== false) sent += 1;
+    } catch (e) {
+      tlog("error for", analystName, e.message);
+    }
+  }
+  return { sent, total: byAnalyst.size };
+}
+
 // ===== Ежедневный планировщик: 08:50 МСК =====
 const DAILY_RESEND_HOUR_MSK = 8;
 const DAILY_RESEND_MIN_MSK = 50;
@@ -1822,6 +1975,15 @@ function startDailyResendScheduler() {
           console.log(`[scheduler] daily resend trigger at ${today} 08:50 MSK`);
           const results = await performResendActiveRequests({ actor: null, trace: `daily-${today}` });
           console.log(`[scheduler] daily resend done: open=${results.open} fulfilled=${results.fulfilled} errors=${results.errors}`);
+          // Утренний пинг аналитикам: список клиентов с активными заявками,
+          // по которым нужно нажать «Заявка проверена» (lastCheckedAt сбросится
+          // логически новым МСК-днём — кнопки сами «загорятся»).
+          try {
+            const morning = await sendMorningCheckPings({ trace: `morning-${today}` });
+            console.log(`[scheduler] morning pings sent: ${morning.sent}/${morning.total} analysts`);
+          } catch (e) {
+            console.warn("[scheduler] morning pings error:", e.message);
+          }
         } else {
           console.log("[scheduler] daily resend skipped (already done today)");
         }

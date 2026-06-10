@@ -144,6 +144,55 @@ async function createDeal(payload) {
   return deal;
 }
 
+// Стадии заявки, по которым включается ежедневная проверка статусов.
+const CHECKABLE_STAGES = new Set(["lead", "documents_requested", "submitted"]);
+
+// Метки времени в МСК (по точному дню). Используется для проверки
+// «отмечено сегодня». dayKeyMsk возвращает "YYYY-MM-DD" по Europe/Moscow.
+function dayKeyMsk(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(d).map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function isDealCheckedToday(deal, nowIso = new Date().toISOString()) {
+  if (!deal?.lastCheckedAt) return false;
+  return dayKeyMsk(deal.lastCheckedAt) === dayKeyMsk(nowIso);
+}
+
+function dealNeedsCheck(deal, nowIso = new Date().toISOString()) {
+  if (!deal) return false;
+  if (!CHECKABLE_STAGES.has(deal.stage)) return false;
+  return !isDealCheckedToday(deal, nowIso);
+}
+
+async function markDealChecked(id) {
+  const now = await getMoscowNowIso();
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("deals", id, (raw) => {
+      const previous = normalizeDeal(raw);
+      return normalizeDeal({ ...previous, lastCheckedAt: now, updatedAt: now });
+    });
+    return updated ? normalizeDeal(updated) : null;
+  }
+  const deals = getDeals();
+  const index = deals.findIndex((d) => d.id === id);
+  if (index === -1) return null;
+  deals[index] = normalizeDeal({ ...deals[index], lastCheckedAt: now, updatedAt: now });
+  saveDeals(deals);
+  return deals[index];
+}
+
 async function updateDeal(id, patch) {
   if (postgresStore.isEnabled()) {
     return updateDealPostgres(id, patch);
@@ -1541,6 +1590,10 @@ module.exports = {
   validateDocumentRequest,
   validateTask,
   updateDeal,
+  markDealChecked,
+  dealNeedsCheck,
+  isDealCheckedToday,
+  CHECKABLE_STAGES,
   updateKnowledgeProgram,
   updateManager,
   updateTask,

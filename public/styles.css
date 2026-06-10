@@ -2522,6 +2522,51 @@ td select {
 .deal-card.is-danger::before  { background: linear-gradient(180deg, var(--red),   rgba(255,59,48,0));  opacity: 1; }
 .deal-card.is-info::before    { background: linear-gradient(180deg, var(--blue),  rgba(0,122,255,0));  opacity: 1; }
 
+/* Пульсирующий красный баннер «ПРОВЕРКА СТАТУСОВ ЗАЯВОК: N»
+   на шапке клиента — пока есть непроверенные за сегодня активные заявки. */
+.client-check-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 59, 48, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(255, 59, 48, 0.35);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  animation: client-check-pulse 1.4s ease-in-out infinite;
+  margin-bottom: 6px;
+}
+.client-check-banner-pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.6);
+  animation: client-check-dot 1.4s ease-out infinite;
+}
+@keyframes client-check-pulse {
+  0%, 100% { background: rgba(255, 59, 48, 0.10); }
+  50%      { background: rgba(255, 59, 48, 0.22); }
+}
+@keyframes client-check-dot {
+  0%   { box-shadow: 0 0 0 0   rgba(255, 59, 48, 0.55); }
+  70%  { box-shadow: 0 0 0 12px rgba(255, 59, 48, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(255, 59, 48, 0); }
+}
+
+/* Кнопка «✓ Заявка проверена» — зелёная, контрастная. */
+.check-deal-button {
+  background: #2f7d3d !important;
+  border-color: #2f7d3d !important;
+  color: #fff !important;
+}
+.check-deal-button:hover {
+  background: #266a32 !important;
+}
+
 /* Причина отказа/непринятия — заметная плашка под суммой. */
 .deal-card-reason {
   display: grid;

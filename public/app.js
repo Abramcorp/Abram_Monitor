@@ -537,6 +537,35 @@ function restoreUiState(snapshot) {
 }
 
 const LEAD_BUCKET_STAGES = new Set(["lead", "documents_requested"]);
+// Стадии для ежедневной проверки статусов («Заявка проверена»).
+const CHECKABLE_STAGES = new Set(["lead", "documents_requested", "submitted"]);
+
+// «День» по МСК — YYYY-MM-DD. Заявка «проверена сегодня», если её
+// lastCheckedAt попадает в текущий МСК-день. Сравнение по строке.
+function moscowDayKey(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Europe/Moscow",
+      year: "numeric", month: "2-digit", day: "2-digit"
+    }).formatToParts(d).map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+function dealCheckedToday(deal) {
+  if (!deal?.lastCheckedAt) return false;
+  const todayMsk = moscowDayKey(state.dashboard?.time?.iso || new Date().toISOString());
+  return moscowDayKey(deal.lastCheckedAt) === todayMsk;
+}
+function dealNeedsCheck(deal) {
+  if (!deal || !CHECKABLE_STAGES.has(deal.stage)) return false;
+  return !dealCheckedToday(deal);
+}
+function clientUncheckedCount(applications = []) {
+  return applications.reduce((n, d) => n + (dealNeedsCheck(d) ? 1 : 0), 0);
+}
 
 function getStageDateRequirements(stage, currentStage = "") {
   const requirements = [];
@@ -1336,6 +1365,11 @@ function renderClientApplicationCards(applications, emptyText, type) {
                 <small>Последнее действие: ${formatDate(deal.lastActionAt)}</small>
               </summary>
               <div class="application-card-body">
+                ${dealNeedsCheck(deal) ? `
+                  <button class="primary-button small-button check-deal-button" data-check-deal="${escapeHtml(deal.id)}" type="button" title="Подтвердить, что заявку посмотрели сегодня">
+                    ✓ Заявка проверена
+                  </button>
+                ` : ""}
                 <button class="ghost-button small-button application-action-button" data-add-deal-action="${escapeHtml(deal.id)}" type="button">
                   + Действие
                 </button>
@@ -1593,7 +1627,12 @@ function renderClientLinks(client) {
 function renderClientSummary(client, options = {}) {
   const settings = typeof options === "object" ? options : {};
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
+  const uncheckedCount = clientUncheckedCount(client.applications || []);
   return `
+    ${uncheckedCount > 0 ? `<div class="client-check-banner" role="status" aria-label="Требуется проверка статусов">
+      <span class="client-check-banner-pulse"></span>
+      ПРОВЕРКА СТАТУСОВ ЗАЯВОК: ${uncheckedCount}
+    </div>` : ""}
     ${renderClientTaskBadge(client)}
     ${renderClientDocStrip(client)}
     <div class="client-summary-main">
@@ -2877,6 +2916,18 @@ function renderAdminPanelView() {
     return `<div class="empty">Доступ только для администраторов.</div>`;
   }
   return `
+    <section class="panel admin-panel-section">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Отчётность</p>
+          <h2>Биг Босс</h2>
+          <p class="muted">Сформировать суммарный отчёт по каждому клиенту с активными заявками — отправляется в личку Биг Боссу.</p>
+        </div>
+        <div class="panel-head-actions">
+          <button class="primary-button" data-refresh-statuses type="button">Обновить статусы</button>
+        </div>
+      </div>
+    </section>
     <section class="panel admin-panel-section">
       <div class="panel-head">
         <div>
@@ -4665,6 +4716,43 @@ async function handleSaveApplication(saveButton) {
   }
 }
 
+async function handleCheckDeal(button) {
+  const dealId = button.dataset.checkDeal;
+  if (!dealId) return;
+  button.disabled = true;
+  const uiSnapshot = captureUiState();
+  try {
+    await requestJson(`/api/deals/${encodeURIComponent(dealId)}/check`, { method: "PATCH" });
+    showToast("Заявка проверена", { type: "success" });
+    await loadData({ targets: ["dashboard"], restoreUi: uiSnapshot });
+  } catch (error) {
+    button.disabled = false;
+    window.alert(error.message);
+  }
+}
+
+async function handleRefreshStatuses(button) {
+  if (!window.confirm("Сформировать суммарный отчёт по каждому клиенту с активными заявками и отправить Биг Боссу?")) {
+    return;
+  }
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Отправляем…";
+  try {
+    const res = await requestJson("/api/admin/refresh-status", { method: "POST" });
+    if (!res.bossConfigured) {
+      showToast("Не настроен TELEGRAM_BOSS_CHAT_ID — отчёт не уйдёт", { type: "error" });
+    } else {
+      showToast(`Отправлено ${res.sent} из ${res.total} клиентов`, { type: "success" });
+    }
+  } catch (error) {
+    showToast(error.message || "Ошибка обновления", { type: "error" });
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
 async function handleArchiveClient(button) {
   if (!button.dataset.archiveClient) {
     return;
@@ -5066,6 +5154,22 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       await handleSaveApplication(saveApplication);
+      return;
+    }
+
+    const checkDeal = target.closest("[data-check-deal]");
+    if (checkDeal) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleCheckDeal(checkDeal);
+      return;
+    }
+
+    const refreshStatuses = target.closest("[data-refresh-statuses]");
+    if (refreshStatuses) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleRefreshStatuses(refreshStatuses);
       return;
     }
 
