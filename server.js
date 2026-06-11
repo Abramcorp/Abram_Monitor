@@ -28,6 +28,7 @@ const {
   fulfillDocumentRequest,
   markDealChecked,
   dealNeedsCheck,
+  isDealCheckedToday,
   CHECKABLE_STAGES,
   getBanks,
   getClients,
@@ -162,6 +163,53 @@ async function buildActiveClientKeySet() {
 }
 function dealClientKey(deal) {
   return `${String(deal.manager || "").trim().toLowerCase()}|${String(deal.client || "").trim().toLowerCase()}`;
+}
+
+// Дебаунсенная отправка суммарного отчёта Биг Боссу. Поведение:
+// - на каждый «полный набор проверок клиента» ставим таймер на 60с;
+// - если внутри окна происходит новая проверка/смена статуса по тому же
+//   клиенту — таймер сбрасывается;
+// - в момент срабатывания таймера ещё раз проверяем условие
+//   «нет непроверенных активных заявок» и состояние клиента (активен).
+// Хранится в памяти процесса; при рестарте теряется (следующее
+// изменение даст новый таймер).
+const pendingBossReports = new Map(); // key=`${manager.lc}|${client.lc}` → setTimeout handle
+const BOSS_REPORT_DEBOUNCE_MS = 60 * 1000;
+
+function scheduleBossClientReport(clientName, managerName, trigger = "checked") {
+  const key = `${String(managerName || "").trim().toLowerCase()}|${String(clientName || "").trim().toLowerCase()}`;
+  if (!key.trim() || key === "|") return;
+  const prev = pendingBossReports.get(key);
+  if (prev) clearTimeout(prev);
+  const handle = setTimeout(async () => {
+    pendingBossReports.delete(key);
+    try {
+      const activeKeys = await buildActiveClientKeySet();
+      if (!activeKeys.has(key)) return; // клиент в архиве/удалён за окно ожидания
+      const allDeals = await getDeals();
+      const sameClient = allDeals.filter((d) =>
+        String(d.client || "").trim().toLowerCase() === String(clientName || "").trim().toLowerCase() &&
+        String(d.manager || "").trim().toLowerCase() === String(managerName || "").trim().toLowerCase()
+      );
+      const remaining = sameClient.filter((d) => dealNeedsCheck(d));
+      if (remaining.length > 0) return; // ещё не все проверены — отменяемся
+      const activeDeals = sameClient.filter((d) => CHECKABLE_STAGES.has(d.stage));
+      if (!activeDeals.length) return; // нечего отправлять
+      const report = buildBossClientReport(clientName, managerName, activeDeals, trigger);
+      const bossChatId = await resolveBossChatId();
+      if (!bossChatId) {
+        console.warn(`[boss-report] нет привязанного chatId Биг Босса (client=${clientName})`);
+        return;
+      }
+      const topicId = await resolveBossClientTopicId(clientName, managerName, bossChatId);
+      await telegram.notifyBossClientReport(report, { chatId: bossChatId, topicId });
+    } catch (e) {
+      console.warn("[boss-report] debounced send error:", e.message);
+    }
+  }, BOSS_REPORT_DEBOUNCE_MS);
+  // unref чтобы таймер не держал event loop при остановке процесса
+  if (typeof handle.unref === "function") handle.unref();
+  pendingBossReports.set(key, handle);
 }
 
 // Резолвим TG-chatId аналитика по его имени. Сначала через привязку
@@ -817,24 +865,40 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { deal });
-    // Уведомление пользователю abram при смене статуса на ключевой.
-    const ALERT_STAGES = new Set(["submitted", "approved", "rejected"]);
-    if (previous && previous.stage !== deal.stage && ALERT_STAGES.has(deal.stage)) {
+    // Смена стадии: уведомление в boss-топик клиента + при необходимости
+    // auto-mark как проверенной + ставим дебаунсенный отчёт.
+    if (previous && previous.stage !== deal.stage) {
       (async () => {
         try {
-          const target = await users.findUserByLogin("abram");
-          const chatId = target?.telegramChatId || "";
-          if (!chatId) {
-            console.warn("[telegram] notifyStageChange skipped: user 'abram' has no telegramChatId");
-            return;
+          // 1) Если заявка была «проверяемой» (lead/documents_requested/submitted)
+          // и stage поменялся — считаем, что аналитик её посмотрел (стадия не
+          // меняется без человека), отметим проверенной автоматически.
+          if (CHECKABLE_STAGES.has(previous.stage) && !isDealCheckedToday(deal)) {
+            try { await markDealChecked(deal.id); }
+            catch (e) { console.warn("[stage-change] auto-check error:", e.message); }
           }
-          await telegram.notifyDealStageChange(deal, {
-            prevStageLabel: previous.stageLabel || previous.stage,
-            newStageLabel: deal.stageLabel || deal.stage,
-            chatId
-          });
+          // 2) Уведомление в Boss-чат → топик клиента. На все «значимые»
+          // переходы (выход из планируемой, попадание в submitted/approved/
+          // rejected/blocked).
+          const ALERT_STAGES = new Set(["submitted", "approved", "rejected", "blocked"]);
+          if (ALERT_STAGES.has(deal.stage) || ALERT_STAGES.has(previous.stage)) {
+            const bossChatId = await resolveBossChatId();
+            if (bossChatId) {
+              const topicId = await resolveBossClientTopicId(deal.client, deal.manager, bossChatId);
+              await telegram.notifyDealStageChange(deal, {
+                prevStageLabel: previous.stageLabel || previous.stage,
+                newStageLabel: deal.stageLabel || deal.stage,
+                chatId: bossChatId,
+                topicId
+              });
+            } else {
+              console.warn("[stage-change] нет привязанного chatId Биг Босса");
+            }
+          }
+          // 3) Дебаунсенный сводный отчёт по клиенту (1 мин окно).
+          scheduleBossClientReport(deal.client, deal.manager);
         } catch (error) {
-          console.warn("[telegram] notifyStageChange error:", error.message);
+          console.warn("[stage-change] dispatch error:", error.message);
         }
       })().catch(() => null);
     }
@@ -878,37 +942,11 @@ async function handleApi(request, response) {
     }
     const updated = await markDealChecked(dealId);
     sendJson(response, 200, { deal: updated });
-    // Проверяем остаток непроверенных активных заявок по клиенту.
-    // Архивных/удалённых клиентов в отчёт не шлём.
-    (async () => {
-      try {
-        const activeKeys = await buildActiveClientKeySet();
-        if (!activeKeys.has(dealClientKey(existing))) {
-          return;
-        }
-        const allDeals = await getDeals();
-        const sameClient = allDeals.filter((d) =>
-          String(d.client || "").trim().toLowerCase() === String(existing.client || "").trim().toLowerCase() &&
-          String(d.manager || "").trim().toLowerCase() === String(existing.manager || "").trim().toLowerCase()
-        );
-        const remaining = sameClient.filter((d) => dealNeedsCheck(d));
-        if (remaining.length === 0) {
-          const activeDeals = sameClient.filter((d) => CHECKABLE_STAGES.has(d.stage));
-          if (activeDeals.length) {
-            const report = buildBossClientReport(existing.client, existing.manager, activeDeals);
-            const bossChatId = await resolveBossChatId();
-            if (bossChatId) {
-              const topicId = await resolveBossClientTopicId(existing.client, existing.manager, bossChatId);
-              await telegram.notifyBossClientReport(report, { chatId: bossChatId, topicId });
-            } else {
-              console.warn("[boss-report] нет привязанного chatId Биг Босса — отчёт не отправлен");
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("[boss-report] dispatch error:", e.message);
-      }
-    })().catch(() => {});
+    // Дебаунсенная отправка сводного отчёта (1 мин окно). При срабатывании
+    // таймера ещё раз проверяется условие «нет непроверенных активных
+    // заявок» — если за окно ожидания статус изменился или появилась
+    // новая непроверенная, отправка отменяется.
+    scheduleBossClientReport(existing.client, existing.manager);
     return;
   }
 

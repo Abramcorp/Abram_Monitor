@@ -417,8 +417,9 @@ function notifyDocRequestConfirmed(req, { actor, topicId, amountRequested, amoun
 }
 
 // Уведомление о ключевой смене статуса заявки (submitted/approved/rejected).
-// Отправляется конкретному получателю в личку — chatId должен быть передан.
-function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId } = {}) {
+// chatId — целевой чат (Биг Босс или личка получателя). topicId опционально:
+// если чат Босса — форум-группа, шлём в топик клиента.
+function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId, topicId } = {}) {
   if (!BOT_TOKEN || !deal || !chatId) return null;
   const emoji = /одобр/i.test(newStageLabel || "") ? "🟢"
     : /отказ|отклон|нет возможн/i.test(newStageLabel || "") ? "🔴"
@@ -431,7 +432,7 @@ function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId } =
     + amountLines({ amountRequested: deal.amountRequested, amountApproved: deal.amountApproved })
     + `${escapeHtml(prevStageLabel || "—")} → <b>${escapeHtml(newStageLabel || "—")}</b>\n`
     + `Аналитик: ${escapeHtml(deal.manager || "—")}`;
-  return sendTelegramMessage(text, { chatId });
+  return sendTelegramMessage(text, { chatId, topicId });
 }
 
 // Уведомление аналитику о новой задаче. Шлётся в его привязанный личный
