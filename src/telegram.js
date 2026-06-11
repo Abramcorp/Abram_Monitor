@@ -434,6 +434,38 @@ function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId } =
   return sendTelegramMessage(text, { chatId });
 }
 
+// Уведомление аналитику о новой задаче. Шлётся в его привязанный личный
+// чат сразу после createTask. dueAt — ISO дата срока (опционально), форматируем
+// в DD.MM.YYYY. clientName, title — текст задачи.
+function notifyAnalystNewTask({ chatId, clientName, title, dueAt, actor } = {}) {
+  if (!BOT_TOKEN || !chatId || !title) return null;
+  const dueLine = dueAt
+    ? `Срок: <b>${escapeHtml(formatDateRu(dueAt))}</b>\n`
+    : "";
+  const byTail = actor?.fullName ? `\nПоставил: ${escapeHtml(actor.fullName)}` : "";
+  const text = `🆕 <b>Новая задача!</b>\n`
+    + `Клиент: <b>${escapeHtml(clientName || "—")}</b>\n`
+    + `Задача: ${escapeHtml(title)}\n`
+    + dueLine
+    + byTail;
+  return sendTelegramMessage(text, { chatId });
+}
+
+// «20.05.2026» по МСК.
+function formatDateRu(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  try {
+    return new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "Europe/Moscow",
+      day: "2-digit", month: "2-digit", year: "numeric"
+    }).format(d);
+  } catch {
+    return String(value);
+  }
+}
+
 // Утреннее уведомление аналитику в личку: «Проверьте заявки клиентов».
 // clientsList: [{ clientName, count }, ...].
 function notifyAnalystDailyCheck({ chatId, analystName, clientsList = [] }) {
@@ -514,6 +546,7 @@ module.exports = {
   notifyDocRequestConfirmed,
   notifyDealStageChange,
   notifyAnalystDailyCheck,
+  notifyAnalystNewTask,
   notifyBossClientReport,
   escapeHtml
 };

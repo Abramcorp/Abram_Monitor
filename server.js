@@ -164,6 +164,26 @@ function dealClientKey(deal) {
   return `${String(deal.manager || "").trim().toLowerCase()}|${String(deal.client || "").trim().toLowerCase()}`;
 }
 
+// Резолвим TG-chatId аналитика по его имени. Сначала через привязку
+// manager.userId → user.telegramChatId, потом fallback по fullName.
+// Возвращает "" если привязки нет.
+async function resolveAnalystChatId(analystName) {
+  try {
+    if (!analystName) return "";
+    const nameKey = String(analystName).trim().toLowerCase();
+    const managers = await getManagers();
+    const manager = managers.find((m) => String(m.name || "").trim().toLowerCase() === nameKey);
+    if (!manager) return "";
+    const allUsers = await users.listUsers();
+    const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
+      || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
+    return linked?.telegramChatId ? String(linked.telegramChatId) : "";
+  } catch (e) {
+    console.warn("[analyst-chat-id] resolve error:", e.message);
+    return "";
+  }
+}
+
 // Резолвим chatId Биг Босса. По договорённости — это пользователь системы
 // с fullName «Биг Босс» (case-insensitive) или login bigboss/boss; берём
 // его привязанный telegramChatId. Если такой пользователь не найден или
@@ -1125,7 +1145,26 @@ async function handleApi(request, response) {
   if (request.method === "POST" && pathname === "/api/tasks") {
     const payload = await readBody(request);
     ensurePartnerOwnsManager(request, payload.manager);
-    sendJson(response, 201, { task: await createTask(payload) });
+    const task = await createTask(payload);
+    sendJson(response, 201, { task });
+    // Уведомление аналитику в личку (fire-and-forget). Резолвим chatId
+    // по manager → users (как в утренних пингах). Если привязки нет — тихо
+    // пропускаем, основной поток не страдает.
+    (async () => {
+      try {
+        const chatId = await resolveAnalystChatId(task.manager);
+        if (!chatId) return;
+        await telegram.notifyAnalystNewTask({
+          chatId,
+          clientName: task.client,
+          title: task.title,
+          dueAt: task.dueAt,
+          actor: request.user
+        });
+      } catch (e) {
+        console.warn("[task] notify error:", e.message);
+      }
+    })().catch(() => {});
     return;
   }
 
