@@ -877,25 +877,31 @@ async function handleApi(request, response) {
             try { await markDealChecked(deal.id); }
             catch (e) { console.warn("[stage-change] auto-check error:", e.message); }
           }
-          // 2) Уведомление в Boss-чат → топик клиента. На все «значимые»
-          // переходы (выход из планируемой, попадание в submitted/approved/
-          // rejected/blocked).
-          const ALERT_STAGES = new Set(["submitted", "approved", "rejected", "blocked"]);
-          if (ALERT_STAGES.has(deal.stage) || ALERT_STAGES.has(previous.stage)) {
-            const bossChatId = await resolveBossChatId();
-            if (bossChatId) {
-              const topicId = await resolveBossClientTopicId(deal.client, deal.manager, bossChatId);
-              await telegram.notifyDealStageChange(deal, {
-                prevStageLabel: previous.stageLabel || previous.stage,
-                newStageLabel: deal.stageLabel || deal.stage,
-                chatId: bossChatId,
-                topicId
-              });
-            } else {
-              console.warn("[stage-change] нет привязанного chatId Биг Босса");
+          // 2) Уведомление в Boss-чат → топик клиента. Локальный try/catch,
+          // чтобы любая ошибка TG (Boss-чат не настроен, fetch failure,
+          // нет прав на топик) не помешала вызвать scheduleBossClientReport
+          // ниже — иначе debounce-триггер для этого перехода терялся бы.
+          try {
+            const ALERT_STAGES = new Set(["submitted", "approved", "rejected", "blocked"]);
+            if (ALERT_STAGES.has(deal.stage) || ALERT_STAGES.has(previous.stage)) {
+              const bossChatId = await resolveBossChatId();
+              if (bossChatId) {
+                const topicId = await resolveBossClientTopicId(deal.client, deal.manager, bossChatId);
+                await telegram.notifyDealStageChange(deal, {
+                  prevStageLabel: previous.stageLabel || previous.stage,
+                  newStageLabel: deal.stageLabel || deal.stage,
+                  chatId: bossChatId,
+                  topicId
+                });
+              } else {
+                console.warn("[stage-change] нет привязанного chatId Биг Босса");
+              }
             }
+          } catch (alertError) {
+            console.warn("[stage-change] alert error:", alertError.message);
           }
           // 3) Дебаунсенный сводный отчёт по клиенту (1 мин окно).
+          // Вызывается ВСЕГДА — даже если TG-алерт выше упал.
           scheduleBossClientReport(deal.client, deal.manager);
         } catch (error) {
           console.warn("[stage-change] dispatch error:", error.message);
