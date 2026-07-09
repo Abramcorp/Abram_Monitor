@@ -421,15 +421,24 @@ function notifyDocRequestConfirmed(req, { actor, topicId, amountRequested, amoun
 // если чат Босса — форум-группа, шлём в топик клиента.
 function notifyDealStageChange(deal, { prevStageLabel, newStageLabel, chatId, topicId } = {}) {
   if (!BOT_TOKEN || !deal || !chatId) return null;
-  const emoji = /одобр/i.test(newStageLabel || "") ? "🟢"
-    : /отказ|отклон|нет возможн/i.test(newStageLabel || "") ? "🔴"
+  const isApproved = deal.stage === "approved";
+  const isRefused = deal.stage === "rejected" || deal.stage === "blocked";
+  const emoji = isApproved ? "🟢"
+    : isRefused ? "🔴"
     : /подпис|реш/i.test(newStageLabel || "") ? "🟡"
     : "🔔";
+  // При approved подчёркиваем одобренную сумму строкой «Одобрено: ...».
+  // При rejected/blocked добавляем строку с причиной (deal.comment, задаётся
+  // обязательным prompt на фронте при переходе в NEGATIVE_FINAL_STAGES).
+  const reasonLine = isRefused && deal.comment
+    ? `Причина: <b>${escapeHtml(deal.comment)}</b>\n`
+    : "";
   const text = `${emoji} <b>Смена статуса</b>\n`
     + `Клиент: <b>${escapeHtml(deal.client || "—")}</b>\n`
     + `Банк: <b>${escapeHtml(deal.bank || "—")}</b>\n`
     + `Программа: ${escapeHtml(deal.program || "—")}\n`
     + amountLines({ amountRequested: deal.amountRequested, amountApproved: deal.amountApproved })
+    + reasonLine
     + `${escapeHtml(prevStageLabel || "—")} → <b>${escapeHtml(newStageLabel || "—")}</b>\n`
     + `Аналитик: ${escapeHtml(deal.manager || "—")}`;
   return sendTelegramMessage(text, { chatId, topicId });

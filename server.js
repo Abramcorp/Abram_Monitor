@@ -956,6 +956,41 @@ async function handleApi(request, response) {
     return;
   }
 
+  // POST /api/deals/reorder — обновить orderIndex для набора заявок разом.
+  // Тело: { order: [{ id, orderIndex }, ...] }. Партнёр-скоуп проверяем для
+  // каждой заявки отдельно.
+  if (request.method === "POST" && pathname === "/api/deals/reorder") {
+    const payload = await readBody(request);
+    const order = Array.isArray(payload?.order) ? payload.order : [];
+    if (!order.length) {
+      sendJson(response, 400, { error: "order обязателен, массив {id, orderIndex}" });
+      return;
+    }
+    const allDeals = await getDeals();
+    const byId = new Map(allDeals.map((d) => [d.id, d]));
+    // Проверка партнёр-скоупа: пользователь-partner может двигать только своих.
+    if (scope) {
+      for (const item of order) {
+        const existing = byId.get(String(item.id || ""));
+        if (existing) ensurePartnerOwnsManager(request, existing.manager);
+      }
+    }
+    let updated = 0;
+    for (const item of order) {
+      const dealId = String(item.id || "");
+      const orderIndex = Number(item.orderIndex);
+      if (!dealId || !byId.has(dealId) || !Number.isFinite(orderIndex)) continue;
+      try {
+        await updateDeal(dealId, { orderIndex });
+        updated += 1;
+      } catch (e) {
+        console.warn("[reorder] update error:", dealId, e.message);
+      }
+    }
+    sendJson(response, 200, { updated, total: order.length });
+    return;
+  }
+
   // POST /api/admin/refresh-status — админ дёргает суммарный отчёт по
   // каждому клиенту с активными заявками. Результат: count отправленных.
   if (request.method === "POST" && pathname === "/api/admin/refresh-status") {
