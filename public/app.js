@@ -501,6 +501,13 @@ function applicationBucketEnteredAt(deal, bucket) {
 
 function sortByBucketEntry(applications, bucket) {
   return [...applications].sort((left, right) => {
+    // Ручной порядок (drag-and-drop): orderIndex > 0 переставляется первым;
+    // 0 — «естественный порядок» по времени.
+    const lo = Number(left.orderIndex) || 0;
+    const ro = Number(right.orderIndex) || 0;
+    if (lo && ro && lo !== ro) return lo - ro;
+    if (lo && !ro) return -1;
+    if (!lo && ro) return 1;
     const leftEntry = sortableTime(applicationBucketEnteredAt(left, bucket));
     const rightEntry = sortableTime(applicationBucketEnteredAt(right, bucket));
     return leftEntry - rightEntry || sortableTime(left.lastActionAt) - sortableTime(right.lastActionAt) || left.id.localeCompare(right.id, "ru");
@@ -1377,14 +1384,17 @@ function renderClientApplicationCards(applications, emptyText, type) {
     return `<div class="empty compact-empty">${emptyText}</div>`;
   }
 
+  // data-drag-list: контейнер, data-drag-id: карточка. Драг работает
+  // в рамках одного data-drag-list (типа колонки/статуса).
+  const listKey = uiStateKey("app-list", type);
   return `
-    <div class="client-application-list">
+    <div class="client-application-list" data-drag-list="${escapeHtml(listKey)}">
       ${applications
         .map(
           (deal) => {
             const needsCheck = dealNeedsCheck(deal);
             return `
-            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}${needsCheck ? " needs-check" : ""}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
+            <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}${needsCheck ? " needs-check" : ""}" draggable="true" data-drag-id="${escapeHtml(deal.id)}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
               <summary class="application-card-head">
                 <strong>${renderApplicationProgramTitle(deal)}</strong>
                 <span>${money(deal.amountRequested)}${deal.stage === "approved" && Number(deal.amountApproved) > 0 ? ` · <span class="application-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}</span>
@@ -4855,6 +4865,69 @@ function initDynamicControls() {
     if (event.target?.id === "queryFilter") {
       state.filters.query = event.target.value;
       scheduleQueryFilterRender(event.target);
+    }
+  });
+
+  // Drag-and-drop для карточек заявок в колонке клиента. Перемещать можно
+  // только в рамках одного data-drag-list (одна стадия/тип).
+  let dragCurrentId = null;
+  let dragCurrentList = null;
+  app.addEventListener("dragstart", (event) => {
+    const card = event.target?.closest?.("[data-drag-id]");
+    if (!card) return;
+    dragCurrentId = card.dataset.dragId;
+    dragCurrentList = card.closest("[data-drag-list]")?.dataset.dragList || null;
+    card.classList.add("is-dragging");
+    // Firefox требует хотя бы что-то в dataTransfer, чтобы drag стартовал.
+    try { event.dataTransfer.setData("text/plain", dragCurrentId); } catch {}
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  });
+  app.addEventListener("dragend", (event) => {
+    const card = event.target?.closest?.("[data-drag-id]");
+    if (card) card.classList.remove("is-dragging");
+    dragCurrentId = null;
+    dragCurrentList = null;
+    app.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+  });
+  app.addEventListener("dragover", (event) => {
+    if (!dragCurrentId) return;
+    const list = event.target?.closest?.("[data-drag-list]");
+    if (!list || list.dataset.dragList !== dragCurrentList) return;
+    event.preventDefault(); // разрешаем drop
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    const target = event.target.closest("[data-drag-id]");
+    if (!target || target.dataset.dragId === dragCurrentId) return;
+    const rect = target.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    target.classList.add("drag-over");
+    // Живая перестановка: тянущийся элемент вставляется до/после target.
+    const dragged = list.querySelector(`[data-drag-id="${cssEscape(dragCurrentId)}"]`);
+    if (dragged) {
+      target.parentNode.insertBefore(dragged, before ? target : target.nextSibling);
+    }
+  });
+  app.addEventListener("dragleave", (event) => {
+    const target = event.target?.closest?.("[data-drag-id]");
+    if (target) target.classList.remove("drag-over");
+  });
+  app.addEventListener("drop", async (event) => {
+    if (!dragCurrentId) return;
+    const list = event.target?.closest?.("[data-drag-list]");
+    if (!list || list.dataset.dragList !== dragCurrentList) return;
+    event.preventDefault();
+    // Собираем итоговый порядок и шлём на бэк.
+    const ids = [...list.querySelectorAll("[data-drag-id]")].map((el) => el.dataset.dragId);
+    const order = ids.map((id, i) => ({ id, orderIndex: i + 1 }));
+    try {
+      await requestJson("/api/deals/reorder", {
+        method: "POST",
+        body: JSON.stringify({ order })
+      });
+      // Перезагружаем dashboard, сохраняя раскрытые details.
+      const snapshot = captureUiState();
+      await loadData({ targets: ["dashboard"], restoreUi: snapshot });
+    } catch (error) {
+      showToast(error.message || "Не удалось сохранить порядок", { type: "error" });
     }
   });
 

@@ -2584,6 +2584,22 @@ details.client-application-card.needs-check {
   50%      { box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.35); }
 }
 
+/* Drag-and-drop карточек заявок в колонке клиента. */
+.client-application-card[draggable="true"] {
+  cursor: grab;
+}
+.client-application-card[draggable="true"].is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+.client-application-card.drag-over {
+  outline: 2px dashed var(--blue);
+  outline-offset: 2px;
+}
+.client-application-card[draggable="true"] .application-card-head {
+  cursor: grab;
+}
+
 /* Баннер «ПРОВЕРИТЬ ЗАЯВКИ:» в шапке аналитика — заголовок + клиенты построчно.
    Идёт сразу под «Аналитик: <имя>». */
 .manager-check-banner {

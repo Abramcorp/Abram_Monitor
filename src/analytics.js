@@ -188,6 +188,10 @@ function normalizeDeal(raw = {}) {
     // (нажатие «Заявка проверена»). Сбрасывается логически каждое утро
     // в 08:50 МСК — фронт сравнивает дату с текущим МСК-днём.
     lastCheckedAt: toIsoDate(raw.lastCheckedAt),
+    // Ручной порядок карточек в колонке (drag-and-drop в UI). 0 если
+    // не задан — сортируем через orderIndex по возрастанию, при равенстве
+    // — существующие критерии (lastActionAt).
+    orderIndex: toNumber(raw.orderIndex),
     createdAt,
     updatedAt
   };
