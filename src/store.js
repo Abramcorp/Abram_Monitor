@@ -15,6 +15,7 @@ const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
 const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
 const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
 const DOCUMENT_REQUESTS_FILE = path.join(DATA_DIR, "document_requests.json");
+const INTEGRATION_AUDIT_FILE = path.join(DATA_DIR, "integration_audit.json");
 // Дефолтные списки. Используются:
 //   а) для bootstrap (засев пустых коллекций при первом запуске);
 //   б) как fallback при чтении, если коллекции ещё не инициализированы.
@@ -447,6 +448,8 @@ function normalizeClient(raw = {}) {
   const archivedAt = toIsoDate(raw.archivedAt);
   return {
     id: cleanText(raw.id) || `client-${Date.now()}`,
+    inn: cleanText(raw.inn).replace(/\D/g, ""),
+    crmLeadId: cleanText(raw.crmLeadId),
     name: cleanText(raw.name || raw.client),
     manager: cleanText(raw.manager) || "Без аналитика",
     contact: cleanText(raw.contact),
@@ -455,6 +458,9 @@ function normalizeClient(raw = {}) {
     driveUrl: cleanText(raw.driveUrl || raw.diskUrl || raw.driveLink),
     instructionUrl: cleanText(raw.instructionUrl || raw.instructionLink),
     comment: cleanText(raw.comment),
+    integrationSource: cleanText(raw.integrationSource),
+    lastIntegrationMutationKeyHash: cleanText(raw.lastIntegrationMutationKeyHash),
+    lastIntegrationMutationRequestHash: cleanText(raw.lastIntegrationMutationRequestHash),
     telegramTopicId: cleanText(raw.telegramTopicId),
     // Отдельный топик в чате Биг Босса (форум-группа). Кэшируется здесь,
     // чтобы при отправке отчёта не создавать дубль.
@@ -463,6 +469,80 @@ function normalizeClient(raw = {}) {
     createdAt,
     updatedAt: updatedAt || createdAt
   };
+}
+
+async function upsertIntegrationClient(payload) {
+  const inn = cleanText(payload.inn).replace(/\D/g, "");
+  const crmLeadId = cleanText(payload.crmLeadId);
+  const name = cleanText(payload.name || payload.client);
+  const manager = cleanText(payload.manager);
+  if (!/^\d{10}(?:\d{2})?$/.test(inn)) throw new Error("ИНН должен содержать 10 или 12 цифр");
+  if (!crmLeadId) throw new Error("crmLeadId обязателен");
+  if (!name || !manager) throw new Error("name и manager обязательны");
+
+  const clients = await getClients();
+  const byId = payload.id ? clients.find((client) => client.id === payload.id) : null;
+  const byInn = clients.find((client) => client.inn === inn);
+  const byCrm = clients.find((client) => client.crmLeadId === crmLeadId);
+  if (byInn && byCrm && byInn.id !== byCrm.id) {
+    throw new Error("Конфликт клиента: ИНН и crmLeadId указывают на разные записи");
+  }
+  const legacyMatches = clients.filter((client) =>
+    !client.inn && !client.crmLeadId
+    && client.name.toLowerCase() === name.toLowerCase()
+    && client.manager.toLowerCase() === manager.toLowerCase()
+  );
+  const existing = byId || byInn || byCrm || (legacyMatches.length === 1 ? legacyMatches[0] : null);
+  const now = new Date().toISOString();
+  const next = normalizeClient({
+    ...(existing || {}),
+    ...payload,
+    id: existing?.id || payload.id || `client-crm-${crmLeadId.replace(/[^a-z0-9_-]/gi, "-")}`,
+    inn,
+    crmLeadId,
+    name,
+    manager,
+    integrationSource: "jarvis",
+    lastIntegrationMutationKeyHash: cleanText(payload.lastIntegrationMutationKeyHash),
+    lastIntegrationMutationRequestHash: cleanText(payload.lastIntegrationMutationRequestHash),
+    createdAt: existing?.createdAt || payload.createdAt || now,
+    updatedAt: now
+  });
+
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    if (existing) return normalizeClient(await postgresStore.updateRow("clients", existing.id, () => next));
+    return normalizeClient(await postgresStore.insertRow("clients", next));
+  }
+  const index = clients.findIndex((client) => client.id === next.id);
+  if (index >= 0) clients[index] = next;
+  else clients.push(next);
+  writeJson(CLIENTS_FILE, clients);
+  return next;
+}
+
+async function appendIntegrationAudit(payload) {
+  const now = new Date().toISOString();
+  const event = {
+    id: `integration-audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    actor: cleanText(payload.actor) || "jarvis-analytics",
+    action: cleanText(payload.action),
+    resourceType: cleanText(payload.resourceType),
+    resourceId: cleanText(payload.resourceId),
+    requestHash: cleanText(payload.requestHash),
+    idempotencyKeyHash: cleanText(payload.idempotencyKeyHash),
+    details: payload.details && typeof payload.details === "object" ? payload.details : {},
+    createdAt: now,
+    updatedAt: now
+  };
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    return postgresStore.insertRow("integration_audit", event);
+  }
+  const list = readJson(INTEGRATION_AUDIT_FILE, []);
+  list.push(event);
+  writeJson(INTEGRATION_AUDIT_FILE, list.slice(-5000));
+  return event;
 }
 
 async function setClientTelegramTopicId(id, topicId) {
@@ -1656,7 +1736,9 @@ module.exports = {
   getManagers,
   getTasks,
   initStore,
+  appendIntegrationAudit,
   normalizeClient,
+  upsertIntegrationClient,
   normalizeDocumentRequest,
   normalizeDocumentRequestAttachment,
   removeDocumentRequestAttachment,

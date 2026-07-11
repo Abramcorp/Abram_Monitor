@@ -9,6 +9,7 @@ const { calculateDashboard } = require("./src/analytics");
 const { getMoscowNow } = require("./src/time");
 const {
   addDealAction,
+  appendIntegrationAudit,
   addDocumentRequestAttachment,
   archiveClient,
   bulkBlockClientDeals,
@@ -42,6 +43,7 @@ const {
   updateKnowledgeProgram,
   updateManager,
   updateTask,
+  upsertIntegrationClient,
   initStore
 } = require("./src/store");
 const users = require("./src/users");
@@ -49,6 +51,16 @@ const { defaultStore: sessionStore } = require("./src/sessions");
 const googleDrive = require("./src/googleDrive");
 const telegram = require("./src/telegram");
 const eventBus = require("./src/eventBus");
+const {
+  SERVICE_ROLE,
+  authenticateServiceBearer,
+  buildChangeSet,
+  normalizeInn,
+  requestHash,
+  sha256,
+  summarizeQuality,
+  validateIntegrationDecision
+} = require("./src/integrationApi");
 const {
   setClientTelegramTopicId,
   setClientTelegramBossTopicId,
@@ -489,7 +501,15 @@ function readBearerToken(request) {
 
 async function attachUser(request) {
   const cookies = parseCookies(request.headers?.cookie);
-  const token = readBearerToken(request) || cookies[SESSION_COOKIE] || "";
+  const bearerToken = readBearerToken(request);
+  const service = bearerToken ? authenticateServiceBearer(bearerToken) : null;
+  if (service) {
+    request.user = service.user;
+    request.serviceScopes = service.scopes;
+    request.sessionToken = "";
+    return;
+  }
+  const token = bearerToken || cookies[SESSION_COOKIE] || "";
   const session = token ? sessionStore.get(token) : null;
   if (!session) {
     request.user = null;
@@ -505,6 +525,220 @@ async function attachUser(request) {
   }
   request.user = users.publicUser(user);
   request.sessionToken = token;
+}
+
+function requireServiceScope(request, scope) {
+  if (request.user?.role !== SERVICE_ROLE) throw new AuthError(403, "Маршрут доступен только сервисной интеграции");
+  if (!request.serviceScopes?.has(scope)) throw new AuthError(403, `Нет сервисного права: ${scope}`);
+}
+
+function readIdempotencyKey(request) {
+  return String(request.headers?.["idempotency-key"] || "").trim();
+}
+
+function requireIdempotency(request) {
+  const key = readIdempotencyKey(request);
+  if (!key || key.length < 8 || key.length > 200) {
+    throw new AuthError(400, "Для мутации нужен Idempotency-Key длиной 8–200 символов");
+  }
+  return { keyHash: sha256(key) };
+}
+
+function findKnowledgeProgram(knowledge, programId) {
+  for (const bank of knowledge || []) {
+    const program = (bank.programs || []).find((item) => item.id === programId);
+    if (program) return { bank, program };
+  }
+  return null;
+}
+
+function integrationDealPayload(payload, client, knowledgeEntry, idempotency) {
+  const program = knowledgeEntry.program;
+  const bankName = String(program.bank || knowledgeEntry.bank.bank || "").trim();
+  const amountRequested = Number(payload.amountRequested || 0);
+  if (!Number.isFinite(amountRequested) || amountRequested <= 0) {
+    throw new AuthError(400, "amountRequested должен быть положительным числом");
+  }
+  const wave = Math.max(0, Math.trunc(Number(payload.wave || 0)));
+  const bodyHash = requestHash(payload);
+  const decision = validateIntegrationDecision({
+    ...payload,
+    stage: payload.stage || "planned",
+    amountApproved: payload.amountApproved || 0
+  });
+  return {
+    ...payload,
+    id: `deal-int-${idempotency.keyHash.slice(0, 24)}`,
+    clientId: client.id,
+    inn: client.inn,
+    crmLeadId: client.crmLeadId,
+    client: client.name,
+    manager: client.manager,
+    knowledgeProgramId: program.id,
+    bank: bankName,
+    program: program.program || "",
+    programType: program.programType || "",
+    programAmountRange: program.amountRange || "",
+    programTermRange: program.termRange || "",
+    stage: decision.stage,
+    amountRequested,
+    amountApproved: decision.amountApproved,
+    decisionType: decision.decisionType,
+    refusalReasonCode: decision.refusalReasonCode,
+    conditions: decision.conditions,
+    wave,
+    entryType: payload.entryType || "application",
+    integrationSource: "jarvis",
+    integrationIdempotencyKeyHash: idempotency.keyHash,
+    integrationRequestHash: bodyHash
+  };
+}
+
+async function handleIntegrationApi(request, response, url, pathname) {
+  if (!pathname.startsWith("/api/integration/v1/")) return false;
+
+  if (request.method === "GET" && pathname === "/api/integration/v1/health") {
+    requireServiceScope(request, "read");
+    sendJson(response, 200, {
+      ok: true,
+      schemaVersion: 1,
+      actor: request.user.login,
+      scopes: [...request.serviceScopes].sort(),
+      time: new Date().toISOString()
+    });
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/integration/v1/changes") {
+    requireServiceScope(request, "read");
+    const snapshotAt = new Date().toISOString();
+    const updatedSince = String(url.searchParams.get("updatedSince") || "").trim();
+    const [deals, clients, knowledge, documentRequests] = await Promise.all([
+      getDeals(), getClients(), getKnowledge(), getDocumentRequests()
+    ]);
+    sendJson(response, 200, buildChangeSet({ deals, clients, knowledge, documentRequests, updatedSince, snapshotAt }));
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/integration/v1/quality") {
+    requireServiceScope(request, "read");
+    sendJson(response, 200, { schemaVersion: 1, generatedAt: new Date().toISOString(), ...summarizeQuality(await getDeals()) });
+    return true;
+  }
+
+  const integrationDealReadMatch = pathname.match(/^\/api\/integration\/v1\/deals\/([^/]+)$/);
+  if (request.method === "GET" && integrationDealReadMatch) {
+    requireServiceScope(request, "read");
+    const deal = (await getDeals()).find((item) => item.id === decodeURIComponent(integrationDealReadMatch[1]));
+    if (!deal) throw new AuthError(404, "Deal not found");
+    sendJson(response, 200, { deal });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/integration/v1/clients/upsert") {
+    requireServiceScope(request, "write_plan");
+    const idempotency = requireIdempotency(request);
+    const payload = await readBody(request);
+    payload.inn = normalizeInn(payload.inn);
+    const hash = requestHash(payload);
+    const existingMutation = (await getClients()).find((item) => item.lastIntegrationMutationKeyHash === idempotency.keyHash);
+    if (existingMutation) {
+      if (existingMutation.lastIntegrationMutationRequestHash !== hash) {
+        throw new AuthError(409, "Idempotency-Key уже использован с другим телом запроса");
+      }
+      sendJson(response, 200, { client: existingMutation, replay: true });
+      return true;
+    }
+    payload.lastIntegrationMutationKeyHash = idempotency.keyHash;
+    payload.lastIntegrationMutationRequestHash = hash;
+    const client = await upsertIntegrationClient(payload);
+    await appendIntegrationAudit({
+      action: "client_upsert",
+      resourceType: "client",
+      resourceId: client.id,
+      requestHash: hash,
+      idempotencyKeyHash: idempotency.keyHash
+    });
+    sendJson(response, 200, { client, replay: false });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/integration/v1/deals") {
+    requireServiceScope(request, "write_plan");
+    const idempotency = requireIdempotency(request);
+    const payload = await readBody(request);
+    const clients = await getClients();
+    const client = clients.find((item) => item.id === String(payload.clientId || ""));
+    if (!client || !client.inn || !client.crmLeadId) {
+      throw new AuthError(400, "Сначала свяжите клиента по clientId + ИНН + crmLeadId");
+    }
+    const knowledgeEntry = findKnowledgeProgram(await getKnowledge(), String(payload.knowledgeProgramId || ""));
+    if (!knowledgeEntry) throw new AuthError(400, "knowledgeProgramId не найден");
+    const next = integrationDealPayload(payload, client, knowledgeEntry, idempotency);
+    const existing = (await getDeals()).find((item) => item.integrationIdempotencyKeyHash === idempotency.keyHash);
+    if (existing) {
+      if (existing.integrationRequestHash !== next.integrationRequestHash) {
+        throw new AuthError(409, "Idempotency-Key уже использован с другим телом запроса");
+      }
+      sendJson(response, 200, { deal: existing, replay: true });
+      return true;
+    }
+    const deal = await createDeal(next);
+    await appendIntegrationAudit({
+      action: "deal_create",
+      resourceType: "deal",
+      resourceId: deal.id,
+      requestHash: next.integrationRequestHash,
+      idempotencyKeyHash: idempotency.keyHash,
+      details: { clientId: client.id, knowledgeProgramId: deal.knowledgeProgramId, campaignId: deal.campaignId, wave: deal.wave }
+    });
+    sendJson(response, 201, { deal, replay: false });
+    return true;
+  }
+
+  if (request.method === "PATCH" && integrationDealReadMatch) {
+    requireServiceScope(request, "write_status");
+    const idempotency = requireIdempotency(request);
+    const dealId = decodeURIComponent(integrationDealReadMatch[1]);
+    const existing = (await getDeals()).find((item) => item.id === dealId);
+    if (!existing) throw new AuthError(404, "Deal not found");
+    const payload = await readBody(request);
+    const hash = requestHash(payload);
+    if (existing.lastIntegrationMutationKeyHash === idempotency.keyHash) {
+      if (existing.lastIntegrationMutationRequestHash !== hash) {
+        throw new AuthError(409, "Idempotency-Key уже использован с другим телом запроса");
+      }
+      sendJson(response, 200, { deal: existing, replay: true });
+      return true;
+    }
+    const allowed = [
+      "stage", "amountApproved", "inquiryAt", "signedAt", "completedAt", "comment",
+      "decisionType", "validUntil", "conditions", "refusalReasonCode", "lastCheckedAt"
+    ];
+    const patch = Object.fromEntries(allowed.filter((key) => payload[key] !== undefined).map((key) => [key, payload[key]]));
+    if (patch.stage && patch.stage !== "approved" && patch.amountApproved === undefined) patch.amountApproved = 0;
+    const decision = validateIntegrationDecision(patch, existing);
+    patch.stage = decision.stage;
+    patch.amountApproved = decision.amountApproved;
+    patch.decisionType = decision.decisionType;
+    patch.refusalReasonCode = decision.refusalReasonCode;
+    patch.conditions = decision.conditions;
+    patch.lastIntegrationMutationKeyHash = idempotency.keyHash;
+    patch.lastIntegrationMutationRequestHash = hash;
+    const deal = await updateDeal(dealId, patch);
+    await appendIntegrationAudit({
+      action: "deal_update",
+      resourceType: "deal",
+      resourceId: deal.id,
+      requestHash: hash,
+      idempotencyKeyHash: idempotency.keyHash,
+      details: { fields: Object.keys(patch).filter((key) => !key.includes("Integration")) }
+    });
+    sendJson(response, 200, { deal, replay: false });
+    return true;
+  }
+
+  throw new AuthError(404, "Integration API route not found");
 }
 
 function readBody(request) {
@@ -753,6 +987,14 @@ async function handleApi(request, response) {
 
   // Все остальные /api/* требуют авторизации.
   requireAuth(request);
+
+  if (request.user.role === SERVICE_ROLE) {
+    if (!pathname.startsWith("/api/integration/v1/")) {
+      throw new AuthError(403, "Сервисная учётка не имеет доступа к пользовательскому API");
+    }
+    await handleIntegrationApi(request, response, url, pathname);
+    return;
+  }
 
   // documents_officer имеет доступ только к запросам документов.
   if (request.user.role === "documents_officer" && !pathname.startsWith("/api/document-requests")) {

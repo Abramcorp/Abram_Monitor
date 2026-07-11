@@ -153,6 +153,24 @@ test("buildInitialCommentAction skips empty application comments", () => {
   assert.equal(buildInitialCommentAction({ comment: "   " }, "2026-05-16T12:00:00+03:00"), null);
 });
 
+test("normalizeClient keeps stable CRM identity", () => {
+  const client = normalizeClient({
+    id: "client-1",
+    name: "ИП Тест",
+    manager: "Граф",
+    inn: "123 456 789 012",
+    crmLeadId: 42,
+    integrationSource: "jarvis",
+    lastIntegrationMutationKeyHash: "key-hash",
+    lastIntegrationMutationRequestHash: "request-hash"
+  });
+  assert.equal(client.inn, "123456789012");
+  assert.equal(client.crmLeadId, "42");
+  assert.equal(client.integrationSource, "jarvis");
+  assert.equal(client.lastIntegrationMutationKeyHash, "key-hash");
+  assert.equal(client.lastIntegrationMutationRequestHash, "request-hash");
+});
+
 test("normalizeKnowledgeProgram keeps program type and amount range", () => {
   const program = normalizeKnowledgeProgram({
     bankPhone: "+7 495 000-00-00",
@@ -204,13 +222,13 @@ test("normalizeKnowledgeProgram normalizes category case-insensitively", () => {
   assert.equal(program.category, "ФИЗАВТО");
 });
 
-test("normalizeKnowledgeProgram drops unknown categories to empty string", () => {
+test("normalizeKnowledgeProgram preserves free-form categories", () => {
   const program = normalizeKnowledgeProgram({
     program: "Тест",
     category: "Что-то непонятное"
   });
 
-  assert.equal(program.category, "");
+  assert.equal(program.category, "Что-то непонятное");
 });
 
 test("normalizeKnowledgeProgram accepts the section alias for category", () => {
@@ -323,5 +341,6 @@ test("validateDocumentRequest enforces required fields", () => {
   assert.throws(() => validateDocumentRequest({ dealId: "d", clientName: "X", items: "doc" }), /Аналитик/);
   assert.throws(() => validateDocumentRequest({ dealId: "d", manager: "A", items: "doc" }), /Клиент/);
   assert.throws(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X" }), /документов/);
-  assert.doesNotThrow(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X", items: "doc" }));
+  assert.throws(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X", items: "doc" }), /Период/);
+  assert.doesNotThrow(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X", items: "doc", period: "12 месяцев" }));
 });

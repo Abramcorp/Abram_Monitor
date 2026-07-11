@@ -37,6 +37,10 @@ const COLLECTIONS = {
     file: path.join(DATA_DIR, "integrations.json"),
     table: "app_integrations"
   },
+  integration_audit: {
+    file: path.join(DATA_DIR, "integration_audit.json"),
+    table: "app_integration_audit"
+  },
   program_types: {
     file: path.join(DATA_DIR, "program_types.json"),
     table: "app_program_types"
@@ -227,6 +231,16 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
           created_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now()
         );
+
+        CREATE TABLE IF NOT EXISTS app_integration_audit (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS app_integration_audit_created_idx
+          ON app_integration_audit (created_at DESC);
 
         CREATE TABLE IF NOT EXISTS app_program_types (
           id text PRIMARY KEY,
