@@ -69,6 +69,17 @@ function normalizeInn(value) {
   return inn;
 }
 
+function normalizeIdentityName(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/ё/gu, "е")
+    .replace(/^индивидуальный\s+предприниматель\s+/u, "")
+    .replace(/^ип\s+/u, "")
+    .replace(/[^a-zа-я0-9]+/gu, " ")
+    .trim()
+    .replace(/\s+/gu, " ");
+}
+
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
@@ -212,6 +223,7 @@ module.exports = {
   canonicalJson,
   flattenKnowledge,
   normalizeConditions,
+  normalizeIdentityName,
   normalizeInn,
   parseServiceScopes,
   requestHash,
