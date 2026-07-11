@@ -135,11 +135,15 @@ function auditDealQuality(deal = {}) {
   if (!inn) warnings.push("missing_inn");
   if (!cleanText(deal.crmLeadId)) warnings.push("missing_crm_lead_id");
   if (!cleanText(deal.knowledgeProgramId)) warnings.push("missing_knowledge_program_id");
+  const identityComplete = Boolean(deal.clientId && inn && cleanText(deal.crmLeadId));
   return {
     errors,
     warnings,
     terminal: TERMINAL_STAGES.has(stage),
-    learnable: TERMINAL_STAGES.has(stage) && errors.length === 0 && Boolean(cleanText(deal.knowledgeProgramId))
+    learnable: TERMINAL_STAGES.has(stage)
+      && errors.length === 0
+      && identityComplete
+      && Boolean(cleanText(deal.knowledgeProgramId))
   };
 }
 
