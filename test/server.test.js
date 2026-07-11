@@ -185,12 +185,12 @@ test("parseCookies returns an empty object for missing or invalid headers", () =
   assert.deepEqual(parseCookies("nokey"), {});
 });
 
-test("buildSessionCookie produces HttpOnly cookie with SameSite Lax and TTL", () => {
+test("buildSessionCookie produces HttpOnly cookie with SameSite Strict and TTL", () => {
   const cookie = buildSessionCookie("abc.def", 60_000, { secure: false });
   assert.match(cookie, /^am_session=abc\.def;/);
   assert.match(cookie, /Path=\//);
   assert.match(cookie, /HttpOnly/);
-  assert.match(cookie, /SameSite=Lax/);
+  assert.match(cookie, /SameSite=Strict/);
   assert.match(cookie, /Max-Age=60/);
   assert.doesNotMatch(cookie, /Secure/);
 });

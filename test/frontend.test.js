@@ -19,7 +19,7 @@ test("application save refreshes dashboard while preserving the current client c
 });
 
 test("new application save refreshes the same client before closing the dialog", () => {
-  assert.match(appSource, /const \{ deal \} = await requestJson\("\/api\/deals"/);
+  assert.match(appSource, /\(\{ deal \} = await requestJson\("\/api\/deals"/);
   assert.match(appSource, /await refreshDashboard\(\{ restoreUi: preserveClientOpenState\(uiSnapshot, deal\) \}\)/);
   assert.match(appSource, /dialog\.close\(\)/);
 });
@@ -41,8 +41,8 @@ test("summary amount badges include counts next to requested amounts", () => {
 });
 
 test("summary report uses selected status amounts instead of all-status totals", () => {
-  assert.match(appSource, /const totalRequested = groups\.reduce\(\(total, group\) => total \+ Number\(group\.amountRequested \|\| 0\), 0\)/);
-  assert.match(appSource, /renderSummaryAmountBadges\(totals, state\.board\.status\)/);
+  assert.match(appSource, /const totalReq = scopedDeals\.reduce\(\(acc, d\) => acc \+ \(Number\(d\.amountRequested\) \|\| 0\), 0\)/);
+  assert.match(appSource, /const totalApp = scopedDeals\.reduce\(\(acc, d\) => acc \+ \(Number\(d\.amountApproved\) \|\| 0\), 0\)/);
   assert.doesNotMatch(appSource, /в выбранном отчете · всего/);
 });
 
@@ -81,7 +81,7 @@ test("summary report keeps only the requested chart set with a period selector",
 });
 
 test("summary charts are driven by selected status and grouping", () => {
-  assert.match(appSource, /renderSummaryCharts\(groups, state\.board\.status, totals\)/);
+  assert.match(appSource, /renderSummaryCharts\(scopedGroups, state\.board\.status, totals\)/);
   assert.match(appSource, /buildStatusCountPeriodRows\(status\)/);
   assert.match(appSource, /buildStatusFocusPeriodRows\(status\)/);
   assert.match(appSource, /buildGroupedPeriodSeries\(applicationCountRows, status\)/);

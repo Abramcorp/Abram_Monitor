@@ -71,6 +71,31 @@ test("normalizeDeal keeps selected bank program metadata", () => {
   assert.equal(deal.programTermRange, "до 36 мес.");
 });
 
+test("normalizeDeal keeps stable integration and decision fields", () => {
+  const deal = normalizeDeal({
+    clientId: "client-1",
+    inn: "123 456 789 012",
+    crmLeadId: "42",
+    campaignId: "campaign-1",
+    wave: 2,
+    entryType: "lead",
+    decisionType: "conditional",
+    validUntil: "2026-08-01",
+    conditions: ["Открыть счёт"],
+    refusalReasonCode: "",
+    integrationSource: "jarvis"
+  });
+  assert.equal(deal.clientId, "client-1");
+  assert.equal(deal.inn, "123456789012");
+  assert.equal(deal.crmLeadId, "42");
+  assert.equal(deal.campaignId, "campaign-1");
+  assert.equal(deal.wave, 2);
+  assert.equal(deal.entryType, "lead");
+  assert.equal(deal.decisionType, "conditional");
+  assert.deepEqual(deal.conditions, ["Открыть счёт"]);
+  assert.equal(deal.integrationSource, "jarvis");
+});
+
 test("normalizeDeal keeps action history chronological and updates last action", () => {
   const deal = normalizeDeal({
     client: "ООО Хронология",

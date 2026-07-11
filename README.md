@@ -57,6 +57,41 @@ Google Sheets используется только как ориентир по
 - `POST /api/knowledge` - добавить программу в базу знаний.
 - `PATCH /api/knowledge/programs/:id` - изменить программу базы знаний.
 
+## Интеграция Jarvis
+
+Для машинной интеграции используется отдельный API. Админский логин и
+браузерная cookie для него не нужны.
+
+Переменные Railway:
+
+```bash
+ABRAM_MONITOR_JARVIS_API_KEY=<случайный секрет длиной не менее 32 символов>
+ABRAM_MONITOR_JARVIS_SCOPES=read
+```
+
+Доступные scopes: `read`, `write_plan`, `write_status`. Без явной настройки
+выдаётся только `read`. Для включения записи:
+
+```bash
+ABRAM_MONITOR_JARVIS_SCOPES=read,write_plan,write_status
+```
+
+Маршруты `v1`:
+
+- `GET /api/integration/v1/health` — проверка ключа и scopes;
+- `GET /api/integration/v1/changes?updatedSince=<ISO>` — изменения клиентов,
+  заявок, программ и запросов документов; возвращаемый `cursor` передаётся в
+  следующий запрос как `updatedSince`;
+- `GET /api/integration/v1/quality` — аудит пригодности истории для обучения;
+- `GET /api/integration/v1/deals/:id` — одна заявка;
+- `POST /api/integration/v1/clients/upsert` — связать клиента по
+  `clientId + ИНН + crmLeadId`;
+- `POST /api/integration/v1/deals` — создать подтверждённый маршрут;
+- `PATCH /api/integration/v1/deals/:id` — обновить решение/статус.
+
+Каждая мутация требует заголовок `Idempotency-Key`. Сервисный ключ имеет доступ
+только к `/api/integration/v1/*` и не открывает пользовательскую админку.
+
 ## Проверки
 
 ```bash

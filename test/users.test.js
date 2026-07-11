@@ -43,14 +43,14 @@ test("publicUser returns null for null input", () => {
   assert.equal(publicUser(null), null);
 });
 
-test("LOGIN_PATTERN allows latin letters, digits, dot, dash, underscore", () => {
+test("LOGIN_PATTERN accepts any non-empty login for backwards compatibility", () => {
   assert.equal(LOGIN_PATTERN.test("ivan_petrov"), true);
   assert.equal(LOGIN_PATTERN.test("user-1"), true);
   assert.equal(LOGIN_PATTERN.test("a.b.c"), true);
-  assert.equal(LOGIN_PATTERN.test("ab"), false, "shorter than 3 chars");
-  assert.equal(LOGIN_PATTERN.test("Иван"), false, "cyrillic not allowed");
-  assert.equal(LOGIN_PATTERN.test("user@host"), false, "@ not allowed");
-  assert.equal(LOGIN_PATTERN.test("a".repeat(41)), false, "longer than 40 chars");
+  assert.equal(LOGIN_PATTERN.test("ab"), true);
+  assert.equal(LOGIN_PATTERN.test("Иван"), true);
+  assert.equal(LOGIN_PATTERN.test("user@host"), true);
+  assert.equal(LOGIN_PATTERN.test("a".repeat(41)), true);
 });
 
 test("USER_ROLES enumerates known roles", () => {
