@@ -67,6 +67,28 @@ test("quality audit quarantines contradictory outcomes", () => {
   assert.equal(summary.issueCounts.approved_amount_on_non_approved_stage, 1);
 });
 
+test("quality audit requires stable client identity before learning", () => {
+  const incomplete = auditDealQuality({
+    id: "deal-legacy",
+    stage: "approved",
+    amountApproved: 3_000_000,
+    knowledgeProgramId: "program-1"
+  });
+  assert.equal(incomplete.errors.length, 0);
+  assert.equal(incomplete.learnable, false);
+
+  const linked = auditDealQuality({
+    id: "deal-linked",
+    clientId: "client-1",
+    inn: "123456789012",
+    crmLeadId: "42",
+    stage: "approved",
+    amountApproved: 3_000_000,
+    knowledgeProgramId: "program-1"
+  });
+  assert.equal(linked.learnable, true);
+});
+
 test("change set supports full snapshot and ISO cursor", () => {
   const full = buildChangeSet({
     clients: [{ id: "c1", updatedAt: "" }],
