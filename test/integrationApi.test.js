@@ -7,6 +7,7 @@ const {
   auditDealQuality,
   authenticateServiceBearer,
   buildChangeSet,
+  normalizeIdentityName,
   normalizeInn,
   parseServiceScopes,
   requestHash,
@@ -33,6 +34,12 @@ test("INN normalization accepts legal entities and IP", () => {
   assert.equal(normalizeInn("77 1234 5678"), "7712345678");
   assert.equal(normalizeInn("123-456-789-012"), "123456789012");
   assert.throws(() => normalizeInn("123"), /10 или 12/);
+});
+
+test("identity names tolerate legal-form and punctuation differences", () => {
+  assert.equal(normalizeIdentityName("ИП Иванов Иван Иванович"), "иванов иван иванович");
+  assert.equal(normalizeIdentityName("Индивидуальный предприниматель Иванов Иван Иванович"), "иванов иван иванович");
+  assert.notEqual(normalizeIdentityName("Иванов Иван"), normalizeIdentityName("Иванов Илья"));
 });
 
 test("request hash is stable across object key order", () => {

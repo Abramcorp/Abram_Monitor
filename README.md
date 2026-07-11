@@ -87,6 +87,8 @@ ABRAM_MONITOR_JARVIS_SCOPES=read,write_plan,write_status
 - `POST /api/integration/v1/clients/upsert` — связать клиента по
   `clientId + ИНН + crmLeadId`;
 - `POST /api/integration/v1/deals` — создать подтверждённый маршрут;
+- `POST /api/integration/v1/deals/:id/link-client` — идемпотентно связать
+  старую заявку с уже подтверждённым клиентом без изменения решения;
 - `PATCH /api/integration/v1/deals/:id` — обновить решение/статус.
 
 Каждая мутация требует заголовок `Idempotency-Key`. Сервисный ключ имеет доступ

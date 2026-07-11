@@ -55,6 +55,7 @@ const {
   SERVICE_ROLE,
   authenticateServiceBearer,
   buildChangeSet,
+  normalizeIdentityName,
   normalizeInn,
   requestHash,
   sha256,
@@ -693,6 +694,49 @@ async function handleIntegrationApi(request, response, url, pathname) {
       details: { clientId: client.id, knowledgeProgramId: deal.knowledgeProgramId, campaignId: deal.campaignId, wave: deal.wave }
     });
     sendJson(response, 201, { deal, replay: false });
+    return true;
+  }
+
+  const integrationDealLinkMatch = pathname.match(/^\/api\/integration\/v1\/deals\/([^/]+)\/link-client$/);
+  if (request.method === "POST" && integrationDealLinkMatch) {
+    requireServiceScope(request, "write_plan");
+    const idempotency = requireIdempotency(request);
+    const dealId = decodeURIComponent(integrationDealLinkMatch[1]);
+    const payload = await readBody(request);
+    const hash = requestHash(payload);
+    const existing = (await getDeals()).find((item) => item.id === dealId);
+    if (!existing) throw new AuthError(404, "Deal not found");
+    if (existing.lastIntegrationMutationKeyHash === idempotency.keyHash) {
+      if (existing.lastIntegrationMutationRequestHash !== hash) {
+        throw new AuthError(409, "Idempotency-Key уже использован с другим телом запроса");
+      }
+      sendJson(response, 200, { deal: existing, replay: true });
+      return true;
+    }
+    const client = (await getClients()).find((item) => item.id === String(payload.clientId || ""));
+    if (!client || !client.inn || !client.crmLeadId) {
+      throw new AuthError(400, "Клиент должен иметь clientId + ИНН + crmLeadId");
+    }
+    if (existing.client && normalizeIdentityName(existing.client) !== normalizeIdentityName(client.name)) {
+      throw new AuthError(409, "Имя клиента в заявке не совпадает с выбранной карточкой");
+    }
+    const deal = await updateDeal(dealId, {
+      clientId: client.id,
+      inn: client.inn,
+      crmLeadId: client.crmLeadId,
+      integrationSource: "jarvis",
+      lastIntegrationMutationKeyHash: idempotency.keyHash,
+      lastIntegrationMutationRequestHash: hash
+    });
+    await appendIntegrationAudit({
+      action: "deal_client_link",
+      resourceType: "deal",
+      resourceId: deal.id,
+      requestHash: hash,
+      idempotencyKeyHash: idempotency.keyHash,
+      details: { clientId: client.id, crmLeadId: client.crmLeadId }
+    });
+    sendJson(response, 200, { deal, replay: false });
     return true;
   }
 
