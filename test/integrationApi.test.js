@@ -10,6 +10,7 @@ const {
   normalizeIdentityName,
   normalizeInn,
   normalizeCreditAnalysisBundle,
+  normalizeCreditAnalysisDecision,
   normalizeProgramDiscovery,
   parseServiceScopes,
   requestHash,
@@ -69,6 +70,13 @@ test("credit analysis bundle is owner-gated and model input contains no PII or C
   assert.equal(bundle.identity.inn, "770123456789");
   assert.throws(() => normalizeCreditAnalysisBundle({ ...bundle, modelInput: { inn: "770123456789" } }), /PII/u);
   assert.throws(() => normalizeCreditAnalysisBundle({ ...bundle, conclusion: { ...bundle.conclusion, status: "approved" } }), /owner_review/u);
+});
+
+test("credit analysis conclusion decision accepts only explicit owner actions", () => {
+  assert.deepEqual(normalizeCreditAnalysisDecision({ caseRef: "case-1", decision: "approve", actor: "Abram" }, "c".repeat(64)), {
+    caseRef: "case-1", conclusionHash: "c".repeat(64), decision: "approve", actor: "Abram"
+  });
+  assert.throws(() => normalizeCreditAnalysisDecision({ caseRef: "case-1", decision: "send" }, "c".repeat(64)), /approve или reject/u);
 });
 
 test("INN normalization accepts legal entities and IP", () => {

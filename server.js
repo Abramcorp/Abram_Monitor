@@ -47,6 +47,7 @@ const {
   upsertIntegrationClient,
   upsertProgramDiscovery,
   upsertCreditAnalysisBundle,
+  decideCreditAnalysisConclusion,
   initStore
 } = require("./src/store");
 const users = require("./src/users");
@@ -62,6 +63,7 @@ const {
   normalizeInn,
   normalizeProgramDiscovery,
   normalizeCreditAnalysisBundle,
+  normalizeCreditAnalysisDecision,
   requestHash,
   sha256,
   summarizeQuality,
@@ -694,6 +696,25 @@ async function handleIntegrationApi(request, response, url, pathname) {
       requestHash: bundle.requestHash,
       idempotencyKeyHash: idempotency.keyHash,
       details: { snapshotHash: result.snapshotHash, status: result.status, agentSideEffect: false, crmSideEffect: false }
+    });
+    sendJson(response, 200, { schemaVersion: 1, result });
+    return true;
+  }
+
+  const creditConclusionDecisionMatch = pathname.match(/^\/api\/integration\/v1\/credit-analytics\/conclusions\/([a-f0-9]+)\/decision$/u);
+  if (request.method === "POST" && creditConclusionDecisionMatch) {
+    requireServiceScope(request, "write_analytics");
+    const idempotency = requireIdempotency(request);
+    const payload = await readBody(request);
+    const decision = normalizeCreditAnalysisDecision(payload, creditConclusionDecisionMatch[1]);
+    const result = await decideCreditAnalysisConclusion(decision);
+    await appendIntegrationAudit({
+      action: "credit_analysis_conclusion_decision",
+      resourceType: "credit_analysis_conclusion",
+      resourceId: `${decision.caseRef}:${decision.conclusionHash}`,
+      requestHash: requestHash(decision),
+      idempotencyKeyHash: idempotency.keyHash,
+      details: { decision: decision.decision, actor: decision.actor }
     });
     sendJson(response, 200, { schemaVersion: 1, result });
     return true;

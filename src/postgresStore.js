@@ -821,6 +821,27 @@ async function upsertCreditAnalysisBundle(bundle) {
   }
 }
 
+async function decideCreditAnalysisConclusion({ caseRef, conclusionHash, decision, actor }) {
+  const status = decision === "approve" ? "approved" : "rejected";
+  const result = await getPool().query(
+    `UPDATE credit_analytics.borrower_conclusions
+     SET status = $1, approved_at = now(), approved_by = $2
+     WHERE case_ref = $3 AND conclusion_hash = $4 AND status = 'owner_review'
+     RETURNING case_ref, conclusion_hash, status, approved_at, approved_by`,
+    [status, actor, caseRef, conclusionHash]
+  );
+  if (!result.rowCount) {
+    const current = await getPool().query(
+      `SELECT case_ref, conclusion_hash, status, approved_at, approved_by
+       FROM credit_analytics.borrower_conclusions WHERE case_ref = $1 AND conclusion_hash = $2`,
+      [caseRef, conclusionHash]
+    );
+    if (!current.rowCount) throw new Error("Заключение не найдено");
+    return current.rows[0];
+  }
+  return result.rows[0];
+}
+
 module.exports = {
   ensureReady,
   getDatabaseUrl,
@@ -838,5 +859,6 @@ module.exports = {
   updateKnowledgeProgram,
   upsertProgramDiscovery,
   upsertCreditAnalysisBundle,
+  decideCreditAnalysisConclusion,
   updateRow
 };

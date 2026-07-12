@@ -200,6 +200,16 @@ function normalizeCreditAnalysisBundle(payload = {}) {
   };
 }
 
+function normalizeCreditAnalysisDecision(payload = {}, conclusionHash = "") {
+  const caseRef = cleanText(payload.caseRef);
+  const hash = cleanText(conclusionHash || payload.conclusionHash);
+  const decision = cleanText(payload.decision).toLowerCase();
+  const actor = cleanText(payload.actor || "Abram").slice(0, 80);
+  if (!caseRef || !hash) throw new Error("caseRef и conclusionHash обязательны");
+  if (!new Set(["approve", "reject"]).has(decision)) throw new Error("decision должен быть approve или reject");
+  return { caseRef, conclusionHash: hash, decision, actor };
+}
+
 function objectValue(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} должен быть объектом`);
   return value;
@@ -335,6 +345,7 @@ module.exports = {
   normalizeInn,
   normalizeProgramDiscovery,
   normalizeCreditAnalysisBundle,
+  normalizeCreditAnalysisDecision,
   parseServiceScopes,
   requestHash,
   sha256,
