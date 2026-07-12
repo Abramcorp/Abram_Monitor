@@ -807,6 +807,12 @@ async function upsertCreditAnalysisBundle(bundle) {
       [bundle.caseRef, snapshot.contentHash, conclusion.contentHash, conclusion.version || "", conclusion.status || "owner_review", JSON.stringify(conclusion), conclusion.ownerText || "", conclusion.crmText || "", conclusion.agentText || ""]
     );
     await client.query(
+      `UPDATE credit_analytics.borrower_conclusions
+       SET status = 'superseded'
+       WHERE case_ref = $1 AND conclusion_hash <> $2 AND status = 'owner_review'`,
+      [bundle.caseRef, conclusion.contentHash]
+    );
+    await client.query(
       `INSERT INTO credit_analytics.analysis_audit_events(case_ref, event_type, request_hash, details)
        VALUES ($1, 'analysis_bundle_upsert', $2, $3::jsonb)`,
       [bundle.caseRef, bundle.requestHash || "", JSON.stringify({ snapshotHash: snapshot.contentHash, conclusionHash: conclusion.contentHash, status: conclusion.status || "owner_review" })]
