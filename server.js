@@ -36,6 +36,7 @@ const {
   getDeals,
   getDocumentRequests,
   getKnowledge,
+  getProgramDiscoveries,
   getManagers,
   getTasks,
   removeDocumentRequestAttachment,
@@ -44,6 +45,7 @@ const {
   updateManager,
   updateTask,
   upsertIntegrationClient,
+  upsertProgramDiscovery,
   initStore
 } = require("./src/store");
 const users = require("./src/users");
@@ -57,6 +59,7 @@ const {
   buildChangeSet,
   normalizeIdentityName,
   normalizeInn,
+  normalizeProgramDiscovery,
   requestHash,
   sha256,
   summarizeQuality,
@@ -624,6 +627,55 @@ async function handleIntegrationApi(request, response, url, pathname) {
   if (request.method === "GET" && pathname === "/api/integration/v1/quality") {
     requireServiceScope(request, "read");
     sendJson(response, 200, { schemaVersion: 1, generatedAt: new Date().toISOString(), ...summarizeQuality(await getDeals()) });
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/api/integration/v1/program-discoveries") {
+    requireServiceScope(request, "read");
+    const status = String(url.searchParams.get("status") || "").trim();
+    const limit = Number(url.searchParams.get("limit") || 200);
+    sendJson(response, 200, {
+      schemaVersion: 1,
+      discoveries: await getProgramDiscoveries({ status, limit })
+    });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/integration/v1/program-discoveries/upsert") {
+    requireServiceScope(request, "write_analytics");
+    const idempotency = requireIdempotency(request);
+    const payload = await readBody(request);
+    const candidate = normalizeProgramDiscovery(payload);
+    const hash = requestHash(candidate);
+    const details = {
+      query: String(payload.query || "").slice(0, 500),
+      matchedProgramId: String(payload.matchedProgramId || "").slice(0, 120),
+      diff: payload.diff && typeof payload.diff === "object" && !Array.isArray(payload.diff) ? payload.diff : {},
+      notes: String(payload.notes || "").slice(0, 2000),
+      requestHash: hash,
+      idempotencyKeyHash: idempotency.keyHash
+    };
+    const result = await upsertProgramDiscovery({
+      id: `pd-${sha256(candidate.sourceUrl).slice(0, 24)}`,
+      ...candidate,
+      seenAt: String(payload.seenAt || "").trim(),
+      officialVerifiedAt: String(payload.officialVerifiedAt || "").trim(),
+      details
+    });
+    await appendIntegrationAudit({
+      action: "program_discovery_upsert",
+      resourceType: "program_discovery",
+      resourceId: result.id,
+      requestHash: hash,
+      idempotencyKeyHash: idempotency.keyHash,
+      details: {
+        sourceType: candidate.sourceType,
+        status: candidate.status,
+        snapshotInserted: result.snapshotInserted,
+        catalogMutated: false
+      }
+    });
+    sendJson(response, result.inserted ? 201 : 200, { discovery: result, catalogMutated: false });
     return true;
   }
 

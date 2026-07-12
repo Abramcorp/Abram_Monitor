@@ -1311,6 +1311,20 @@ function getKnowledge() {
   return normalizeKnowledgeEntries(readJson(KNOWLEDGE_FILE, []));
 }
 
+async function getProgramDiscoveries(options = {}) {
+  if (!postgresStore.isEnabled()) return [];
+  await initStore();
+  return postgresStore.listProgramDiscoveries(options);
+}
+
+async function upsertProgramDiscovery(item) {
+  if (!postgresStore.isEnabled()) {
+    throw new Error("Program discovery storage requires PostgreSQL");
+  }
+  await initStore();
+  return postgresStore.upsertProgramDiscovery(item);
+}
+
 function createKnowledgeEntry(payload) {
   const now = new Date().toISOString();
   const bankName = cleanText(payload.bank);
@@ -1766,9 +1780,11 @@ module.exports = {
   updateProgramType,
   deleteProgramType,
   getProgramCategories,
+  getProgramDiscoveries,
   createProgramCategory,
   updateProgramCategory,
   deleteProgramCategory,
   seedTaxonomyIfEmpty,
-  reloadTaxonomyCache
+  reloadTaxonomyCache,
+  upsertProgramDiscovery
 };
