@@ -9,6 +9,7 @@ const {
   buildChangeSet,
   normalizeIdentityName,
   normalizeInn,
+  normalizeProgramDiscovery,
   parseServiceScopes,
   requestHash,
   summarizeQuality,
@@ -27,7 +28,29 @@ test("service bearer uses a dedicated role and read-only default", () => {
 });
 
 test("service scopes ignore unknown permissions", () => {
-  assert.deepEqual([...parseServiceScopes("read,write_plan,admin,write_status")], ["read", "write_plan", "write_status"]);
+  assert.deepEqual(
+    [...parseServiceScopes("read,write_plan,admin,write_status,write_analytics")],
+    ["read", "write_plan", "write_status", "write_analytics"]
+  );
+});
+
+test("program discovery normalization keeps research separate and validates sources", () => {
+  const item = normalizeProgramDiscovery({
+    bank: "Точка",
+    program: "Экспресс",
+    sourceType: "official",
+    sourceUrl: "https://tochka.com/credits/loan/#terms",
+    officialUrl: "https://tochka.com/credits/loan/",
+    status: "official_verified",
+    confidence: "high",
+    contentHash: "a".repeat(64),
+    extracted: { maxAmountRub: 10_000_000 }
+  });
+  assert.equal(item.sourceUrl, "https://tochka.com/credits/loan/");
+  assert.equal(item.status, "official_verified");
+  assert.equal(item.extracted.maxAmountRub, 10_000_000);
+  assert.throws(() => normalizeProgramDiscovery({ sourceType: "seo", sourceUrl: "file:///tmp/x" }), /http или https/);
+  assert.throws(() => normalizeProgramDiscovery({ sourceType: "unknown", sourceUrl: "https://example.com" }), /sourceType/);
 });
 
 test("INN normalization accepts legal entities and IP", () => {

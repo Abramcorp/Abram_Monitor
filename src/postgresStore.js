@@ -273,6 +273,45 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
 
         CREATE INDEX IF NOT EXISTS app_knowledge_programs_bank_idx
           ON app_knowledge_programs (lower(bank));
+
+        CREATE SCHEMA IF NOT EXISTS credit_analytics;
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.program_discoveries (
+          id text PRIMARY KEY,
+          bank text NOT NULL DEFAULT '',
+          program text NOT NULL DEFAULT '',
+          source_type text NOT NULL,
+          source_url text NOT NULL,
+          official_url text NOT NULL DEFAULT '',
+          status text NOT NULL DEFAULT 'discovered',
+          confidence text NOT NULL DEFAULT 'low',
+          first_seen_at timestamptz NOT NULL DEFAULT now(),
+          last_seen_at timestamptz NOT NULL DEFAULT now(),
+          official_verified_at timestamptz,
+          current_snapshot_hash text NOT NULL DEFAULT '',
+          details jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS credit_analytics_program_discoveries_url_idx
+          ON credit_analytics.program_discoveries (source_url);
+        CREATE INDEX IF NOT EXISTS credit_analytics_program_discoveries_status_idx
+          ON credit_analytics.program_discoveries (status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.program_discovery_snapshots (
+          id bigserial PRIMARY KEY,
+          discovery_id text NOT NULL REFERENCES credit_analytics.program_discoveries(id) ON DELETE CASCADE,
+          content_hash text NOT NULL,
+          captured_at timestamptz NOT NULL DEFAULT now(),
+          title text NOT NULL DEFAULT '',
+          snippet text NOT NULL DEFAULT '',
+          extracted jsonb NOT NULL DEFAULT '{}'::jsonb,
+          UNIQUE(discovery_id, content_hash)
+        );
+
+        CREATE INDEX IF NOT EXISTS credit_analytics_program_snapshots_captured_idx
+          ON credit_analytics.program_discovery_snapshots (captured_at DESC);
       `);
 
       await seedCollection("deals", readJson(COLLECTIONS.deals.file, []).map(normalizeDeal));
@@ -519,6 +558,120 @@ async function updateKnowledgeProgram(programId, buildNext) {
   }
 }
 
+async function listProgramDiscoveries({ status = "", limit = 200 } = {}) {
+  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
+  const params = [];
+  let where = "";
+  if (String(status || "").trim()) {
+    params.push(String(status).trim());
+    where = `WHERE d.status = $${params.length}`;
+  }
+  params.push(safeLimit);
+  const result = await getPool().query(
+    `SELECT d.*, COALESCE(s.snapshot_count, 0)::int AS snapshot_count
+     FROM credit_analytics.program_discoveries d
+     LEFT JOIN (
+       SELECT discovery_id, count(*) AS snapshot_count
+       FROM credit_analytics.program_discovery_snapshots
+       GROUP BY discovery_id
+     ) s ON s.discovery_id = d.id
+     ${where}
+     ORDER BY d.updated_at DESC, d.id
+     LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    bank: row.bank,
+    program: row.program,
+    sourceType: row.source_type,
+    sourceUrl: row.source_url,
+    officialUrl: row.official_url,
+    status: row.status,
+    confidence: row.confidence,
+    firstSeenAt: row.first_seen_at?.toISOString?.() || "",
+    lastSeenAt: row.last_seen_at?.toISOString?.() || "",
+    officialVerifiedAt: row.official_verified_at?.toISOString?.() || "",
+    currentSnapshotHash: row.current_snapshot_hash,
+    details: row.details || {},
+    snapshotCount: Number(row.snapshot_count || 0)
+  }));
+}
+
+async function upsertProgramDiscovery(item) {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const now = item.seenAt || new Date().toISOString();
+    const officialVerifiedAt = item.status === "official_verified" ? (item.officialVerifiedAt || now) : null;
+    const result = await client.query(
+      `INSERT INTO credit_analytics.program_discoveries (
+         id, bank, program, source_type, source_url, official_url, status,
+         confidence, first_seen_at, last_seen_at, official_verified_at,
+         current_snapshot_hash, details, created_at, updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8,
+         COALESCE($9::timestamptz, now()), COALESCE($9::timestamptz, now()),
+         $10::timestamptz, $11, $12::jsonb, now(), now()
+       )
+       ON CONFLICT (source_url) DO UPDATE SET
+         bank = CASE WHEN EXCLUDED.bank <> '' THEN EXCLUDED.bank ELSE credit_analytics.program_discoveries.bank END,
+         program = CASE WHEN EXCLUDED.program <> '' THEN EXCLUDED.program ELSE credit_analytics.program_discoveries.program END,
+         source_type = EXCLUDED.source_type,
+         official_url = CASE WHEN EXCLUDED.official_url <> '' THEN EXCLUDED.official_url ELSE credit_analytics.program_discoveries.official_url END,
+         status = EXCLUDED.status,
+         confidence = EXCLUDED.confidence,
+         last_seen_at = EXCLUDED.last_seen_at,
+         official_verified_at = COALESCE(EXCLUDED.official_verified_at, credit_analytics.program_discoveries.official_verified_at),
+         current_snapshot_hash = CASE WHEN EXCLUDED.current_snapshot_hash <> '' THEN EXCLUDED.current_snapshot_hash ELSE credit_analytics.program_discoveries.current_snapshot_hash END,
+         details = EXCLUDED.details,
+         updated_at = now()
+       RETURNING id, (xmax = 0) AS inserted`,
+      [
+        item.id,
+        item.bank,
+        item.program,
+        item.sourceType,
+        item.sourceUrl,
+        item.officialUrl,
+        item.status,
+        item.confidence,
+        now,
+        officialVerifiedAt,
+        item.contentHash,
+        JSON.stringify(item.details || {})
+      ]
+    );
+    const discoveryId = result.rows[0].id;
+    let snapshotInserted = false;
+    if (item.contentHash) {
+      const snapshot = await client.query(
+        `INSERT INTO credit_analytics.program_discovery_snapshots (
+           discovery_id, content_hash, captured_at, title, snippet, extracted
+         ) VALUES ($1, $2, COALESCE($3::timestamptz, now()), $4, $5, $6::jsonb)
+         ON CONFLICT (discovery_id, content_hash) DO NOTHING
+         RETURNING id`,
+        [
+          discoveryId,
+          item.contentHash,
+          now,
+          item.title || "",
+          item.snippet || "",
+          JSON.stringify(item.extracted || {})
+        ]
+      );
+      snapshotInserted = snapshot.rowCount > 0;
+    }
+    await client.query("COMMIT");
+    return { id: discoveryId, inserted: Boolean(result.rows[0].inserted), snapshotInserted };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   ensureReady,
   getDatabaseUrl,
@@ -527,11 +680,13 @@ module.exports = {
   insertRow,
   isEnabled,
   listKnowledge,
+  listProgramDiscoveries,
   listRows,
   deleteDocumentRequestsByClient,
   deleteDocumentRequestsByDeal,
   deleteRow,
   deleteTasksByClient,
   updateKnowledgeProgram,
+  upsertProgramDiscovery,
   updateRow
 };

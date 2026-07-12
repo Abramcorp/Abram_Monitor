@@ -3,7 +3,16 @@
 const crypto = require("node:crypto");
 
 const SERVICE_ROLE = "service_analytics";
-const VALID_SCOPES = new Set(["read", "write_plan", "write_status"]);
+const VALID_SCOPES = new Set(["read", "write_plan", "write_status", "write_analytics"]);
+const PROGRAM_DISCOVERY_STATUSES = new Set([
+  "discovered",
+  "official_verified",
+  "hypothesis",
+  "pilot",
+  "rejected",
+  "stale"
+]);
+const PROGRAM_DISCOVERY_SOURCE_TYPES = new Set(["official", "advertising", "seo", "aggregator", "manual"]);
 const NEGATIVE_STAGES = new Set(["rejected", "blocked"]);
 const TERMINAL_STAGES = new Set(["approved", "rejected", "blocked"]);
 const KNOWN_STAGES = new Set([
@@ -95,6 +104,59 @@ function requestHash(value) {
 function normalizeConditions(value) {
   const input = Array.isArray(value) ? value : cleanText(value) ? [value] : [];
   return input.map(cleanText).filter(Boolean).slice(0, 20);
+}
+
+function normalizeHttpUrl(value, fieldName = "URL") {
+  const raw = cleanText(value);
+  if (!raw) return "";
+  let parsed;
+  try { parsed = new URL(raw); } catch { throw new Error(`${fieldName} должен быть корректным URL`); }
+  if (!new Set(["http:", "https:"]).has(parsed.protocol)) {
+    throw new Error(`${fieldName} должен использовать http или https`);
+  }
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function normalizeProgramDiscovery(payload = {}, previous = {}) {
+  const sourceUrl = normalizeHttpUrl(
+    payload.sourceUrl === undefined ? previous.sourceUrl : payload.sourceUrl,
+    "sourceUrl"
+  );
+  if (!sourceUrl) throw new Error("sourceUrl обязателен");
+  const officialUrl = normalizeHttpUrl(
+    payload.officialUrl === undefined ? previous.officialUrl : payload.officialUrl,
+    "officialUrl"
+  );
+  const sourceType = cleanText(payload.sourceType === undefined ? previous.sourceType : payload.sourceType).toLowerCase();
+  if (!PROGRAM_DISCOVERY_SOURCE_TYPES.has(sourceType)) throw new Error("Неизвестный sourceType");
+  const status = cleanText(payload.status === undefined ? previous.status : payload.status).toLowerCase() || "discovered";
+  if (!PROGRAM_DISCOVERY_STATUSES.has(status)) throw new Error("Неизвестный статус кандидата программы");
+  const confidence = cleanText(payload.confidence === undefined ? previous.confidence : payload.confidence).toLowerCase() || "low";
+  if (!["low", "medium", "high"].includes(confidence)) throw new Error("confidence должен быть low, medium или high");
+  const bank = cleanText(payload.bank === undefined ? previous.bank : payload.bank).slice(0, 160);
+  const program = cleanText(payload.program === undefined ? previous.program : payload.program).slice(0, 200);
+  const title = cleanText(payload.title === undefined ? previous.title : payload.title).slice(0, 300);
+  const snippet = cleanText(payload.snippet === undefined ? previous.snippet : payload.snippet).slice(0, 2000);
+  const contentHash = cleanText(payload.contentHash === undefined ? previous.contentHash : payload.contentHash).toLowerCase();
+  if (contentHash && !/^[a-f0-9]{64}$/u.test(contentHash)) throw new Error("contentHash должен быть SHA-256");
+  const extracted = payload.extracted === undefined ? (previous.extracted || {}) : payload.extracted;
+  if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) {
+    throw new Error("extracted должен быть объектом");
+  }
+  return {
+    bank,
+    program,
+    sourceType,
+    sourceUrl,
+    officialUrl,
+    status,
+    confidence,
+    title,
+    snippet,
+    contentHash,
+    extracted
+  };
 }
 
 function validateIntegrationDecision(payload = {}, previous = {}) {
@@ -225,6 +287,7 @@ module.exports = {
   normalizeConditions,
   normalizeIdentityName,
   normalizeInn,
+  normalizeProgramDiscovery,
   parseServiceScopes,
   requestHash,
   sha256,
