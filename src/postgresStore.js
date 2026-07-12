@@ -312,6 +312,90 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
 
         CREATE INDEX IF NOT EXISTS credit_analytics_program_snapshots_captured_idx
           ON credit_analytics.program_discovery_snapshots (captured_at DESC);
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.client_cases (
+          case_ref text PRIMARY KEY,
+          inn text NOT NULL DEFAULT '',
+          client_name text NOT NULL DEFAULT '',
+          crm_lead_ref text NOT NULL DEFAULT '',
+          responsible text NOT NULL DEFAULT '',
+          partner text NOT NULL DEFAULT '',
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.client_fact_snapshots (
+          id bigserial PRIMARY KEY,
+          case_ref text NOT NULL REFERENCES credit_analytics.client_cases(case_ref) ON DELETE CASCADE,
+          snapshot_hash text NOT NULL,
+          snapshot_version text NOT NULL,
+          fact_pack_hash text NOT NULL,
+          payload jsonb NOT NULL,
+          model_input jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(case_ref, snapshot_hash)
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.borrower_rule_assessments (
+          id bigserial PRIMARY KEY,
+          case_ref text NOT NULL REFERENCES credit_analytics.client_cases(case_ref) ON DELETE CASCADE,
+          snapshot_hash text NOT NULL,
+          content_hash text NOT NULL,
+          rules_version text NOT NULL,
+          payload jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(case_ref, snapshot_hash, content_hash)
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.borrower_model_reviews (
+          id bigserial PRIMARY KEY,
+          case_ref text NOT NULL REFERENCES credit_analytics.client_cases(case_ref) ON DELETE CASCADE,
+          snapshot_hash text NOT NULL,
+          content_hash text NOT NULL,
+          review_version text NOT NULL,
+          model_name text NOT NULL DEFAULT '',
+          model_ok boolean NOT NULL DEFAULT false,
+          payload jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(case_ref, snapshot_hash, content_hash)
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.internal_scoring_snapshots (
+          id bigserial PRIMARY KEY,
+          case_ref text NOT NULL REFERENCES credit_analytics.client_cases(case_ref) ON DELETE CASCADE,
+          content_hash text NOT NULL,
+          payload jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(case_ref, content_hash)
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.borrower_conclusions (
+          id bigserial PRIMARY KEY,
+          case_ref text NOT NULL REFERENCES credit_analytics.client_cases(case_ref) ON DELETE CASCADE,
+          snapshot_hash text NOT NULL,
+          conclusion_hash text NOT NULL,
+          conclusion_version text NOT NULL,
+          status text NOT NULL DEFAULT 'owner_review',
+          payload jsonb NOT NULL,
+          owner_text text NOT NULL,
+          crm_text text NOT NULL DEFAULT '',
+          agent_text text NOT NULL DEFAULT '',
+          approved_at timestamptz,
+          approved_by text NOT NULL DEFAULT '',
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(case_ref, conclusion_hash)
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_analytics.analysis_audit_events (
+          id bigserial PRIMARY KEY,
+          case_ref text NOT NULL DEFAULT '',
+          event_type text NOT NULL,
+          request_hash text NOT NULL DEFAULT '',
+          details jsonb NOT NULL DEFAULT '{}'::jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS credit_analytics_snapshots_case_idx ON credit_analytics.client_fact_snapshots(case_ref, created_at DESC);
+        CREATE INDEX IF NOT EXISTS credit_analytics_conclusions_status_idx ON credit_analytics.borrower_conclusions(status, created_at DESC);
       `);
 
       await seedCollection("deals", readJson(COLLECTIONS.deals.file, []).map(normalizeDeal));
@@ -672,6 +756,71 @@ async function upsertProgramDiscovery(item) {
   }
 }
 
+async function upsertCreditAnalysisBundle(bundle) {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const identity = bundle.identity || {};
+    await client.query(
+      `INSERT INTO credit_analytics.client_cases(case_ref, inn, client_name, crm_lead_ref, responsible, partner, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now())
+       ON CONFLICT(case_ref) DO UPDATE SET
+         inn = CASE WHEN EXCLUDED.inn <> '' THEN EXCLUDED.inn ELSE credit_analytics.client_cases.inn END,
+         client_name = CASE WHEN EXCLUDED.client_name <> '' THEN EXCLUDED.client_name ELSE credit_analytics.client_cases.client_name END,
+         crm_lead_ref = CASE WHEN EXCLUDED.crm_lead_ref <> '' THEN EXCLUDED.crm_lead_ref ELSE credit_analytics.client_cases.crm_lead_ref END,
+         responsible = CASE WHEN EXCLUDED.responsible <> '' THEN EXCLUDED.responsible ELSE credit_analytics.client_cases.responsible END,
+         partner = CASE WHEN EXCLUDED.partner <> '' THEN EXCLUDED.partner ELSE credit_analytics.client_cases.partner END,
+         updated_at = now()`,
+      [bundle.caseRef, identity.inn || "", identity.clientName || "", identity.crmLeadRef || "", identity.responsible || "", identity.partner || ""]
+    );
+    const snapshot = bundle.snapshot;
+    await client.query(
+      `INSERT INTO credit_analytics.client_fact_snapshots(case_ref, snapshot_hash, snapshot_version, fact_pack_hash, payload, model_input)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+       ON CONFLICT(case_ref, snapshot_hash) DO NOTHING`,
+      [bundle.caseRef, snapshot.contentHash, snapshot.version, snapshot.creditHistory?.factPackHash || "", JSON.stringify(snapshot), JSON.stringify(bundle.modelInput || {})]
+    );
+    const rules = bundle.rules;
+    await client.query(
+      `INSERT INTO credit_analytics.borrower_rule_assessments(case_ref, snapshot_hash, content_hash, rules_version, payload)
+       VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT(case_ref, snapshot_hash, content_hash) DO NOTHING`,
+      [bundle.caseRef, snapshot.contentHash, bundle.ruleHash, rules.modelVersion || rules.version || "", JSON.stringify(rules)]
+    );
+    const review = bundle.modelReview;
+    await client.query(
+      `INSERT INTO credit_analytics.borrower_model_reviews(case_ref, snapshot_hash, content_hash, review_version, model_name, model_ok, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) ON CONFLICT(case_ref, snapshot_hash, content_hash) DO NOTHING`,
+      [bundle.caseRef, snapshot.contentHash, bundle.modelReviewHash, review.version || "", review.model || "", Boolean(review.modelOk), JSON.stringify(review)]
+    );
+    if (bundle.internalScoring) {
+      await client.query(
+        `INSERT INTO credit_analytics.internal_scoring_snapshots(case_ref, content_hash, payload)
+         VALUES ($1, $2, $3::jsonb) ON CONFLICT(case_ref, content_hash) DO NOTHING`,
+        [bundle.caseRef, bundle.internalScoringHash, JSON.stringify(bundle.internalScoring)]
+      );
+    }
+    const conclusion = bundle.conclusion;
+    await client.query(
+      `INSERT INTO credit_analytics.borrower_conclusions(case_ref, snapshot_hash, conclusion_hash, conclusion_version, status, payload, owner_text, crm_text, agent_text)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+       ON CONFLICT(case_ref, conclusion_hash) DO NOTHING`,
+      [bundle.caseRef, snapshot.contentHash, conclusion.contentHash, conclusion.version || "", conclusion.status || "owner_review", JSON.stringify(conclusion), conclusion.ownerText || "", conclusion.crmText || "", conclusion.agentText || ""]
+    );
+    await client.query(
+      `INSERT INTO credit_analytics.analysis_audit_events(case_ref, event_type, request_hash, details)
+       VALUES ($1, 'analysis_bundle_upsert', $2, $3::jsonb)`,
+      [bundle.caseRef, bundle.requestHash || "", JSON.stringify({ snapshotHash: snapshot.contentHash, conclusionHash: conclusion.contentHash, status: conclusion.status || "owner_review" })]
+    );
+    await client.query("COMMIT");
+    return { caseRef: bundle.caseRef, snapshotHash: snapshot.contentHash, conclusionHash: conclusion.contentHash, status: conclusion.status || "owner_review" };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   ensureReady,
   getDatabaseUrl,
@@ -688,5 +837,6 @@ module.exports = {
   deleteTasksByClient,
   updateKnowledgeProgram,
   upsertProgramDiscovery,
+  upsertCreditAnalysisBundle,
   updateRow
 };

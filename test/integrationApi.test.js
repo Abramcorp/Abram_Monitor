@@ -9,6 +9,7 @@ const {
   buildChangeSet,
   normalizeIdentityName,
   normalizeInn,
+  normalizeCreditAnalysisBundle,
   normalizeProgramDiscovery,
   parseServiceScopes,
   requestHash,
@@ -51,6 +52,23 @@ test("program discovery normalization keeps research separate and validates sour
   assert.equal(item.extracted.maxAmountRub, 10_000_000);
   assert.throws(() => normalizeProgramDiscovery({ sourceType: "seo", sourceUrl: "file:///tmp/x" }), /http или https/);
   assert.throws(() => normalizeProgramDiscovery({ sourceType: "unknown", sourceUrl: "https://example.com" }), /sourceType/);
+});
+
+test("credit analysis bundle is owner-gated and model input contains no PII or CRM score", () => {
+  const bundle = normalizeCreditAnalysisBundle({
+    caseRef: "case-abc",
+    identity: { inn: "770123456789", clientName: "ИП Тест", crmLeadRef: "42" },
+    snapshot: { version: "client-fact-snapshot-v1", contentHash: "s".repeat(64), creditHistory: { factPackHash: "f".repeat(64) } },
+    modelInput: { caseRef: "case-anonymous", creditHistory: { activeContractCount: 1 } },
+    rules: { modelVersion: "borrower-rules-v2", grade: "B" },
+    modelReview: { version: "credit-analyst-v1", grade: "B" },
+    internalScoring: { grade: "C", score: 70 },
+    conclusion: { version: "borrower-conclusion-v1", contentHash: "c".repeat(64), status: "owner_review", ownerText: "review" }
+  });
+  assert.equal(bundle.caseRef, "case-abc");
+  assert.equal(bundle.identity.inn, "770123456789");
+  assert.throws(() => normalizeCreditAnalysisBundle({ ...bundle, modelInput: { inn: "770123456789" } }), /PII/u);
+  assert.throws(() => normalizeCreditAnalysisBundle({ ...bundle, conclusion: { ...bundle.conclusion, status: "approved" } }), /owner_review/u);
 });
 
 test("INN normalization accepts legal entities and IP", () => {

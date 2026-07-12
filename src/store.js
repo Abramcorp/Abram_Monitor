@@ -1325,6 +1325,12 @@ async function upsertProgramDiscovery(item) {
   return postgresStore.upsertProgramDiscovery(item);
 }
 
+async function upsertCreditAnalysisBundle(bundle) {
+  if (!postgresStore.isEnabled()) throw new Error("Credit analytics storage requires PostgreSQL");
+  await initStore();
+  return postgresStore.upsertCreditAnalysisBundle(bundle);
+}
+
 function createKnowledgeEntry(payload) {
   const now = new Date().toISOString();
   const bankName = cleanText(payload.bank);
@@ -1786,5 +1792,6 @@ module.exports = {
   deleteProgramCategory,
   seedTaxonomyIfEmpty,
   reloadTaxonomyCache,
-  upsertProgramDiscovery
+  upsertProgramDiscovery,
+  upsertCreditAnalysisBundle
 };

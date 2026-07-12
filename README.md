@@ -90,6 +90,9 @@ ABRAM_MONITOR_JARVIS_SCOPES=read,write_plan,write_status
 - `POST /api/integration/v1/deals/:id/link-client` — идемпотентно связать
   старую заявку с уже подтверждённым клиентом без изменения решения;
 - `PATCH /api/integration/v1/deals/:id` — обновить решение/статус.
+- `POST /api/integration/v1/credit-analytics/bundles/upsert` — идемпотентно
+  сохранить независимый Snapshot, правила, модельный review, отдельную сверку
+  с CRM и owner-gated заключение в schema `credit_analytics`.
 
 Каждая мутация требует заголовок `Idempotency-Key`. Сервисный ключ имеет доступ
 только к `/api/integration/v1/*` и не открывает пользовательскую админку.

@@ -159,6 +159,52 @@ function normalizeProgramDiscovery(payload = {}, previous = {}) {
   };
 }
 
+function normalizeCreditAnalysisBundle(payload = {}) {
+  const caseRef = cleanText(payload.caseRef);
+  if (!caseRef) throw new Error("caseRef обязателен");
+  const snapshot = objectValue(payload.snapshot, "snapshot");
+  const modelInput = objectValue(payload.modelInput, "modelInput");
+  const rules = objectValue(payload.rules, "rules");
+  const modelReview = objectValue(payload.modelReview, "modelReview");
+  const conclusion = objectValue(payload.conclusion, "conclusion");
+  if (!cleanText(snapshot.version) || !cleanText(snapshot.contentHash)) throw new Error("snapshot version/contentHash обязательны");
+  if (!cleanText(conclusion.version) || !cleanText(conclusion.contentHash)) throw new Error("conclusion version/contentHash обязательны");
+  if (cleanText(conclusion.status) !== "owner_review") throw new Error("новое заключение должно начинаться со статуса owner_review");
+  const modelSerialized = JSON.stringify(modelInput);
+  if (/"(?:inn|clientName|phone|passport|account|operational|internalScoring|internal_scoring)"\s*:/u.test(modelSerialized)) {
+    throw new Error("modelInput содержит PII, operational context или internal scoring");
+  }
+  const conclusionSerialized = JSON.stringify(conclusion);
+  if (/"(?:sendToWhatsapp|send_to_whatsapp|moveCrmStage|move_crm_stage)"\s*:/u.test(conclusionSerialized)) {
+    throw new Error("conclusion содержит запрещённую команду побочного действия");
+  }
+  return {
+    caseRef,
+    identity: {
+      inn: normalizeInn(payload.identity?.inn || ""),
+      clientName: cleanText(payload.identity?.clientName),
+      crmLeadRef: cleanText(payload.identity?.crmLeadRef),
+      responsible: cleanText(payload.identity?.responsible),
+      partner: cleanText(payload.identity?.partner)
+    },
+    snapshot,
+    modelInput,
+    rules,
+    ruleHash: cleanText(payload.ruleHash) || requestHash(rules),
+    modelReview,
+    modelReviewHash: cleanText(payload.modelReviewHash) || requestHash(modelReview),
+    internalScoring: payload.internalScoring ? objectValue(payload.internalScoring, "internalScoring") : null,
+    internalScoringHash: payload.internalScoring ? (cleanText(payload.internalScoringHash) || requestHash(payload.internalScoring)) : "",
+    conclusion,
+    requestHash: requestHash({ caseRef, snapshotHash: snapshot.contentHash, conclusionHash: conclusion.contentHash })
+  };
+}
+
+function objectValue(value, name) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} должен быть объектом`);
+  return value;
+}
+
 function validateIntegrationDecision(payload = {}, previous = {}) {
   const stage = cleanText(payload.stage === undefined ? previous.stage : payload.stage).toLowerCase();
   const amountApproved = Number(payload.amountApproved === undefined ? previous.amountApproved : payload.amountApproved) || 0;
@@ -288,6 +334,7 @@ module.exports = {
   normalizeIdentityName,
   normalizeInn,
   normalizeProgramDiscovery,
+  normalizeCreditAnalysisBundle,
   parseServiceScopes,
   requestHash,
   sha256,

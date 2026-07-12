@@ -46,6 +46,7 @@ const {
   updateTask,
   upsertIntegrationClient,
   upsertProgramDiscovery,
+  upsertCreditAnalysisBundle,
   initStore
 } = require("./src/store");
 const users = require("./src/users");
@@ -60,6 +61,7 @@ const {
   normalizeIdentityName,
   normalizeInn,
   normalizeProgramDiscovery,
+  normalizeCreditAnalysisBundle,
   requestHash,
   sha256,
   summarizeQuality,
@@ -676,6 +678,24 @@ async function handleIntegrationApi(request, response, url, pathname) {
       }
     });
     sendJson(response, result.inserted ? 201 : 200, { discovery: result, catalogMutated: false });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/integration/v1/credit-analytics/bundles/upsert") {
+    requireServiceScope(request, "write_analytics");
+    const idempotency = requireIdempotency(request);
+    const payload = await readBody(request);
+    const bundle = normalizeCreditAnalysisBundle(payload);
+    const result = await upsertCreditAnalysisBundle(bundle);
+    await appendIntegrationAudit({
+      action: "credit_analysis_bundle_upsert",
+      resourceType: "credit_analysis_bundle",
+      resourceId: `${result.caseRef}:${result.conclusionHash}`,
+      requestHash: bundle.requestHash,
+      idempotencyKeyHash: idempotency.keyHash,
+      details: { snapshotHash: result.snapshotHash, status: result.status, agentSideEffect: false, crmSideEffect: false }
+    });
+    sendJson(response, 200, { schemaVersion: 1, result });
     return true;
   }
 
