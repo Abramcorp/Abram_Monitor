@@ -2787,10 +2787,13 @@ function renderDocumentRequestsView() {
         </ul>`
       : (canEditAttachments ? `<div class="doc-attachments-empty">Файлы не прикреплены</div>` : "");
     const uploader = canEditAttachments
-      ? `<div class="doc-attachments-upload">
-          <input type="file" multiple data-upload-attachment="${escapeHtml(req.id)}" id="upload-${escapeHtml(req.id)}">
-          <label class="ghost-button small-button" for="upload-${escapeHtml(req.id)}">📎 Прикрепить файлы</label>
-          <span class="doc-upload-hint">До 50 MB на файл, до 20 файлов за раз</span>
+      ? `<div class="doc-attachments-dropzone" data-dropzone-request="${escapeHtml(req.id)}" tabindex="0" role="button" aria-label="Перетащите файлы или нажмите чтобы выбрать">
+          <input type="file" multiple data-upload-attachment="${escapeHtml(req.id)}" id="upload-${escapeHtml(req.id)}" hidden>
+          <label class="dropzone-inner" for="upload-${escapeHtml(req.id)}">
+            <span class="dropzone-icon">📎</span>
+            <span class="dropzone-title">Перетащите файлы сюда или нажмите чтобы выбрать</span>
+            <span class="dropzone-hint">До 50 MB на файл, до 20 файлов за раз</span>
+          </label>
         </div>`
       : "";
     let cta = "";
@@ -4773,10 +4776,20 @@ async function handleSaveApplication(saveButton) {
 async function handleCheckDeal(button) {
   const dealId = button.dataset.checkDeal;
   if (!dealId) return;
+  const note = window.prompt("Что сделано по заявке? (комментарий пойдёт в хронологию сделки)");
+  if (note === null) return; // отмена
+  const trimmed = note.trim();
+  if (!trimmed) {
+    window.alert("Комментарий обязателен для отметки «Заявка проверена»");
+    return;
+  }
   button.disabled = true;
   const uiSnapshot = captureUiState();
   try {
-    await requestJson(`/api/deals/${encodeURIComponent(dealId)}/check`, { method: "PATCH" });
+    await requestJson(`/api/deals/${encodeURIComponent(dealId)}/check`, {
+      method: "PATCH",
+      body: JSON.stringify({ note: trimmed })
+    });
     showToast("Заявка проверена", { type: "success" });
     await loadData({ targets: ["dashboard"], restoreUi: uiSnapshot });
   } catch (error) {
@@ -4929,6 +4942,38 @@ function initDynamicControls() {
     } catch (error) {
       showToast(error.message || "Не удалось сохранить порядок", { type: "error" });
     }
+  });
+
+  // Drop-zone для файлов в запросах документов. Отдельные обработчики,
+  // потому что источник — файлы из ОС, а не draggable-элемент DOM (там нет
+  // data-drag-id, только event.dataTransfer.files).
+  app.addEventListener("dragover", (event) => {
+    const zone = event.target?.closest?.("[data-dropzone-request]");
+    if (!zone) return;
+    // Реагируем только когда тащат файлы, не что-либо ещё.
+    const hasFiles = event.dataTransfer?.types?.includes?.("Files");
+    if (!hasFiles) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    zone.classList.add("is-dragover");
+  });
+  app.addEventListener("dragleave", (event) => {
+    const zone = event.target?.closest?.("[data-dropzone-request]");
+    if (!zone) return;
+    // dragleave стреляет и при переходе на дочерние элементы — снимаем
+    // подсветку только когда указатель реально ушёл за пределы зоны.
+    if (event.relatedTarget && zone.contains(event.relatedTarget)) return;
+    zone.classList.remove("is-dragover");
+  });
+  app.addEventListener("drop", async (event) => {
+    const zone = event.target?.closest?.("[data-dropzone-request]");
+    if (!zone) return;
+    const files = event.dataTransfer?.files;
+    if (!files?.length) return;
+    event.preventDefault();
+    zone.classList.remove("is-dragover");
+    const reqId = zone.dataset.dropzoneRequest;
+    await uploadFilesToDocRequest(reqId, [...files]);
   });
 
   // Submit формы добавления нового значения в taxonomy (в Панели управления).
@@ -6004,16 +6049,14 @@ async function handleDisconnectGoogle() {
   }
 }
 
-async function handleUploadAttachment(input) {
-  const reqId = input.dataset.uploadAttachment;
-  if (!reqId || !input.files?.length) return;
-  const files = [...input.files];
-  input.value = ""; // сбрасываем, чтобы можно было повторно выбрать те же файлы
+async function uploadFilesToDocRequest(reqId, files) {
+  if (!reqId || !files?.length) return;
+  const list = [...files];
   const formData = new FormData();
-  for (const file of files) {
+  for (const file of list) {
     formData.append("files", file, file.name);
   }
-  showToast(`Загружаем ${files.length} ${files.length === 1 ? "файл" : "файлов"} на Drive…`, { type: "info" });
+  showToast(`Загружаем ${list.length} ${list.length === 1 ? "файл" : "файлов"} на Drive…`, { type: "info" });
   try {
     const res = await fetch(`/api/document-requests/${encodeURIComponent(reqId)}/attachments`, {
       method: "POST",
@@ -6031,14 +6074,22 @@ async function handleUploadAttachment(input) {
       showToast(`Загружено: ${uploadedCount}${errorCount ? ` · ошибок: ${errorCount}` : ""}`, { type: "success" });
     }
     if (errorCount > 0) {
-      const list = result.errors.map((e) => `${e.fileName}: ${e.error}`).join("\n");
-      window.alert(`Ошибки при загрузке:\n\n${list}`);
+      const errs = result.errors.map((e) => `${e.fileName}: ${e.error}`).join("\n");
+      window.alert(`Ошибки при загрузке:\n\n${errs}`);
     }
     await loadData({ targets: ["documentRequests"] });
     render();
   } catch (error) {
     window.alert(`Не удалось загрузить: ${error.message}`);
   }
+}
+
+async function handleUploadAttachment(input) {
+  const reqId = input.dataset.uploadAttachment;
+  if (!reqId || !input.files?.length) return;
+  const files = [...input.files];
+  input.value = ""; // сбрасываем, чтобы можно было повторно выбрать те же файлы
+  await uploadFilesToDocRequest(reqId, files);
 }
 
 async function handleResendDocRequests(button) {

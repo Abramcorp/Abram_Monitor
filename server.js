@@ -176,7 +176,23 @@ function dealClientKey(deal) {
 const pendingBossReports = new Map(); // key=`${manager.lc}|${client.lc}` → setTimeout handle
 const BOSS_REPORT_DEBOUNCE_MS = 60 * 1000;
 
+// Выходные по МСК — тишина по всем автоматическим TG-уведомлениям.
+// Ручные действия админа (refresh-status) работают всегда.
+function isMoscowWeekendNow() {
+  try {
+    const weekday = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Moscow",
+      weekday: "short"
+    }).format(new Date());
+    return weekday === "Sat" || weekday === "Sun";
+  } catch {
+    return false;
+  }
+}
+
 function scheduleBossClientReport(clientName, managerName, trigger = "checked") {
+  // Тишина по выходным — таймер даже не ставим.
+  if (isMoscowWeekendNow()) return;
   const key = `${String(managerName || "").trim().toLowerCase()}|${String(clientName || "").trim().toLowerCase()}`;
   if (!key.trim() || key === "|") return;
   const prev = pendingBossReports.get(key);
@@ -184,6 +200,8 @@ function scheduleBossClientReport(clientName, managerName, trigger = "checked") 
   const handle = setTimeout(async () => {
     pendingBossReports.delete(key);
     try {
+      // Пятница 23:59:30 → таймер отработает в 00:00:30 субботы — тоже гасим.
+      if (isMoscowWeekendNow()) return;
       const activeKeys = await buildActiveClientKeySet();
       if (!activeKeys.has(key)) return; // клиент в архиве/удалён за окно ожидания
       const allDeals = await getDeals();
@@ -881,9 +899,11 @@ async function handleApi(request, response) {
           // чтобы любая ошибка TG (Boss-чат не настроен, fetch failure,
           // нет прав на топик) не помешала вызвать scheduleBossClientReport
           // ниже — иначе debounce-триггер для этого перехода терялся бы.
+          // По выходным (МСК) TG-уведомления не шлём (auto-check выше
+          // и scheduleBossClientReport ниже сами внутри проверяют выходной).
           try {
             const ALERT_STAGES = new Set(["submitted", "approved", "rejected", "blocked"]);
-            if (ALERT_STAGES.has(deal.stage) || ALERT_STAGES.has(previous.stage)) {
+            if (!isMoscowWeekendNow() && (ALERT_STAGES.has(deal.stage) || ALERT_STAGES.has(previous.stage))) {
               const bossChatId = await resolveBossChatId();
               if (bossChatId) {
                 const topicId = await resolveBossClientTopicId(deal.client, deal.manager, bossChatId);
@@ -931,11 +951,18 @@ async function handleApi(request, response) {
   }
 
   // PATCH /api/deals/:id/check — отметить заявку как «проверенную» на сегодня.
+  // Требует note (что сделано) — записывается в хронологию сделки как action.
   // Если после этого у клиента не осталось непроверенных активных заявок,
-  // шлём суммарный отчёт Биг Боссу в личку.
+  // шлём суммарный отчёт Биг Боссу в личку (с 60с debounce).
   const dealCheckMatch = pathname.match(/^\/api\/deals\/([^/]+)\/check$/);
   if (request.method === "PATCH" && dealCheckMatch) {
     const dealId = decodeURIComponent(dealCheckMatch[1]);
+    const body = await readBody(request).catch(() => ({}));
+    const note = String(body?.note ?? "").trim();
+    if (!note) {
+      sendJson(response, 400, { error: "Укажите, что сделано по заявке" });
+      return;
+    }
     const existing = (await getDeals()).find((d) => d.id === dealId);
     if (!existing) {
       sendJson(response, 404, { error: "Deal not found" });
@@ -946,12 +973,16 @@ async function handleApi(request, response) {
       sendJson(response, 400, { error: "Эту заявку проверять не нужно — статус не входит в список ежедневной проверки" });
       return;
     }
+    // Сначала пишем действие в хронологию, потом отметку — чтобы дата action
+    // была строго до updatedAt самой заявки.
+    const actor = request.user?.fullName ? ` (${request.user.fullName})` : "";
+    try {
+      await addDealAction(dealId, { action: `Проверка заявки${actor}: ${note}` });
+    } catch (e) {
+      console.warn("[check] addDealAction error:", e.message);
+    }
     const updated = await markDealChecked(dealId);
     sendJson(response, 200, { deal: updated });
-    // Дебаунсенная отправка сводного отчёта (1 мин окно). При срабатывании
-    // таймера ещё раз проверяется условие «нет непроверенных активных
-    // заявок» — если за окно ожидания статус изменился или появилась
-    // новая непроверенная, отправка отменяется.
     scheduleBossClientReport(existing.client, existing.manager);
     return;
   }
@@ -1049,7 +1080,18 @@ async function handleApi(request, response) {
   if (request.method === "POST" && pathname === "/api/clients") {
     const payload = await readBody(request);
     ensurePartnerOwnsManager(request, payload.manager);
-    sendJson(response, 201, { client: await createClient(payload) });
+    const client = await createClient(payload);
+    sendJson(response, 201, { client });
+    // Автосоздание TG-топика клиента в общем чате запросов документов —
+    // fire-and-forget, чтобы ответ клиенту не тормозил. resolveClientTopicId
+    // сам persists thread_id в client.telegramTopicId.
+    (async () => {
+      try {
+        await resolveClientTopicId(client.name, client.manager);
+      } catch (e) {
+        console.warn("[client] auto-topic error:", e.message);
+      }
+    })().catch(() => {});
     return;
   }
 
@@ -1230,6 +1272,9 @@ async function handleApi(request, response) {
     // по manager → users (как в утренних пингах). Если привязки нет — тихо
     // пропускаем, основной поток не страдает.
     (async () => {
+      // Тишина по выходным — задачи ставятся, но пинги приходят в понедельник
+      // (аналитик всё равно увидит их на карточке при следующем визите).
+      if (isMoscowWeekendNow()) return;
       try {
         const chatId = await resolveAnalystChatId(task.manager);
         if (!chatId) return;
@@ -1502,11 +1547,14 @@ async function handleApi(request, response) {
         sendJson(response, 400, { error: "Подключённый Google-аккаунт не имеет доступа к папке клиента (нужны права редактора)" });
         return;
       }
-      // ensureFolder: 5. ПОДАЧИ / <банк>
+      // ensureFolder: «3. ПОДАЧИ (…)» / <банк>. Старая папка «5. ПОДАЧИ»
+      // у существующих клиентов останется на Drive нетронутой — новые
+      // загрузки пойдут в новую.
+      const SUBMISSIONS_FOLDER = "3. ПОДАЧИ (ПО БАНКАМ - отправленные анкеты, заявления, выписки, бухгалтерия и проч.)";
       let submissionsFolder;
       let bankFolder;
       try {
-        submissionsFolder = await googleDrive.ensureFolder("5. ПОДАЧИ", rootFolderId);
+        submissionsFolder = await googleDrive.ensureFolder(SUBMISSIONS_FOLDER, rootFolderId);
         log("submissionsFolder=", submissionsFolder?.id);
         const bankName = existing.bank || "БЕЗ_БАНКА";
         bankFolder = await googleDrive.ensureFolder(bankName, submissionsFolder.id);
@@ -2052,6 +2100,12 @@ function daysSinceCreated(req) {
 
 async function performResendActiveRequests({ actor = null, trace = `resend-${Date.now().toString(36)}` } = {}) {
   const tlog = (...args) => console.log(`[${trace}]`, ...args);
+  // Автоматический вызов (без actor) на выходных пропускаем. Ручной resend
+  // администратором проходит независимо от дня недели.
+  if (!actor && isMoscowWeekendNow()) {
+    tlog("skip: MSK weekend");
+    return { open: 0, fulfilled: 0, errors: 0, details: [], skipped: "weekend" };
+  }
   const all = await getDocumentRequests();
   const active = all.filter((r) => r.status !== "delivered");
   tlog("resending", active.length, "active requests");
@@ -2129,6 +2183,10 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
 // documents_requested / submitted.
 async function sendMorningCheckPings({ trace = `morning-${Date.now()}` } = {}) {
   const tlog = (...args) => console.log(`[${trace}]`, ...args);
+  if (isMoscowWeekendNow()) {
+    tlog("skip: MSK weekend");
+    return { sent: 0, total: 0, skipped: "weekend" };
+  }
   const allDeals = await getDeals();
   const managers = await getManagers();
   const allUsers = await users.listUsers();

@@ -4004,6 +4004,50 @@ details.client-application-card.is-flash > summary {
   font-size: 12px;
 }
 
+/* Drop-zone для перетаскивания файлов в запросы документов. */
+.doc-attachments-dropzone {
+  display: block;
+  margin: 6px 0 10px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.02);
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+  outline: none;
+}
+.doc-attachments-dropzone:hover,
+.doc-attachments-dropzone:focus-visible {
+  border-color: var(--blue);
+  background: rgba(0, 122, 255, 0.05);
+}
+.doc-attachments-dropzone.is-dragover {
+  border-color: var(--blue);
+  background: rgba(0, 122, 255, 0.10);
+  transform: scale(1.005);
+}
+.doc-attachments-dropzone .dropzone-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 18px 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.doc-attachments-dropzone .dropzone-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+.doc-attachments-dropzone .dropzone-title {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.doc-attachments-dropzone .dropzone-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* Интеграции */
 .integration-status {
   padding: 16px;
