@@ -4441,12 +4441,16 @@ function renderSummary() {
   const totalReq = scopedDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
   const totalApp = scopedDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
 
-  const groupBy = state.summary?.groupBy === "client" ? "client" : "stage";
+  const SUMMARY_GROUP_BYS = new Set(["stage", "client", "bank", "program"]);
+  const groupBy = SUMMARY_GROUP_BYS.has(state.summary?.groupBy) ? state.summary.groupBy : "stage";
   const scope = state.summary?.scope || "current";
   const scopeLabel = scope === "current" ? "Текущие клиенты"
     : scope === "completed" ? "Завершённые клиенты"
     : "Все клиенты";
-  const groupLabel = groupBy === "client" ? "по клиентам" : "по статусам";
+  const groupLabel = groupBy === "client" ? "по клиентам"
+    : groupBy === "bank" ? "по банкам"
+    : groupBy === "program" ? "по программам"
+    : "по статусам";
   const h2Title = `${scopeLabel} · ${groupLabel}`;
   const counts = summaryScopeCounts();
 
@@ -4467,7 +4471,10 @@ function renderSummary() {
     chartsHtml = scope === "completed"
       ? renderSummaryChartsCompleted(scopedDeals)
       : renderSummaryCharts(scopedGroups, state.board.status, totals);
-    listHtml = groupBy === "client" ? renderDealsByClient() : renderDealsByStage();
+    listHtml = groupBy === "client" ? renderDealsByClient()
+      : groupBy === "bank" ? renderDealsByGrouping("bank")
+      : groupBy === "program" ? renderDealsByGrouping("program")
+      : renderDealsByStage();
   } finally {
     state.dashboard.deals = originalDeals;
   }
@@ -4506,6 +4513,8 @@ function renderSummary() {
         <div class="segmented summary-groupby" role="tablist" aria-label="Группировка заявок">
           <button class="${groupBy === "stage" ? "is-active" : ""}" data-summary-groupby="stage" type="button">По статусам</button>
           <button class="${groupBy === "client" ? "is-active" : ""}" data-summary-groupby="client" type="button">По клиентам</button>
+          <button class="${groupBy === "bank" ? "is-active" : ""}" data-summary-groupby="bank" type="button">По банкам</button>
+          <button class="${groupBy === "program" ? "is-active" : ""}" data-summary-groupby="program" type="button">По программам</button>
         </div>
       </div>
       ${listHtml}
@@ -4589,6 +4598,101 @@ function renderDealsByClient() {
       }).join("")}
     </div>
   `;
+}
+
+// Универсальная группировка списка заявок сводного отчёта: банк / программа.
+// Клиент — отдельным renderDealsByClient (там meta-строка = аналитики).
+// Здесь meta показывает подмножество клиентов группы (первые 3 + «и ещё N»).
+function renderDealsByGrouping(kind) {
+  const deals = summaryScopedDeals();
+  if (!deals.length) return `<div class="empty">Нет заявок.</div>`;
+
+  const stages = state.dashboard?.stages?.all || [];
+  const stageLabelMap = Object.fromEntries(stages.map((s) => [s.id, s.label]));
+
+  const keyFallback = kind === "bank" ? "Без банка" : "Без программы";
+  const uiKind = kind === "bank" ? "summary-bank" : "summary-program";
+  const keyOf = (d) => (kind === "bank" ? (d.bank || keyFallback) : (d.program || keyFallback));
+
+  const byKey = new Map();
+  for (const deal of deals) {
+    const key = keyOf(deal);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(deal);
+  }
+
+  const entries = [...byKey.entries()].sort((a, b) => {
+    // Сначала группы с более свежим действием.
+    const aLast = Math.max(...a[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    const bLast = Math.max(...b[1].map((d) => new Date(d.lastActionAt || 0).getTime()));
+    if (aLast !== bLast) return bLast - aLast;
+    return a[0].localeCompare(b[0], "ru");
+  });
+
+  return `
+    <div class="client-overview-stack">
+      ${entries.map(([groupName, groupDeals]) => {
+        const clientsList = [...new Set(groupDeals.map((d) => d.client).filter(Boolean))];
+        const clientsPreview = clientsList.slice(0, 3).join(", ");
+        const clientsMore = clientsList.length > 3 ? ` и ещё ${clientsList.length - 3}` : "";
+        const clientsMeta = clientsList.length ? `${clientsList.length} ${pluralClients(clientsList.length)}: ${clientsPreview}${clientsMore}` : "";
+        const totalCount = groupDeals.length;
+        const sumReq = groupDeals.reduce((acc, d) => acc + (Number(d.amountRequested) || 0), 0);
+        const sumApp = groupDeals.reduce((acc, d) => acc + (Number(d.amountApproved) || 0), 0);
+        const stageCounts = groupDeals.reduce((acc, d) => {
+          acc[d.stage] = (acc[d.stage] || 0) + 1; return acc;
+        }, {});
+        const dominantStage = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const tone = stageTone(dominantStage);
+        const byStage = new Map();
+        for (const d of groupDeals) {
+          if (!byStage.has(d.stage)) byStage.set(d.stage, []);
+          byStage.get(d.stage).push(d);
+        }
+        const stageOrdered = [
+          ...SUMMARY_STAGE_ORDER.filter((id) => byStage.has(id)),
+          ...[...byStage.keys()].filter((id) => !SUMMARY_STAGE_ORDER.includes(id))
+        ];
+        const stateKey = uiStateKey(uiKind, groupName);
+        return `
+          <details class="client-overview is-${tone}" data-ui-state-key="${escapeHtml(stateKey)}">
+            <summary class="client-overview-head">
+              <span class="client-overview-count">${totalCount}</span>
+              <span class="client-overview-name">${escapeHtml(groupName)}</span>
+              <span class="client-overview-meta">${escapeHtml(clientsMeta)}</span>
+              <span class="client-overview-sum">${money(sumReq)}${sumApp ? ` · одобр. ${money(sumApp)}` : ""}</span>
+            </summary>
+            <div class="client-overview-body">
+              ${stageOrdered.map((sid) => {
+                const items = byStage.get(sid) || [];
+                const label = stageLabelMap[sid] || items[0]?.stageLabel || sid;
+                const sTone = stageTone(sid);
+                const sorted = items.slice().sort((a, b) => new Date(b.lastActionAt || 0) - new Date(a.lastActionAt || 0));
+                return `
+                  <div class="client-overview-stage is-${sTone}">
+                    <div class="client-overview-stage-head">
+                      <span class="stage-section-label is-${sTone}">${escapeHtml(label)}</span>
+                      <span class="client-overview-stage-count">${items.length}</span>
+                    </div>
+                    ${renderBoardApplicationRows(sorted, kind === "bank" ? "bank" : "program")}
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </details>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function pluralClients(n) {
+  const mod100 = n % 100;
+  const mod10 = n % 10;
+  if (mod100 >= 11 && mod100 <= 14) return "клиентов";
+  if (mod10 === 1) return "клиент";
+  if (mod10 >= 2 && mod10 <= 4) return "клиента";
+  return "клиентов";
 }
 
 function updatePageHeader() {
