@@ -338,6 +338,13 @@ async function resolveClientTopicId(clientName, managerName) {
     } catch (e) {
       console.warn("[telegram] anchor message error:", e.message);
     }
+    // Дополнительное сообщение-старт: заголовок «ЗАПРОС СЕССИИ», чтобы
+    // документы-офицер сразу видел, к какому шагу привязан топик.
+    try {
+      await telegram.sendTelegramMessage(`<b>ЗАПРОС СЕССИИ</b>`, { topicId: threadId });
+    } catch (e) {
+      console.warn("[telegram] session-request message error:", e.message);
+    }
     return threadId;
   } catch (error) {
     console.warn("[telegram] resolveClientTopicId error:", error.message);
