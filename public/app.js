@@ -427,10 +427,16 @@ function formatDateInput(value) {
 
 function formatActionEntry(action) {
   const date = new Date(action.actionAt);
+  const label = escapeHtml(action.action);
+  // Если у действия есть ссылка на doc-request — оборачиваем текст в
+  // кликабельный <button>, при клике всплывает окно с содержимым запроса.
+  const actionLabel = action.docRequestId
+    ? `<button type="button" class="history-doc-link" data-open-doc-request="${escapeHtml(action.docRequestId)}" title="Открыть запрос документов">${label}</button>`
+    : label;
   if (Number.isNaN(date.getTime())) {
-    return escapeHtml(action.action);
+    return actionLabel;
   }
-  return `${escapeHtml(action.action)} — ${actionDate.format(date)} — ${actionTime.format(date)}`;
+  return `${actionLabel} — ${actionDate.format(date)} — ${actionTime.format(date)}`;
 }
 
 function safeExternalUrl(value) {
@@ -1396,7 +1402,7 @@ function renderClientApplicationCards(applications, emptyText, type) {
             return `
             <details class="client-application-card application-card-${escapeHtml(type)} ${applicationStageClass(deal.stage)}${needsCheck ? " needs-check" : ""}" draggable="true" data-drag-id="${escapeHtml(deal.id)}" data-ui-state-key="${escapeHtml(uiStateKey("deal-card", deal.id))}">
               <summary class="application-card-head">
-                <strong>${renderApplicationProgramTitle(deal)}</strong>
+                <strong>${renderApplicationProgramTitle(deal)}${Number(deal.submissionNumber) > 0 ? ` <span class="submission-number" title="Номер поданной заявки">№ ${deal.submissionNumber}</span>` : ""}</strong>
                 <span>${money(deal.amountRequested)}${deal.stage === "approved" && Number(deal.amountApproved) > 0 ? ` · <span class="application-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}</span>
                 <em>${escapeHtml(deal.stageLabel)}${renderDealDocumentBadge(deal)}</em>
                 ${(deal.stage === "rejected" || deal.stage === "blocked") && deal.comment
@@ -4149,6 +4155,7 @@ function renderBoardApplicationRows(applications, groupBy) {
             <article class="deal-card is-${tone}">
               <header class="deal-card-head">
                 <span class="deal-card-stage is-${tone}">${escapeHtml(deal.stageLabel || "—")}</span>
+                ${Number(deal.submissionNumber) > 0 ? `<span class="submission-number" title="Номер поданной заявки">№ ${deal.submissionNumber}</span>` : ""}
                 ${ageBadge(ageDays)}
               </header>
               <h4 class="deal-card-client">${escapeHtml(deal.client)}</h4>
@@ -5431,6 +5438,14 @@ function initDynamicControls() {
       return;
     }
 
+    const openDocRequest = target.closest("[data-open-doc-request]");
+    if (openDocRequest) {
+      event.preventDefault();
+      event.stopPropagation();
+      openDocRequestDetailsDialog(openDocRequest.dataset.openDocRequest);
+      return;
+    }
+
     const refreshStatuses = target.closest("[data-refresh-statuses]");
     if (refreshStatuses) {
       event.preventDefault();
@@ -6314,6 +6329,61 @@ function openDocumentRequestDialog({ clientName, manager }) {
       .join("");
   }
   documentRequestDialog.showModal();
+}
+
+// Открывает модалку с содержимым запроса документов — период, банк,
+// программа, список позиций, статус. Вызывается из хронологии сделки
+// кликом на действие с docRequestId. Данные берутся из state.documentRequests
+// (грузятся через LOAD_DATA_TARGETS.documentRequests).
+function openDocRequestDetailsDialog(reqId) {
+  const dialog = document.querySelector("#docRequestDetailsDialog");
+  const title = document.querySelector("#docRequestDetailsTitle");
+  const body = document.querySelector("#docRequestDetailsBody");
+  if (!dialog || !title || !body) return;
+  const req = (state.documentRequests || []).find((r) => r.id === reqId);
+  if (!req) {
+    showToast("Запрос не найден (возможно, удалён или у вас нет доступа)", { type: "error" });
+    return;
+  }
+  const statusLabel = req.status === "delivered" ? "Документы получены аналитиком"
+    : req.status === "fulfilled" ? "Документы загружены, ждут подтверждения"
+    : "Открыт — ждём загрузку документов";
+  const statusTone = req.status === "delivered" ? "success"
+    : req.status === "fulfilled" ? "warning"
+    : "info";
+  const itemsHtml = req.items
+    ? `<pre class="doc-request-details-items">${escapeHtml(req.items)}</pre>`
+    : `<p class="doc-request-details-empty">Текст запроса не задан.</p>`;
+  const attachments = Array.isArray(req.attachments) ? req.attachments : [];
+  const attachmentsHtml = attachments.length
+    ? `<ul class="doc-request-details-attachments">${attachments.map((a) => {
+        const label = escapeHtml(a.originalName || a.fileName || "документ");
+        const href = a.webViewLink || a.webContentLink;
+        return href
+          ? `<li><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a></li>`
+          : `<li>${label}</li>`;
+      }).join("")}</ul>`
+    : "";
+  title.textContent = `${req.clientName || "—"}`;
+  body.innerHTML = `
+    <dl class="doc-request-details-list">
+      <dt>Статус</dt><dd><span class="doc-request-details-status is-${statusTone}">${escapeHtml(statusLabel)}</span></dd>
+      <dt>Период</dt><dd>${escapeHtml(req.period || "—")}</dd>
+      <dt>Банк</dt><dd>${escapeHtml(req.bank || "—")}</dd>
+      <dt>Программа</dt><dd>${escapeHtml(req.program || "—")}</dd>
+      <dt>Аналитик</dt><dd>${escapeHtml(req.manager || "—")}</dd>
+      <dt>Создан</dt><dd>${req.createdAt ? formatDate(req.createdAt) : "—"}${req.createdBy ? ` · ${escapeHtml(req.createdBy)}` : ""}</dd>
+      ${req.fulfilledAt ? `<dt>Загружено</dt><dd>${formatDate(req.fulfilledAt)}${req.fulfilledBy ? ` · ${escapeHtml(req.fulfilledBy)}` : ""}</dd>` : ""}
+      ${req.deliveredAt ? `<dt>Подтверждено</dt><dd>${formatDate(req.deliveredAt)}${req.deliveredBy ? ` · ${escapeHtml(req.deliveredBy)}` : ""}</dd>` : ""}
+    </dl>
+    <div class="doc-request-details-section">
+      <h3>Запрошенные документы</h3>
+      ${itemsHtml}
+    </div>
+    ${attachments.length ? `<div class="doc-request-details-section"><h3>Вложения (${attachments.length})</h3>${attachmentsHtml}</div>` : ""}
+  `;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
 }
 
 async function handleFulfillDocumentRequest(button) {

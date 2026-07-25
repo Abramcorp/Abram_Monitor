@@ -97,7 +97,11 @@ function normalizeDealAction(raw = {}, index = 0) {
   return {
     id: cleanText(raw.id) || `action-${index + 1}`,
     action,
-    actionAt
+    actionAt,
+    // Ссылка на связанный запрос документов (если этот action сгенерирован
+    // из createDocumentRequest / fulfill / confirm). Фронт превращает такую
+    // запись в кликабельный текст, открывающий модалку с items+period+bank.
+    docRequestId: cleanText(raw.docRequestId)
   };
 }
 
@@ -207,6 +211,11 @@ function normalizeDeal(raw = {}) {
     // не задан — сортируем через orderIndex по возрастанию, при равенстве
     // — существующие критерии (lastActionAt).
     orderIndex: toNumber(raw.orderIndex),
+    // Присваивается один раз при переходе заявки в stage="submitted"
+    // (см. assignSubmissionNumberIfNeeded в store.js). После присвоения
+    // не меняется никогда — даже при возврате в другую стадию. 0 = ещё
+    // не был присвоен.
+    submissionNumber: Math.max(0, Math.trunc(toNumber(raw.submissionNumber))),
     createdAt,
     updatedAt
   };

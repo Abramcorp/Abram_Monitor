@@ -194,6 +194,22 @@ async function markDealChecked(id) {
   return deals[index];
 }
 
+// Присваивает submissionNumber при первом переходе в stage=submitted.
+// Один раз за жизнь заявки: если previous.submissionNumber > 0 —
+// не переприсваиваем, даже при рикошете submitted → rejected → submitted.
+// deals — уже загруженный массив (не тянем повторно, экономим Postgres RTT).
+function assignSubmissionNumberIfNeeded(previous, next, deals) {
+  if (next.stage !== "submitted") return next;
+  if (Number(previous?.submissionNumber) > 0) return next;
+  if (Number(next.submissionNumber) > 0) return next;
+  const maxExisting = deals.reduce((m, d) => {
+    const n = Number(d?.submissionNumber);
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  const nextNumber = maxExisting + 1;
+  return { ...next, submissionNumber: nextNumber };
+}
+
 async function updateDeal(id, patch) {
   if (postgresStore.isEnabled()) {
     return updateDealPostgres(id, patch);
@@ -206,13 +222,14 @@ async function updateDeal(id, patch) {
     return null;
   }
 
-  const next = normalizeDeal({
+  let next = normalizeDeal({
     ...deals[index],
     ...patch,
     id,
     updatedAt
   });
   validateDealDates(next, deals[index]);
+  next = assignSubmissionNumberIfNeeded(deals[index], next, deals);
 
   const statusChangeAction = buildStatusChangeAction(deals[index], next, updatedAt);
   deals[index] = statusChangeAction
@@ -221,7 +238,7 @@ async function updateDeal(id, patch) {
         actions: [...(next.actions || []), statusChangeAction],
         updatedAt
       })
-    : next;
+    : normalizeDeal(next);
   saveDeals(deals);
   return deals[index];
 }
@@ -229,15 +246,21 @@ async function updateDeal(id, patch) {
 async function updateDealPostgres(id, patch) {
   await initStore();
   const updatedAt = await getMoscowNowIso();
+  // Заранее считаем max submissionNumber — updateRow-транзакция не даёт
+  // прочитать все deals, поэтому берём слепок вне неё. Гонка возможна
+  // теоретически, но переходов в submitted одновременно — единицы, риск
+  // дубликата минимальный (и легко починить руками).
+  const allDeals = await postgresStore.listRows("deals").then((rows) => rows.map(normalizeDeal));
   const updated = await postgresStore.updateRow("deals", id, (rawDeal) => {
     const previous = normalizeDeal(rawDeal);
-    const next = normalizeDeal({
+    let next = normalizeDeal({
       ...previous,
       ...patch,
       id,
       updatedAt
     });
     validateDealDates(next, previous);
+    next = assignSubmissionNumberIfNeeded(previous, next, allDeals);
 
     const statusChangeAction = buildStatusChangeAction(previous, next, updatedAt);
     return statusChangeAction
@@ -246,7 +269,7 @@ async function updateDealPostgres(id, patch) {
           actions: [...(next.actions || []), statusChangeAction],
           updatedAt
         })
-      : next;
+      : normalizeDeal(next);
   });
   return updated ? normalizeDeal(updated) : null;
 }
@@ -272,7 +295,10 @@ async function addDealAction(id, payload) {
   const actionEntry = {
     id: payload.id || `action-${new Date(actionAt).getTime()}`,
     action,
-    actionAt
+    actionAt,
+    // Опциональная ссылка на связанный запрос документов — попадает в
+    // хронологию и превращается фронтом в кликабельную запись.
+    docRequestId: cleanText(payload.docRequestId)
   };
   const next = normalizeDeal({
     ...deals[index],
@@ -297,7 +323,8 @@ async function addDealActionPostgres(id, payload) {
   const actionEntry = {
     id: payload.id || `action-${new Date(actionAt).getTime()}`,
     action,
-    actionAt
+    actionAt,
+    docRequestId: cleanText(payload.docRequestId)
   };
   const updated = await postgresStore.updateRow("deals", id, (rawDeal) => normalizeDeal({
     ...normalizeDeal(rawDeal),
@@ -1046,7 +1073,7 @@ async function createDocumentRequest(payload, { author } = {}) {
     const itemsCount = Array.isArray(saved.items) ? saved.items.length : 0;
     const itemsTail = itemsCount ? ` — ${itemsCount} ${itemsCount === 1 ? "позиция" : itemsCount < 5 ? "позиции" : "позиций"}` : "";
     const byTail = author?.fullName ? ` (${author.fullName})` : "";
-    await addDealAction(saved.dealId, { action: `Запрошены документы${itemsTail}${byTail}`, actionAt: saved.createdAt });
+    await addDealAction(saved.dealId, { action: `Запрошены документы${itemsTail}${byTail}`, actionAt: saved.createdAt, docRequestId: saved.id });
   } catch {
     // если хронология не пишется — не валим основной поток
   }
@@ -1238,7 +1265,7 @@ async function fulfillDocumentRequest(id, { actor, recipientChatId } = {}) {
       const filesCount = Array.isArray(updated.attachments) ? updated.attachments.length : 0;
       const filesTail = filesCount ? ` — ${filesCount} ${filesCount === 1 ? "файл" : (filesCount < 5 ? "файла" : "файлов")}` : "";
       const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
-      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${filesTail}${byTail}`, actionAt: updated.fulfilledAt });
+      await addDealAction(updated.dealId, { action: `Документы загружены и готовы к отправке${filesTail}${byTail}`, actionAt: updated.fulfilledAt, docRequestId: updated.id });
     } catch { /* skip */ }
   }
   // Telegram-уведомление: отправляется из server.js, потому что там есть доступ к Drive-стримам.
@@ -1283,7 +1310,7 @@ async function confirmDocumentRequest(id, { actor } = {}) {
   if (updated?.dealId) {
     try {
       const byTail = actor?.fullName ? ` (${actor.fullName})` : "";
-      await addDealAction(updated.dealId, { action: `Документы получены аналитиком${byTail}`, actionAt: updated.deliveredAt });
+      await addDealAction(updated.dealId, { action: `Документы получены аналитиком${byTail}`, actionAt: updated.deliveredAt, docRequestId: updated.id });
     } catch { /* skip */ }
   }
   // Telegram-уведомление отправляется из server.js (там доступ к topicId клиента).

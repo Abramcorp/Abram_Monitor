@@ -468,6 +468,22 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260611-summary-bank-program" defer></script>
+    <dialog class="deal-dialog" id="docRequestDetailsDialog">
+      <form method="dialog" class="deal-form">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Запрос документов</p>
+            <h2 id="docRequestDetailsTitle">—</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+        <div id="docRequestDetailsBody" class="doc-request-details-body"></div>
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Закрыть</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/app.js?v=20260611-submission-number" defer></script>
   </body>
 </html>
