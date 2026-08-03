@@ -857,6 +857,62 @@ textarea:focus-visible {
   font-size: 13px;
 }
 
+.summary-hover-badge {
+  position: relative;
+  cursor: default;
+}
+
+.summary-hover-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: none;
+  width: min(420px, 88vw);
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  box-shadow: var(--shadow-pop);
+}
+
+.summary-hover-badge:hover .summary-hover-popover,
+.summary-hover-badge:focus-within .summary-hover-popover,
+.summary-hover-badge:focus .summary-hover-popover {
+  display: block;
+}
+
+.summary-hover-list {
+  display: grid;
+  gap: 8px;
+}
+
+.summary-hover-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.summary-hover-item strong,
+.summary-hover-item span,
+.summary-hover-item em {
+  overflow-wrap: anywhere;
+}
+
+.summary-hover-item span,
+.summary-hover-item em,
+.summary-hover-more {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
 .summary-amounts strong {
   font-size: 13px;
 }
@@ -1246,7 +1302,29 @@ textarea:focus-visible {
 .client-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+.client-plan-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.client-plan-template select {
+  min-height: 32px;
+  max-width: 190px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: #fff;
+}
+
+.client-plan-template .small-button {
+  white-space: nowrap;
 }
 
 .small-button {
@@ -2085,6 +2163,77 @@ textarea:focus-visible {
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+}
+
+.plan-template-card .knowledge-card-head h3 {
+  font-size: 18px;
+}
+
+.plan-template-items {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-template-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+}
+
+.plan-template-item strong,
+.plan-template-item span,
+.plan-template-item em {
+  overflow-wrap: anywhere;
+}
+
+.plan-template-item span,
+.plan-template-item em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.plan-template-editor {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.plan-template-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-template-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-template-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(120px, 0.55fr) minmax(160px, 0.9fr) 34px;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.plan-template-row .icon-button {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  align-self: end;
 }
 
 .requirement-grid {
@@ -3512,6 +3661,14 @@ details.client-application-card.is-flash > summary {
 
   .application-split {
     grid-template-columns: 1fr;
+  }
+
+  .plan-template-row {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-template-row .icon-button {
+    justify-self: end;
   }
 
   .funnel {

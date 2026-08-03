@@ -78,7 +78,21 @@ function amountLines({ amountRequested, amountApproved } = {}) {
   return out;
 }
 
-async function sendTelegramMessage(text, { topicId, chatId } = {}) {
+function documentRequestConfirmKeyboard(req) {
+  if (!req?.id || !req?.acceptToken) {
+    return null;
+  }
+  return {
+    inline_keyboard: [[
+      {
+        text: "Подтвердить принятие",
+        callback_data: `docreq_confirm:${req.id}:${req.acceptToken}`
+      }
+    ]]
+  };
+}
+
+async function sendTelegramMessage(text, { topicId, chatId, replyMarkup } = {}) {
   if (!BOT_TOKEN) {
     return null;
   }
@@ -104,6 +118,9 @@ async function sendTelegramMessage(text, { topicId, chatId } = {}) {
       payload.message_thread_id = n;
     }
   }
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
   try {
     const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: "POST",
@@ -119,6 +136,33 @@ async function sendTelegramMessage(text, { topicId, chatId } = {}) {
     return await res.json();
   } catch (error) {
     console.warn("[telegram] sendMessage error:", error.message);
+    return null;
+  }
+}
+
+async function answerCallbackQuery(callbackQueryId, text = "") {
+  if (!BOT_TOKEN || !callbackQueryId) {
+    return null;
+  }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text: text ? String(text).slice(0, 200) : undefined,
+        show_alert: false
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn("[telegram] answerCallbackQuery failed:", res.status, body);
+      return { ok: false, status: res.status, body };
+    }
+    return await res.json();
+  } catch (error) {
+    console.warn("[telegram] answerCallbackQuery error:", error.message);
     return null;
   }
 }
@@ -333,17 +377,18 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
     + (actor?.fullName ? `Подготовил: ${escapeHtml(actor.fullName)}\n` : "")
     + processingLine(processingDays)
     + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "")
-    + `Нужно подтвердить получение в приложении.`;
+    + `Нажмите кнопку ниже, чтобы подтвердить принятие.`;
   const targetChatId = recipientChatId || "";
   const groupTopicId = topicId || TOPIC_DOCUMENTS;
+  const replyMarkup = documentRequestConfirmKeyboard(req);
   // Если файлов нет — просто текст (старое поведение).
   if (!attachmentSources.length) {
     if (targetChatId) {
-      const res = await sendTelegramMessage(text, { chatId: targetChatId });
+      const res = await sendTelegramMessage(text, { chatId: targetChatId, replyMarkup });
       if (res && res.ok !== false) return res;
     }
     if (!CHAT_ID) return null;
-    return sendTelegramMessage(text, { topicId: groupTopicId });
+    return sendTelegramMessage(text, { topicId: groupTopicId, replyMarkup });
   }
   // Файлы есть. Раньше caption с шапкой клеили к первому документу — но
   // Telegram режет caption до 1024 символов и при удалённом сообщении-запросе
@@ -355,11 +400,11 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   // Шапка: пробуем личку, при провале — в групповой топик.
   let headerSentToPersonal = false;
   if (usePersonal) {
-    const r = await sendTelegramMessage(text, { chatId: targetChatId });
+    const r = await sendTelegramMessage(text, { chatId: targetChatId, replyMarkup });
     if (r && r.ok !== false) headerSentToPersonal = true;
   }
   if (!headerSentToPersonal && fallbackChatId) {
-    await sendTelegramMessage(text, { topicId: groupTopicId });
+    await sendTelegramMessage(text, { topicId: groupTopicId, replyMarkup });
   }
 
   // Файлы: каждый без caption. Если личка дала шапку — шлём файлы в личку,
@@ -545,6 +590,7 @@ module.exports = {
   isEnabled,
   isBossConfigured,
   sendTelegramMessage,
+  answerCallbackQuery,
   sendDocument,
   createForumTopic,
   closeForumTopic,

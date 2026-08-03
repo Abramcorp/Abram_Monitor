@@ -33,11 +33,18 @@ test("application save exposes a client-level loading indicator", () => {
 });
 
 test("summary amount badges include counts next to requested amounts", () => {
-  assert.match(appSource, /План подач <strong>\$\{plannedCount\} · \$\{money\(source\.plannedAmountRequested\)\}/);
-  assert.match(appSource, /Завершено <strong>\$\{source\.completedCount \|\| 0\} · \$\{money\(source\.completedAmountRequested \|\| source\.amountRequested\)\}/);
-  assert.match(appSource, /Отказ \/ непринятые <strong>\$\{source\.refusedCount \|\| 0\} · \$\{money\(source\.refusedAmountRequested\)\}/);
+  assert.match(appSource, /renderSummaryMetricBadge\(source, "План подач", plannedCount, source\.plannedAmountRequested/);
+  assert.match(appSource, /renderSummaryMetricBadge\(source, "Завершено", source\.completedCount \|\| 0, source\.completedAmountRequested \|\| source\.amountRequested/);
+  assert.match(appSource, /renderSummaryMetricBadge\(source, "Отказ \/ непринятые", source\.refusedCount \|\| 0, source\.refusedAmountRequested/);
   assert.match(appSource, /planCount,/);
   assert.match(appSource, /successfulCount,/);
+});
+
+test("summary amount badges expose hover application details", () => {
+  assert.match(appSource, /function renderSummaryApplicationsPopover/);
+  assert.match(appSource, /summary-hover-popover/);
+  assert.match(appSource, /resolveBoardApplications\(source\)\.filter\(filterFn\)/);
+  assert.match(appSource, /applicationIds: \[\]/);
 });
 
 test("summary report uses selected status amounts instead of all-status totals", () => {
@@ -129,6 +136,30 @@ test("knowledge program documentation field is labelled as requests and document
 
   assert.match(appSource, /documentation: "Запросы и документы"/);
   assert.match(indexSource, /Запросы и документы/);
+});
+
+test("knowledge base exposes editable plan templates and client template application", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+
+  assert.match(appSource, /templates: "Планы подач"/);
+  assert.match(appSource, /planTemplates: \{ url: "\/api\/plan-templates"/);
+  assert.match(appSource, /function renderPlanTemplatesSection/);
+  assert.match(appSource, /data-edit-plan-template/);
+  assert.match(appSource, /data-apply-plan-template/);
+  assert.match(appSource, /window\.confirm\(`Применить шаблон/);
+  assert.match(appSource, /\/api\/clients\/\$\{encodeURIComponent\(clientId\)\}\/apply-plan-template/);
+  assert.match(indexSource, /id="planTemplateDialog"/);
+  assert.match(indexSource, /data-template-add-row/);
+});
+
+test("client card can be edited through the client dialog", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+
+  assert.match(appSource, /function openClientDialog\(client = null\)/);
+  assert.match(appSource, /data-edit-client/);
+  assert.match(appSource, /clientId \? `\/api\/clients\/\$\{encodeURIComponent\(clientId\)\}` : "\/api\/clients"/);
+  assert.match(appSource, /method: clientId \? "PATCH" : "POST"/);
+  assert.match(indexSource, /<input name="clientId" type="hidden">/);
 });
 
 test("knowledge programs expose category grouping and filters", () => {

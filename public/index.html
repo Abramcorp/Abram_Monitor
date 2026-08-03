@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260611-submission-number">
+    <link rel="stylesheet" href="/styles.css?v=20260803-plan-templates">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -156,6 +156,8 @@
           <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
         </div>
 
+        <input name="clientId" type="hidden">
+
         <label>
           Аналитик
           <select name="manager" required></select>
@@ -185,6 +187,43 @@
           Комментарий
           <textarea name="comment" rows="3"></textarea>
         </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="deal-dialog" id="planTemplateDialog">
+      <form method="dialog" class="deal-form" id="planTemplateForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">План подач</p>
+            <h2 id="planTemplateDialogTitle">Редактировать шаблон</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <input name="templateId" type="hidden">
+
+        <label>
+          Название
+          <input name="name" required autocomplete="off">
+        </label>
+
+        <label>
+          Описание
+          <textarea name="description" rows="2"></textarea>
+        </label>
+
+        <div class="plan-template-editor">
+          <div class="plan-template-editor-head">
+            <strong>Заявки шаблона</strong>
+            <button class="ghost-button small-button" data-template-add-row type="button">+ Программа</button>
+          </div>
+          <div class="plan-template-rows" id="planTemplateRows"></div>
+        </div>
 
         <div class="dialog-actions">
           <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
@@ -484,6 +523,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260611-submission-number" defer></script>
+    <script src="/app.js?v=20260803-plan-templates" defer></script>
   </body>
 </html>

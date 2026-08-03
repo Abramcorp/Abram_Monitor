@@ -10,6 +10,7 @@ const state = {
   users: [],
   documentRequests: [],
   integrations: null,
+  planTemplates: [],
   programTypes: [],
   programCategories: [],
   lastSeenFulfilledRequestIds: new Set(),
@@ -71,6 +72,10 @@ const documentRequestDealSelect = document.querySelector("#docRequestDeal");
 const documentRequestError = document.querySelector("#docRequestError");
 const toastHost = document.querySelector("#toastHost");
 const applicationProgramPreview = document.querySelector("#applicationProgramPreview");
+const planTemplateDialog = document.querySelector("#planTemplateDialog");
+const planTemplateForm = document.querySelector("#planTemplateForm");
+const planTemplateRows = document.querySelector("#planTemplateRows");
+const planTemplateDialogTitle = document.querySelector("#planTemplateDialogTitle");
 const taskDialog = document.querySelector("#taskDialog");
 const taskForm = document.querySelector("#taskForm");
 const newTaskButton = document.querySelector("#newTaskButton");
@@ -237,7 +242,8 @@ const CATEGORY_FALLBACK_LABEL = "Без категории";
 const KNOWLEDGE_SECTIONS = {
   banks: "Банки",
   programs: "Программы",
-  categories: "Категории"
+  categories: "Категории",
+  templates: "Планы подач"
 };
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
 const DONUT_COLORS = ["#52bfc1", "#315f9c", "#80c58b", "#e3b91c", "#b66a13", "#b6414a", "#64748b"];
@@ -676,6 +682,7 @@ const LOAD_DATA_TARGETS = {
   tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; }, notForRoles: ["documents_officer"] },
   users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, allowedRoles: ["admin"] },
   integrations: { url: "/api/integrations", apply: (payload) => { state.integrations = payload || null; }, allowedRoles: ["admin"] },
+  planTemplates: { url: "/api/plan-templates", apply: (payload) => { state.planTemplates = payload.planTemplates || []; }, notForRoles: ["documents_officer"] },
   programTypes: { url: "/api/program-types", apply: (payload) => { state.programTypes = payload.items || []; }, notForRoles: ["documents_officer"] },
   programCategories: { url: "/api/program-categories", apply: (payload) => { state.programCategories = payload.items || []; }, notForRoles: ["documents_officer"] },
   documentRequests: {
@@ -1535,6 +1542,41 @@ function summaryCount(source, ...fields) {
   return 0;
 }
 
+function renderSummaryApplicationsPopover(applications) {
+  const items = applications.slice(0, 12);
+  const hiddenCount = Math.max(0, applications.length - items.length);
+  if (!applications.length) {
+    return "";
+  }
+  return `
+    <div class="summary-hover-popover" role="tooltip">
+      <div class="summary-hover-list">
+        ${items
+          .map((deal) => `
+            <div class="summary-hover-item">
+              <strong>${escapeHtml(deal.client || "Клиент не указан")}</strong>
+              <span>${escapeHtml(deal.bank || "Банк не указан")} · ${escapeHtml(applicationProgramTitle(deal))}</span>
+              <em>${escapeHtml(deal.stageLabel || "—")} · ${money(deal.amountRequested)}</em>
+            </div>
+          `)
+          .join("")}
+        ${hiddenCount ? `<div class="summary-hover-more">Еще ${hiddenCount}</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderSummaryMetricBadge(source, label, count, amount, filterFn) {
+  const applications = resolveBoardApplications(source).filter(filterFn);
+  const hasPopover = applications.length > 0;
+  return `
+    <span class="${hasPopover ? "summary-hover-badge" : ""}" tabindex="${hasPopover ? "0" : "-1"}">
+      ${escapeHtml(label)} <strong>${count || 0} · ${money(amount)}</strong>
+      ${hasPopover ? renderSummaryApplicationsPopover(applications) : ""}
+    </span>
+  `;
+}
+
 function renderSummaryAmountBadges(source, status = state.board.status) {
   const plannedCount = summaryCount(source, "plannedCount", "planCount");
   const approvedCount = summaryCount(source, "successfulCount", "approvedCount", "issuedCount");
@@ -1542,18 +1584,18 @@ function renderSummaryAmountBadges(source, status = state.board.status) {
   if (status === "completed") {
     return `
       <div class="summary-amounts">
-        <span>Завершено <strong>${source.completedCount || 0} · ${money(source.completedAmountRequested || source.amountRequested)}</strong></span>
-        <span>Одобрено <strong>${approvedCount} · ${money(source.approvedAmount)}</strong></span>
-        <span>Отказ / непринятые <strong>${source.refusedCount || 0} · ${money(source.refusedAmountRequested)}</strong></span>
+        ${renderSummaryMetricBadge(source, "Завершено", source.completedCount || 0, source.completedAmountRequested || source.amountRequested, (deal) => deal.statusGroup === "completed")}
+        ${renderSummaryMetricBadge(source, "Одобрено", approvedCount, source.approvedAmount, (deal) => deal.stage === "approved")}
+        ${renderSummaryMetricBadge(source, "Отказ / непринятые", source.refusedCount || 0, source.refusedAmountRequested, (deal) => deal.stage === "rejected" || deal.stage === "blocked")}
       </div>
     `;
   }
 
   return `
     <div class="summary-amounts">
-      <span>План подач <strong>${plannedCount} · ${money(source.plannedAmountRequested)}</strong></span>
-      <span>Лиды <strong>${source.leadCount || 0} · ${money(source.leadAmountRequested)}</strong></span>
-      <span>В работе <strong>${source.workingCount || 0} · ${money(source.workingAmountRequested)}</strong></span>
+      ${renderSummaryMetricBadge(source, "План подач", plannedCount, source.plannedAmountRequested, (deal) => deal.stage === "planned")}
+      ${renderSummaryMetricBadge(source, "Лиды", source.leadCount || 0, source.leadAmountRequested, (deal) => deal.stage === "lead" || deal.stage === "documents_requested")}
+      ${renderSummaryMetricBadge(source, "В работе", source.workingCount || 0, source.workingAmountRequested, (deal) => deal.stage === "submitted")}
     </div>
   `;
 }
@@ -1622,9 +1664,22 @@ function renderClientActions(client, settings = {}) {
 
   const dealsForRequest = (client.activeApplications || []).filter((deal) => deal.statusGroup === "current");
   const canRequestDocs = Boolean(dealsForRequest.length);
+  const templateOptions = (state.planTemplates || [])
+    .map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`)
+    .join("");
+  const canApplyTemplate = Boolean(settings.allowAddApplication && client.clientId && templateOptions);
 
   return `
     <div class="client-actions">
+      ${client.clientId ? `<button class="ghost-button small-button" data-edit-client="${escapeHtml(client.clientId)}" type="button">Редактировать</button>` : ""}
+      ${canApplyTemplate ? `
+        <div class="client-plan-template">
+          <select data-plan-template-select="${escapeHtml(client.clientId)}" aria-label="Шаблон плана подач">
+            ${templateOptions}
+          </select>
+          <button class="ghost-button small-button" data-apply-plan-template="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">Применить план</button>
+        </div>
+      ` : ""}
       ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
       ${canRequestDocs ? `<button class="ghost-button small-button" data-add-doc-request="${escapeHtml(client.client)}" data-doc-manager="${escapeHtml(client.manager || "")}" type="button">+ Запрос документов</button>` : ""}
       ${
@@ -2564,6 +2619,58 @@ function renderKnowledgeCategories(banks) {
   `;
 }
 
+function planTemplateAmount(template) {
+  return (template.items || []).reduce((total, item) => total + Number(item.amountRequested || 0), 0);
+}
+
+function renderPlanTemplateCard(template) {
+  const items = template.items || [];
+  return `
+    <details class="knowledge-card plan-template-card">
+      <summary class="knowledge-card-head">
+        <div>
+          <p class="eyebrow">Шаблонный план</p>
+          <h3>${escapeHtml(template.name)}</h3>
+          <h4>
+            <span>${items.length} заявок</span>
+            <span>${money(planTemplateAmount(template))}</span>
+          </h4>
+        </div>
+      </summary>
+      <div class="knowledge-card-body">
+        <div class="knowledge-card-actions">
+          <time>${formatDate(template.updatedAt || template.createdAt)}</time>
+          ${canEditKnowledge() ? `<button class="ghost-button small-button" data-edit-plan-template="${escapeHtml(template.id)}" type="button">Редактировать</button>` : ""}
+        </div>
+        ${template.description ? `<p class="knowledge-note">${escapeHtml(template.description)}</p>` : ""}
+        <div class="plan-template-items">
+          ${items.length
+            ? items.map((item) => `
+                <div class="plan-template-item">
+                  <strong>${escapeHtml(item.bank || "Банк не указан")} · ${escapeHtml(item.program || "Программа не указана")}</strong>
+                  <span>${escapeHtml(item.programType || "Стандарт")} · ${money(item.amountRequested)}</span>
+                  ${item.comment ? `<em>${escapeHtml(item.comment)}</em>` : ""}
+                </div>
+              `).join("")
+            : `<p class="muted compact-empty">В шаблоне пока нет заявок.</p>`}
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderPlanTemplatesSection() {
+  const templates = state.planTemplates || [];
+  if (!templates.length) {
+    return `<div class="empty">Шаблоны планов пока не загружены.</div>`;
+  }
+  return `
+    <div class="knowledge-grid">
+      ${templates.map(renderPlanTemplateCard).join("")}
+    </div>
+  `;
+}
+
 function updateApplicationDateRequirements() {
   const requiredFields = new Set(getStageDateRequirements(form.elements.stage.value).map((requirement) => requirement.field));
   const inquiryInput = form.elements.inquiryAt;
@@ -2580,6 +2687,9 @@ function updateApplicationDateRequirements() {
 }
 
 function renderKnowledgeSectionContent(items) {
+  if (state.knowledgeSection === "templates") {
+    return renderPlanTemplatesSection();
+  }
   if (state.knowledgeSection === "banks") {
     return renderKnowledgeBanks(items);
   }
@@ -2594,6 +2704,7 @@ function renderKnowledgeView() {
   const addBtn = canEditKnowledge()
     ? `<button class="primary-button" data-add-knowledge type="button">+ Запись БЗ</button>`
     : "";
+  const showProgramTools = state.knowledgeSection !== "templates";
   return `
     <section class="panel">
       <div class="panel-head">
@@ -2602,8 +2713,8 @@ function renderKnowledgeView() {
           <h2>${KNOWLEDGE_SECTIONS[state.knowledgeSection]}</h2>
         </div>
         <div class="panel-head-actions">
-          ${addBtn}
-          ${renderKnowledgeFilters()}
+          ${showProgramTools ? addBtn : ""}
+          ${showProgramTools ? renderKnowledgeFilters() : ""}
         </div>
       </div>
       ${renderKnowledgeSectionControls()}
@@ -4405,12 +4516,16 @@ function buildScopedGroups(scopedDeals, groupBy = state.board.groupBy) {
         leadCount: 0, workingCount: 0, currentCount: 0,
         completedCount: 0, successfulCount: 0, refusedCount: 0,
         plannedAmountRequested: 0, leadAmountRequested: 0, workingAmountRequested: 0,
-        currentAmountRequested: 0, completedAmountRequested: 0, refusedAmountRequested: 0
+        currentAmountRequested: 0, completedAmountRequested: 0, refusedAmountRequested: 0,
+        applicationIds: []
       };
       map.set(name, g);
     }
     const amt = Number(d.amountRequested || 0);
     g.count += 1;
+    if (d.id) {
+      g.applicationIds.push(d.id);
+    }
     g.amountRequested += amt;
     g.amountApproved += Number(d.amountApproved || 0);
     if (d.stage === "approved") {
@@ -4943,6 +5058,43 @@ async function handleArchiveClient(button) {
   await loadData({ targets: ["clients", "dashboard"] });
 }
 
+async function handleApplyPlanTemplate(button) {
+  const clientId = button.dataset.applyPlanTemplate;
+  if (!clientId) {
+    return;
+  }
+  const select = document.querySelector(`[data-plan-template-select="${cssEscape(clientId)}"]`);
+  const templateId = select?.value || "";
+  const template = state.planTemplates.find((item) => item.id === templateId);
+  if (!template) {
+    window.alert("Выберите шаблон плана");
+    return;
+  }
+  const clientName = button.dataset.clientName || "клиенту";
+  const count = (template.items || []).length;
+  const confirmed = window.confirm(`Применить шаблон "${template.name}" к клиенту "${clientName}"?\nБудет создано плановых заявок: ${count}.`);
+  if (!confirmed) {
+    return;
+  }
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Создаем...";
+  const uiSnapshot = captureUiState();
+  try {
+    const result = await requestJson(`/api/clients/${encodeURIComponent(clientId)}/apply-plan-template`, {
+      method: "POST",
+      body: JSON.stringify({ templateId })
+    });
+    showToast(`Создано заявок: ${(result.deals || []).length}`, { type: "success" });
+    await loadData({ targets: ["dashboard", "clients"], restoreUi: uiSnapshot });
+  } catch (error) {
+    window.alert(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
 async function handleDeleteClient(button) {
   if (!button.dataset.deleteClient) {
     return;
@@ -5218,6 +5370,25 @@ function initDynamicControls() {
       return;
     }
 
+    const editClient = target.closest("[data-edit-client]");
+    if (editClient) {
+      event.preventDefault();
+      event.stopPropagation();
+      const entry = state.clients.find((client) => client.id === editClient.dataset.editClient);
+      if (entry) {
+        openClientDialog(entry);
+      }
+      return;
+    }
+
+    const applyPlanTemplate = target.closest("[data-apply-plan-template]");
+    if (applyPlanTemplate) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleApplyPlanTemplate(applyPlanTemplate);
+      return;
+    }
+
     const addUserBtn = target.closest("[data-add-user]");
     if (addUserBtn) {
       event.preventDefault();
@@ -5301,6 +5472,17 @@ function initDynamicControls() {
         clientName: addDocRequestBtn.dataset.addDocRequest || "",
         manager: addDocRequestBtn.dataset.docManager || ""
       });
+      return;
+    }
+
+    const editPlanTemplateBtn = target.closest("[data-edit-plan-template]");
+    if (editPlanTemplateBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const template = state.planTemplates.find((item) => item.id === editPlanTemplateBtn.dataset.editPlanTemplate);
+      if (template) {
+        openPlanTemplateDialog(template);
+      }
       return;
     }
 
@@ -5544,6 +5726,24 @@ function rebuildKnowledgeTaxonomySelects() {
   }
 }
 
+function openClientDialog(client = null) {
+  fillDealFormOptions();
+  clientForm.reset();
+  const title = clientDialog.querySelector("h2");
+  if (title) {
+    title.textContent = client ? "Редактировать клиента" : "Новый клиент";
+  }
+  clientForm.elements.clientId.value = client?.id || "";
+  clientForm.elements.manager.value = client?.manager || (isPartner() ? partnerManagerName() : "");
+  clientForm.elements.name.value = client?.name || "";
+  clientForm.elements.crmUrl.value = client?.crmUrl || "";
+  clientForm.elements.driveUrl.value = client?.driveUrl || "";
+  clientForm.elements.instructionUrl.value = client?.instructionUrl || "";
+  clientForm.elements.comment.value = client?.comment || "";
+  clientForm.elements.manager.disabled = isPartner();
+  clientDialog.showModal();
+}
+
 function openKnowledgeDialog(entry = null) {
   fillDealFormOptions();
   knowledgeForm.reset();
@@ -5593,6 +5793,91 @@ function openKnowledgeDialog(entry = null) {
     knowledgeDialogTitle.textContent = entry ? "Редактировать программу" : "Новая запись";
   }
   knowledgeDialog.showModal();
+}
+
+function renderPlanTemplateProgramOptions(selectedId = "") {
+  const entries = flattenKnowledgePrograms();
+  if (!entries.length) {
+    return `<option value="">Сначала добавьте программу в Базе знаний</option>`;
+  }
+  const grouped = new Map(PROGRAM_TYPES.map((type) => [type, []]));
+  entries.forEach((entry) => {
+    const type = PROGRAM_TYPES.includes(entry.program.programType) ? entry.program.programType : "Стандарт";
+    grouped.get(type).push(entry);
+  });
+  return [...grouped.entries()]
+    .filter(([, items]) => items.length)
+    .map(([type, items]) => `
+      <optgroup label="${escapeHtml(type)}">
+        ${items
+          .sort((left, right) => left.label.localeCompare(right.label, "ru"))
+          .map((entry) => `<option value="${escapeHtml(entry.program.id)}" ${entry.program.id === selectedId ? "selected" : ""}>${escapeHtml(entry.label)}</option>`)
+          .join("")}
+      </optgroup>
+    `)
+    .join("");
+}
+
+function renderPlanTemplateEditorRow(item = {}, index = 0) {
+  return `
+    <div class="plan-template-row" data-template-row>
+      <label>
+        Программа
+        <select name="knowledgeProgramId" required>
+          ${renderPlanTemplateProgramOptions(item.knowledgeProgramId || "")}
+        </select>
+      </label>
+      <label>
+        Сумма
+        <input name="amountRequested" inputmode="decimal" value="${escapeHtml(item.amountRequested || "")}">
+      </label>
+      <label>
+        Комментарий
+        <input name="comment" value="${escapeHtml(item.comment || "")}" autocomplete="off">
+      </label>
+      <button class="icon-button" data-template-remove-row type="button" title="Удалить строку">×</button>
+    </div>
+  `;
+}
+
+function renderPlanTemplateEditorRows(items = []) {
+  if (!planTemplateRows) {
+    return;
+  }
+  const rows = items.length ? items : [{}];
+  planTemplateRows.innerHTML = rows.map(renderPlanTemplateEditorRow).join("");
+}
+
+function openPlanTemplateDialog(template) {
+  if (!planTemplateDialog || !planTemplateForm) {
+    return;
+  }
+  planTemplateForm.reset();
+  if (planTemplateDialogTitle) {
+    planTemplateDialogTitle.textContent = `Редактировать: ${template.name}`;
+  }
+  planTemplateForm.elements.templateId.value = template.id;
+  planTemplateForm.elements.name.value = template.name || "";
+  planTemplateForm.elements.description.value = template.description || "";
+  renderPlanTemplateEditorRows(template.items || []);
+  planTemplateDialog.showModal();
+}
+
+function collectPlanTemplateItems() {
+  return [...(planTemplateRows?.querySelectorAll("[data-template-row]") || [])]
+    .map((row) => {
+      const programId = row.querySelector('[name="knowledgeProgramId"]')?.value || "";
+      const entry = findKnowledgeProgram(programId);
+      return {
+        knowledgeProgramId: programId,
+        bank: entry?.bank.bank || "",
+        program: entry?.program.program || "",
+        programType: entry?.program.programType || "",
+        amountRequested: row.querySelector('[name="amountRequested"]')?.value || "",
+        comment: row.querySelector('[name="comment"]')?.value || ""
+      };
+    })
+    .filter((item) => item.knowledgeProgramId);
 }
 
 function openApplicationDialog(manager, client, deal = null) {
@@ -5687,16 +5972,7 @@ if (newDealButton) {
 }
 
 newClientButton.addEventListener("click", () => {
-  fillDealFormOptions();
-  clientForm.reset();
-  if (isPartner()) {
-    const name = partnerManagerName();
-    clientForm.elements.manager.value = name;
-    clientForm.elements.manager.disabled = true;
-  } else {
-    clientForm.elements.manager.disabled = false;
-  }
-  clientDialog.showModal();
+  openClientDialog(null);
 });
 
 managerForm.addEventListener("submit", async (event) => {
@@ -5916,16 +6192,21 @@ clientForm.addEventListener("submit", async (event) => {
 
   event.preventDefault();
   const formData = new FormData(clientForm);
+  if (clientForm.elements.manager.disabled) {
+    formData.set("manager", clientForm.elements.manager.value);
+  }
   const payload = Object.fromEntries(formData.entries());
+  const clientId = payload.clientId || "";
+  delete payload.clientId;
   if (isPartner()) {
     payload.manager = partnerManagerName();
   }
-  await requestJson("/api/clients", {
-    method: "POST",
+  await requestJson(clientId ? `/api/clients/${encodeURIComponent(clientId)}` : "/api/clients", {
+    method: clientId ? "PATCH" : "POST",
     body: JSON.stringify(payload)
   });
   clientDialog.close();
-  await loadData({ targets: ["clients"] });
+  await loadData({ targets: ["clients", "dashboard", "tasks", "documentRequests"] });
 });
 
 dealActionForm.addEventListener("submit", async (event) => {
@@ -5978,6 +6259,52 @@ knowledgeForm.addEventListener("submit", async (event) => {
   state.view = "knowledge";
   await loadData({ targets: ["knowledge"] });
 });
+
+if (planTemplateForm) {
+  planTemplateForm.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const addRow = target.closest("[data-template-add-row]");
+    if (addRow) {
+      event.preventDefault();
+      planTemplateRows?.insertAdjacentHTML("beforeend", renderPlanTemplateEditorRow({}));
+      return;
+    }
+    const removeRow = target.closest("[data-template-remove-row]");
+    if (removeRow) {
+      event.preventDefault();
+      const row = removeRow.closest("[data-template-row]");
+      row?.remove();
+      if (!planTemplateRows.querySelector("[data-template-row]")) {
+        renderPlanTemplateEditorRows([{}]);
+      }
+    }
+  });
+
+  planTemplateForm.addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") {
+      return;
+    }
+    event.preventDefault();
+    if (!planTemplateForm.reportValidity()) {
+      return;
+    }
+    const payload = Object.fromEntries(new FormData(planTemplateForm).entries());
+    const templateId = payload.templateId;
+    delete payload.templateId;
+    payload.items = collectPlanTemplateItems();
+    await requestJson(`/api/plan-templates/${encodeURIComponent(templateId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    planTemplateDialog.close();
+    state.view = "knowledge";
+    state.knowledgeSection = "templates";
+    await loadData({ targets: ["planTemplates"] });
+  });
+}
 
 // ===== Users management =====
 
@@ -6637,6 +6964,7 @@ if (logoutButton) {
     state.clients = [];
     state.managers = [];
     state.knowledge = [];
+    state.planTemplates = [];
     state.tasks = [];
     showLoginScreen();
   });
@@ -6698,7 +7026,7 @@ function scheduleLiveReload() {
     try {
       const snapshot = captureUiState();
       await loadData({
-        targets: ["dashboard", "clients", "managers", "tasks", "documentRequests"],
+        targets: ["dashboard", "clients", "managers", "tasks", "documentRequests", "planTemplates"],
         restoreUi: snapshot
       });
     } catch (error) {

@@ -7,10 +7,12 @@ const {
   buildInitialCommentAction,
   buildStatusChangeAction,
   initStore,
+  mergePlanTemplates,
   normalizeClient,
   normalizeDocumentRequest,
   normalizeKnowledgeProgram,
   normalizeManager,
+  normalizePlanTemplate,
   normalizeTask,
   validateDealDates,
   validateDocumentRequest,
@@ -324,6 +326,7 @@ test("normalizeDocumentRequest sets defaults and derives status from fulfilledAt
   assert.equal(open.status, "open");
   assert.equal(open.manager, "Иван");
   assert.equal(open.fulfilledAt, "");
+  assert.match(open.acceptToken, /^[a-f0-9]{16}$/);
   assert.equal(open.createdAt, "2026-06-01T07:00:00.000Z");
 
   const fulfilled = normalizeDocumentRequest({
@@ -334,6 +337,67 @@ test("normalizeDocumentRequest sets defaults and derives status from fulfilledAt
     fulfilledAt: "2026-06-02T10:00:00+03:00"
   });
   assert.equal(fulfilled.status, "fulfilled");
+});
+
+test("normalizeDocumentRequest keeps acceptance token and reminder date", () => {
+  const req = normalizeDocumentRequest({
+    acceptToken: "abc123",
+    fulfilledAt: "2026-06-02T10:00:00+03:00",
+    acceptanceReminderAt: "2026-06-02T12:30:00+03:00"
+  });
+
+  assert.equal(req.acceptToken, "abc123");
+  assert.equal(req.acceptanceReminderAt, "2026-06-02T09:30:00.000Z");
+});
+
+test("normalizePlanTemplate keeps editable submission rows", () => {
+  const template = normalizePlanTemplate({
+    name: "Экспресс",
+    description: "Быстрый план",
+    items: [
+      {
+        knowledgeProgramId: "program-1",
+        bank: "Точка",
+        program: "Оборотный",
+        programType: "Экспресс",
+        amountRequested: "12 500 000",
+        comment: "Подаем первой волной"
+      },
+      { comment: "пустая строка редактора" }
+    ],
+    createdAt: "2026-06-01T10:00:00+03:00"
+  });
+
+  assert.match(template.id, /^plan-template-/);
+  assert.equal(template.name, "Экспресс");
+  assert.equal(template.description, "Быстрый план");
+  assert.equal(template.items.length, 1);
+  assert.equal(template.items[0].bank, "Точка");
+  assert.equal(template.items[0].amountRequested, 12500000);
+  assert.equal(template.createdAt, "2026-06-01T07:00:00.000Z");
+});
+
+test("mergePlanTemplates keeps defaults while applying saved edits", () => {
+  const merged = mergePlanTemplates(
+    [
+      { id: "plan-template-express", name: "Экспресс", items: [{ id: "a" }] },
+      { id: "plan-template-medium", name: "Средний", items: [{ id: "b" }] },
+      { id: "plan-template-long", name: "Длинный", items: [{ id: "c" }] }
+    ],
+    [
+      { id: "plan-template-medium", name: "Средний edited", items: [{ id: "saved" }] },
+      { id: "custom-plan", name: "Особый", items: [{ id: "custom" }] }
+    ]
+  );
+
+  assert.deepEqual(merged.map((template) => template.id), [
+    "plan-template-express",
+    "plan-template-medium",
+    "plan-template-long",
+    "custom-plan"
+  ]);
+  assert.equal(merged[1].name, "Средний edited");
+  assert.equal(merged[0].items[0].id, "a");
 });
 
 test("validateDocumentRequest enforces required fields", () => {

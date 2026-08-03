@@ -48,6 +48,10 @@ const COLLECTIONS = {
   program_categories: {
     file: path.join(DATA_DIR, "program_categories.json"),
     table: "app_program_categories"
+  },
+  plan_templates: {
+    file: path.join(DATA_DIR, "plan_templates.json"),
+    table: "app_plan_templates"
   }
 };
 const KNOWLEDGE_FILE = path.join(DATA_DIR, "knowledge.json");
@@ -262,6 +266,13 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
         CREATE UNIQUE INDEX IF NOT EXISTS app_program_categories_name_idx
           ON app_program_categories (lower(data->>'name'));
 
+        CREATE TABLE IF NOT EXISTS app_plan_templates (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
         CREATE TABLE IF NOT EXISTS app_knowledge_programs (
           id text PRIMARY KEY,
           bank_id text NOT NULL,
@@ -404,6 +415,7 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
       await seedCollection("managers", readJson(COLLECTIONS.managers.file, []));
       await seedCollection("tasks", readJson(COLLECTIONS.tasks.file, []));
       await seedCollection("document_requests", readJson(COLLECTIONS.document_requests.file, []));
+      await seedCollection("plan_templates", readJson(COLLECTIONS.plan_templates.file, []));
       await seedKnowledge(normalizeKnowledgeEntries(readJson(KNOWLEDGE_FILE, [])));
     })();
   }

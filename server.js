@@ -38,12 +38,16 @@ const {
   getKnowledge,
   getProgramDiscoveries,
   getManagers,
+  getPlanTemplates,
   getTasks,
   removeDocumentRequestAttachment,
   updateDeal,
+  updateClient,
   updateKnowledgeProgram,
+  updatePlanTemplate,
   updateManager,
   updateTask,
+  applyPlanTemplateToClient,
   upsertIntegrationClient,
   upsertProgramDiscovery,
   upsertCreditAnalysisBundle,
@@ -75,6 +79,7 @@ const {
   setDocumentRequestOpenMessageId,
   addDocumentRequestPartialUploadMessageId,
   clearDocumentRequestPartialUploadMessageIds,
+  setDocumentRequestAcceptanceReminderAt,
   getProgramTypes,
   createProgramType,
   updateProgramType,
@@ -86,7 +91,21 @@ const {
   seedTaxonomyIfEmpty,
   reloadTaxonomyCache
 } = require("./src/store");
-const Busboy = require("busboy");
+let BusboyCtor = null;
+
+function getBusboy() {
+  if (BusboyCtor) {
+    return BusboyCtor;
+  }
+  try {
+    BusboyCtor = require("busboy");
+    return BusboyCtor;
+  } catch (error) {
+    const wrapped = new Error("Пакет busboy не установлен. Выполните npm install перед загрузкой файлов.");
+    wrapped.cause = error;
+    throw wrapped;
+  }
+}
 
 // Резолвит/создаёт topic-id в форум-группе для клиента.
 // Возвращает строковый thread_id или "" если не удалось.
@@ -1090,6 +1109,70 @@ async function handleAuth(request, response, pathname) {
   return false;
 }
 
+function telegramCallbackActor(callbackQuery = {}) {
+  const user = callbackQuery.from || {};
+  const name = [user.first_name, user.last_name].filter(Boolean).join(" ").trim()
+    || user.username
+    || `Telegram ${user.id || ""}`.trim()
+    || "Telegram";
+  return {
+    fullName: name,
+    login: user.id ? `telegram:${user.id}` : "telegram"
+  };
+}
+
+async function handleTelegramWebhook(request, response) {
+  const expectedSecret = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+  if (expectedSecret) {
+    const actualSecret = String(request.headers["x-telegram-bot-api-secret-token"] || "").trim();
+    if (actualSecret !== expectedSecret) {
+      sendJson(response, 403, { error: "Forbidden" });
+      return;
+    }
+  }
+
+  const update = await readBody(request);
+  const callbackQuery = update.callback_query;
+  const data = String(callbackQuery?.data || "");
+  const match = data.match(/^docreq_confirm:([^:]+):([a-f0-9]+)$/i);
+  if (!callbackQuery || !match) {
+    sendJson(response, 200, { ok: true, ignored: true });
+    return;
+  }
+
+  const [, reqId, token] = match;
+  const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
+  if (!existing) {
+    await telegram.answerCallbackQuery(callbackQuery.id, "Запрос не найден");
+    sendJson(response, 200, { ok: true, confirmed: false });
+    return;
+  }
+  if (existing.status === "delivered") {
+    await telegram.answerCallbackQuery(callbackQuery.id, "Уже подтверждено");
+    sendJson(response, 200, { ok: true, confirmed: true, already: true });
+    return;
+  }
+  if (existing.status !== "fulfilled") {
+    await telegram.answerCallbackQuery(callbackQuery.id, "Документы еще не готовы");
+    sendJson(response, 200, { ok: true, confirmed: false });
+    return;
+  }
+  if (!existing.acceptToken || existing.acceptToken !== token) {
+    await telegram.answerCallbackQuery(callbackQuery.id, "Кнопка устарела");
+    sendJson(response, 200, { ok: true, confirmed: false });
+    return;
+  }
+
+  const updated = await confirmDocumentRequest(reqId, { actor: telegramCallbackActor(callbackQuery) });
+  await telegram.answerCallbackQuery(callbackQuery.id, "Принятие подтверждено");
+  sendJson(response, 200, { ok: true, confirmed: true, documentRequest: updated });
+  (async () => {
+    const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
+    const amounts = await resolveDealAmountsForDocRequest(updated);
+    await telegram.notifyDocRequestConfirmed(updated, { actor: telegramCallbackActor(callbackQuery), topicId, ...amounts });
+  })().catch((e) => console.warn("[telegram] callback confirm notify:", e.message));
+}
+
 async function handleApi(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = url.pathname;
@@ -1110,6 +1193,11 @@ async function handleApi(request, response) {
     if (handled) {
       return;
     }
+  }
+
+  if (request.method === "POST" && pathname === "/api/telegram/webhook") {
+    await handleTelegramWebhook(request, response);
+    return;
   }
 
   // Google OAuth callback публичен (state→user проверяем сами через oauthStates).
@@ -1530,6 +1618,53 @@ async function handleApi(request, response) {
   }
 
   const clientMatch = pathname.match(/^\/api\/clients\/([^/]+)$/);
+  if (request.method === "PATCH" && clientMatch) {
+    const clientId = decodeURIComponent(clientMatch[1]);
+    const existingClient = (await getClients()).find((c) => c.id === clientId);
+    if (!existingClient) {
+      sendJson(response, 404, { error: "Client not found" });
+      return;
+    }
+    if (scope) {
+      ensurePartnerOwnsManager(request, existingClient.manager);
+    }
+    const payload = await readBody(request);
+    if (scope && payload.manager !== undefined) {
+      ensurePartnerOwnsManager(request, payload.manager);
+    }
+    const client = await updateClient(clientId, payload);
+    if (!client) {
+      sendJson(response, 404, { error: "Client not found" });
+      return;
+    }
+    sendJson(response, 200, { client });
+    (async () => {
+      try {
+        await resolveClientTopicId(client.name, client.manager);
+      } catch (e) {
+        console.warn("[client] update-topic error:", e.message);
+      }
+    })().catch(() => {});
+    return;
+  }
+
+  const clientApplyPlanTemplateMatch = pathname.match(/^\/api\/clients\/([^/]+)\/apply-plan-template$/);
+  if (request.method === "POST" && clientApplyPlanTemplateMatch) {
+    const clientId = decodeURIComponent(clientApplyPlanTemplateMatch[1]);
+    const existingClient = (await getClients()).find((c) => c.id === clientId);
+    if (!existingClient) {
+      sendJson(response, 404, { error: "Client not found" });
+      return;
+    }
+    if (scope) {
+      ensurePartnerOwnsManager(request, existingClient.manager);
+    }
+    const payload = await readBody(request);
+    const result = await applyPlanTemplateToClient(clientId, String(payload.templateId || ""), { author: request.user });
+    sendJson(response, 201, { client: result.client, planTemplate: result.template, deals: result.deals });
+    return;
+  }
+
   if (request.method === "DELETE" && clientMatch) {
     const clientId = decodeURIComponent(clientMatch[1]);
     const existingClient = (await getClients()).find((c) => c.id === clientId);
@@ -1633,6 +1768,24 @@ async function handleApi(request, response) {
 
   if (request.method === "GET" && pathname === "/api/knowledge") {
     sendJson(response, 200, { knowledge: await getKnowledge() });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/plan-templates") {
+    sendJson(response, 200, { planTemplates: await getPlanTemplates() });
+    return;
+  }
+
+  const planTemplateMatch = pathname.match(/^\/api\/plan-templates\/([^/]+)$/);
+  if (request.method === "PATCH" && planTemplateMatch) {
+    requireRole(request, ["admin", "analyst_abram"]);
+    const payload = await readBody(request);
+    const template = await updatePlanTemplate(decodeURIComponent(planTemplateMatch[1]), payload);
+    if (!template) {
+      sendJson(response, 404, { error: "Plan template not found" });
+      return;
+    }
+    sendJson(response, 200, { planTemplate: template });
     return;
   }
 
@@ -1955,6 +2108,7 @@ async function handleApi(request, response) {
       const errors = [];
       const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB лимит Telegram
       log("multipart parse start");
+      const Busboy = getBusboy();
       await new Promise((resolve) => {
         let bb;
         try {
@@ -2539,7 +2693,10 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
             }
           }
         }
-        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, ...amounts });
+        const fulfilledResult = await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, ...amounts });
+        if (fulfilledResult && fulfilledResult.ok !== false) {
+          await setDocumentRequestAcceptanceReminderAt(req.id, new Date().toISOString(), req.acceptToken);
+        }
         // На всякий случай добиваем оставшиеся partial-сообщения (если первый /fulfill
         // их не удалил из-за сетевой ошибки) — переотправка пакета должна давать
         // чистый топик с одним финальным сообщением.
@@ -2612,6 +2769,62 @@ async function sendMorningCheckPings({ trace = `morning-${Date.now()}` } = {}) {
     }
   }
   return { sent, total: byAnalyst.size };
+}
+
+// ===== Напоминание о неподтверждённых готовых документах =====
+const DOC_ACCEPTANCE_REMINDER_AFTER_MS = 2 * 60 * 60 * 1000;
+const DOC_ACCEPTANCE_REMINDER_POLL_MS = Number(process.env.DOC_ACCEPTANCE_REMINDER_POLL_MS || 10 * 60 * 1000);
+
+function msSince(value) {
+  const timestamp = new Date(value || "").getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+  return Date.now() - timestamp;
+}
+
+async function performDocumentAcceptanceReminders({ trace = `doc-accept-${Date.now().toString(36)}` } = {}) {
+  const tlog = (...args) => console.log(`[${trace}]`, ...args);
+  if (isMoscowWeekendNow()) {
+    return { reminded: 0, total: 0, skipped: "weekend" };
+  }
+  const all = await getDocumentRequests();
+  const due = all.filter((req) => {
+    if (req.status !== "fulfilled" || req.deliveredAt || !req.fulfilledAt) {
+      return false;
+    }
+    const fulfilledAge = msSince(req.fulfilledAt);
+    if (fulfilledAge == null || fulfilledAge < DOC_ACCEPTANCE_REMINDER_AFTER_MS) {
+      return false;
+    }
+    const reminderAge = req.acceptanceReminderAt ? msSince(req.acceptanceReminderAt) : null;
+    return reminderAge == null || reminderAge >= DOC_ACCEPTANCE_REMINDER_AFTER_MS;
+  });
+
+  let reminded = 0;
+  for (const req of due) {
+    try {
+      const [topicId, recipientChatId, amounts] = await Promise.all([
+        resolveClientTopicId(req.clientName, req.manager),
+        resolveAnalystChatId(req.manager),
+        resolveDealAmountsForDocRequest(req)
+      ]);
+      const processingDays = daysSinceCreated(req);
+      const result = await telegram.notifyDocRequestFulfilled(req, {
+        recipientChatId,
+        topicId,
+        processingDays,
+        ...amounts
+      });
+      if (result && result.ok !== false) {
+        await setDocumentRequestAcceptanceReminderAt(req.id, new Date().toISOString(), req.acceptToken);
+        reminded += 1;
+      }
+    } catch (error) {
+      tlog("error on", req.id, error.message);
+    }
+  }
+  return { reminded, total: due.length };
 }
 
 // ===== Ежедневный планировщик: 08:50 МСК =====
@@ -2695,6 +2908,28 @@ function startDailyResendScheduler() {
   console.log(`[scheduler] daily resend armed for ${DAILY_RESEND_HOUR_MSK}:${String(DAILY_RESEND_MIN_MSK).padStart(2, "0")} MSK`);
 }
 
+function startDocumentAcceptanceReminderScheduler() {
+  if (process.env.DISABLE_DOC_ACCEPTANCE_REMINDERS === "1") {
+    console.log("[scheduler] document acceptance reminders disabled by env DISABLE_DOC_ACCEPTANCE_REMINDERS=1");
+    return;
+  }
+  const run = async () => {
+    try {
+      const result = await performDocumentAcceptanceReminders();
+      if (result.reminded) {
+        console.log(`[scheduler] document acceptance reminders sent: ${result.reminded}/${result.total}`);
+      }
+    } catch (error) {
+      console.warn("[scheduler] document acceptance reminders error:", error.message);
+    }
+  };
+  const first = setTimeout(run, Math.min(DOC_ACCEPTANCE_REMINDER_POLL_MS, 60 * 1000));
+  first.unref();
+  const interval = setInterval(run, DOC_ACCEPTANCE_REMINDER_POLL_MS);
+  interval.unref();
+  console.log("[scheduler] document acceptance reminders armed for 2h SLA");
+}
+
 async function start() {
   await initStore();
   await users.ensureBootstrapAdmin({ logger: console });
@@ -2706,6 +2941,7 @@ async function start() {
     console.log(`Deal Monitor is running at http://localhost:${PORT}`);
   });
   startDailyResendScheduler();
+  startDocumentAcceptanceReminderScheduler();
 }
 
 if (require.main === module) {

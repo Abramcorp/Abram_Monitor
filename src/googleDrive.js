@@ -13,12 +13,26 @@
 
 const crypto = require("node:crypto");
 const { Readable } = require("node:stream");
-const { google } = require("googleapis");
 const postgresStore = require("./postgresStore");
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 const INTEGRATION_ID = "google_drive";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+let googleClient = null;
+
+function getGoogle() {
+  if (googleClient) {
+    return googleClient;
+  }
+  try {
+    ({ google: googleClient } = require("googleapis"));
+    return googleClient;
+  } catch (error) {
+    const wrapped = new Error("Пакет googleapis не установлен. Выполните npm install перед использованием Google Drive интеграции.");
+    wrapped.cause = error;
+    throw wrapped;
+  }
+}
 
 function getEnv(name) {
   return String(process.env[name] || "").trim();
@@ -110,6 +124,7 @@ function createOAuthClient() {
   if (!isConfigured()) {
     throw new Error("Google Drive не настроен (нет env GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI/OAUTH_TOKEN_ENCRYPTION_KEY)");
   }
+  const google = getGoogle();
   return new google.auth.OAuth2(
     getEnv("GOOGLE_CLIENT_ID"),
     getEnv("GOOGLE_CLIENT_SECRET"),
@@ -138,7 +153,7 @@ async function handleOAuthCallback(code) {
   // узнаём email подключённого аккаунта
   let connectedEmail = "";
   try {
-    const userinfo = await google.oauth2({ version: "v2", auth: oauth }).userinfo.get();
+    const userinfo = await getGoogle().oauth2({ version: "v2", auth: oauth }).userinfo.get();
     connectedEmail = userinfo.data.email || "";
   } catch (error) {
     console.warn("[gdrive] не удалось прочитать userinfo:", error.message);
@@ -195,7 +210,7 @@ async function getAuthorizedClient() {
 
 async function getDrive() {
   const auth = await getAuthorizedClient();
-  return google.drive({ version: "v3", auth });
+  return getGoogle().drive({ version: "v3", auth });
 }
 
 // ===== Drive операции =====

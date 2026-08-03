@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { normalizeDeal } = require("./analytics");
 const postgresStore = require("./postgresStore");
 const telegram = require("./telegram");
@@ -16,6 +17,7 @@ const MANAGERS_FILE = path.join(DATA_DIR, "managers.json");
 const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
 const DOCUMENT_REQUESTS_FILE = path.join(DATA_DIR, "document_requests.json");
 const INTEGRATION_AUDIT_FILE = path.join(DATA_DIR, "integration_audit.json");
+const PLAN_TEMPLATES_FILE = path.join(DATA_DIR, "plan_templates.json");
 // Дефолтные списки. Используются:
 //   а) для bootstrap (засев пустых коллекций при первом запуске);
 //   б) как fallback при чтении, если коллекции ещё не инициализированы.
@@ -30,6 +32,11 @@ const DEFAULT_PROGRAM_CATEGORIES = [
   "НАЛОГОВАЯ ДЕКЛАРАЦИЯ",
   "ФИЗАВТО",
   "ТЕСТОВЫЕ БАНКИ"
+];
+const DEFAULT_PLAN_TEMPLATE_DEFS = [
+  { id: "plan-template-express", name: "Экспресс", types: ["Экспресс"], limit: 8 },
+  { id: "plan-template-medium", name: "Средний", types: ["Стандарт", "Экспресс"], limit: 10 },
+  { id: "plan-template-long", name: "Длинный", types: ["Стандарт", "Добивка", "Физическое лицо", "Экспресс"], limit: 14 }
 ];
 
 // Совместимость с легаси-кодом (нормализация программ): pre-merge сохраняем
@@ -58,6 +65,41 @@ function writeJson(filePath, value) {
 
 function cleanText(value) {
   return String(value || "").trim();
+}
+
+function toMoneyNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  const normalized = cleanText(value)
+    .replace(/\s+/g, "")
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function makeShortToken() {
+  return crypto.randomBytes(8).toString("hex");
+}
+
+function amountFromRange(value) {
+  const text = cleanText(value).toLowerCase();
+  const match = text.match(/(\d+(?:[.,]\d+)?)/);
+  if (!match) {
+    return 0;
+  }
+  const base = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(base)) {
+    return 0;
+  }
+  if (/млн|миллион/.test(text)) {
+    return Math.round(base * 1_000_000);
+  }
+  if (/тыс|тысяч/.test(text)) {
+    return Math.round(base * 1_000);
+  }
+  return Math.round(base);
 }
 
 function initStore() {
@@ -633,6 +675,178 @@ function createClient(payload) {
   return client;
 }
 
+function validateClient(client) {
+  if (!client.name) {
+    throw new Error("Client name is required");
+  }
+  if (!client.manager) {
+    throw new Error("Аналитик обязателен");
+  }
+}
+
+function sameClientIdentity(left, right) {
+  return cleanText(left?.name).toLowerCase() === cleanText(right?.name).toLowerCase()
+    && cleanText(left?.manager).toLowerCase() === cleanText(right?.manager).toLowerCase();
+}
+
+async function updateClientRelatedRecords(previousClient, nextClient) {
+  const previousName = cleanText(previousClient?.name).toLowerCase();
+  const previousManager = cleanText(previousClient?.manager).toLowerCase();
+  if (!previousName || !previousManager) {
+    return;
+  }
+  const identityChanged = !sameClientIdentity(previousClient, nextClient);
+  const driveChanged = cleanText(previousClient?.driveUrl) !== cleanText(nextClient?.driveUrl);
+  if (!identityChanged && !driveChanged) {
+    return;
+  }
+
+  const matchesDeal = (deal) =>
+    cleanText(deal.client).toLowerCase() === previousName &&
+    cleanText(deal.manager).toLowerCase() === previousManager;
+  const now = await getMoscowNowIso();
+
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const [deals, tasks, documentRequests] = await Promise.all([
+      postgresStore.listRows("deals"),
+      postgresStore.listRows("tasks"),
+      postgresStore.listRows("document_requests")
+    ]);
+
+    for (const rawDeal of deals.map(normalizeDeal).filter(matchesDeal)) {
+      await postgresStore.updateRow("deals", rawDeal.id, (current) => normalizeDeal({
+        ...current,
+        client: identityChanged ? nextClient.name : current.client,
+        manager: identityChanged ? nextClient.manager : current.manager,
+        updatedAt: now
+      }));
+    }
+
+    for (const rawTask of tasks.map(normalizeTask).filter((task) =>
+      cleanText(task.client).toLowerCase() === previousName &&
+      cleanText(task.manager).toLowerCase() === previousManager
+    )) {
+      await postgresStore.updateRow("tasks", rawTask.id, (current) => normalizeTask({
+        ...current,
+        client: identityChanged ? nextClient.name : current.client,
+        manager: identityChanged ? nextClient.manager : current.manager,
+        updatedAt: now
+      }));
+    }
+
+    for (const rawRequest of documentRequests.map(normalizeDocumentRequest).filter((req) =>
+      cleanText(req.clientName).toLowerCase() === previousName &&
+      cleanText(req.manager).toLowerCase() === previousManager
+    )) {
+      await postgresStore.updateRow("document_requests", rawRequest.id, (current) => normalizeDocumentRequest({
+        ...current,
+        clientName: identityChanged ? nextClient.name : current.clientName,
+        manager: identityChanged ? nextClient.manager : current.manager,
+        driveUrl: nextClient.driveUrl || current.driveUrl,
+        updatedAt: now
+      }));
+    }
+    return;
+  }
+
+  const deals = getDeals();
+  let dealsChanged = false;
+  for (let index = 0; index < deals.length; index += 1) {
+    if (!matchesDeal(deals[index])) {
+      continue;
+    }
+    deals[index] = normalizeDeal({
+      ...deals[index],
+      client: identityChanged ? nextClient.name : deals[index].client,
+      manager: identityChanged ? nextClient.manager : deals[index].manager,
+      updatedAt: now
+    });
+    dealsChanged = true;
+  }
+  if (dealsChanged) {
+    saveDeals(deals);
+  }
+
+  const tasks = getTasks();
+  let tasksChanged = false;
+  for (let index = 0; index < tasks.length; index += 1) {
+    if (
+      cleanText(tasks[index].client).toLowerCase() !== previousName ||
+      cleanText(tasks[index].manager).toLowerCase() !== previousManager
+    ) {
+      continue;
+    }
+    tasks[index] = normalizeTask({
+      ...tasks[index],
+      client: identityChanged ? nextClient.name : tasks[index].client,
+      manager: identityChanged ? nextClient.manager : tasks[index].manager,
+      updatedAt: now
+    });
+    tasksChanged = true;
+  }
+  if (tasksChanged) {
+    saveTasks(tasks);
+  }
+
+  const documentRequests = getDocumentRequests();
+  let requestsChanged = false;
+  for (let index = 0; index < documentRequests.length; index += 1) {
+    if (
+      cleanText(documentRequests[index].clientName).toLowerCase() !== previousName ||
+      cleanText(documentRequests[index].manager).toLowerCase() !== previousManager
+    ) {
+      continue;
+    }
+    documentRequests[index] = normalizeDocumentRequest({
+      ...documentRequests[index],
+      clientName: identityChanged ? nextClient.name : documentRequests[index].clientName,
+      manager: identityChanged ? nextClient.manager : documentRequests[index].manager,
+      driveUrl: nextClient.driveUrl || documentRequests[index].driveUrl,
+      updatedAt: now
+    });
+    requestsChanged = true;
+  }
+  if (requestsChanged) {
+    saveDocumentRequests(documentRequests);
+  }
+}
+
+async function updateClient(id, patch) {
+  const now = await getMoscowNowIso();
+  const clients = await getClients();
+  const previous = clients.find((client) => client.id === id);
+  if (!previous) {
+    return null;
+  }
+  const next = normalizeClient({
+    ...previous,
+    ...patch,
+    id,
+    createdAt: previous.createdAt,
+    archivedAt: patch.archivedAt === undefined ? previous.archivedAt : patch.archivedAt,
+    updatedAt: now
+  });
+  validateClient(next);
+
+  let saved;
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const raw = await postgresStore.updateRow("clients", id, () => next);
+    saved = raw ? normalizeClient(raw) : null;
+  } else {
+    const index = clients.findIndex((client) => client.id === id);
+    clients[index] = next;
+    writeJson(CLIENTS_FILE, clients);
+    saved = next;
+  }
+
+  if (saved) {
+    await updateClientRelatedRecords(previous, saved);
+  }
+  return saved;
+}
+
 function archiveClient(id) {
   if (postgresStore.isEnabled()) {
     return archiveClientPostgres(id);
@@ -936,6 +1150,246 @@ function deleteTask(id) {
   return deleted;
 }
 
+// ===== Plan templates =====
+
+function flattenKnowledgePrograms(knowledge = []) {
+  return knowledge.flatMap((bank) =>
+    (bank.programs || []).map((program) => ({
+      bank,
+      program
+    }))
+  );
+}
+
+function normalizePlanTemplateItem(raw = {}, index = 0) {
+  const amountRequested = toMoneyNumber(raw.amountRequested || raw.amount || raw.sum);
+  return {
+    id: cleanText(raw.id) || `template-item-${index + 1}`,
+    knowledgeProgramId: cleanText(raw.knowledgeProgramId || raw.programId),
+    bank: cleanText(raw.bank),
+    program: cleanText(raw.program),
+    programType: cleanText(raw.programType),
+    amountRequested,
+    comment: cleanText(raw.comment || raw.note)
+  };
+}
+
+function normalizePlanTemplate(raw = {}) {
+  const createdAt = toIsoDate(raw.createdAt);
+  const updatedAt = toIsoDate(raw.updatedAt);
+  const name = cleanText(raw.name);
+  return {
+    id: cleanText(raw.id) || `plan-template-${name.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-").replace(/^-|-$/g, "") || Date.now()}`,
+    name,
+    description: cleanText(raw.description),
+    items: Array.isArray(raw.items)
+      ? raw.items.map(normalizePlanTemplateItem).filter((item) => item.knowledgeProgramId || item.bank || item.program)
+      : [],
+    createdAt,
+    updatedAt: updatedAt || createdAt
+  };
+}
+
+function planTemplateItemFromProgram(entry, index = 0) {
+  return normalizePlanTemplateItem({
+    id: `template-item-${index + 1}`,
+    knowledgeProgramId: entry.program.id,
+    bank: entry.bank.bank,
+    program: entry.program.program,
+    programType: entry.program.programType,
+    amountRequested: amountFromRange(entry.program.amountRange),
+    comment: ""
+  }, index);
+}
+
+function pickTemplatePrograms(programs, types, limit) {
+  const selected = [];
+  const seen = new Set();
+  for (const type of types) {
+    for (const entry of programs) {
+      const id = entry.program.id;
+      if (seen.has(id) || cleanText(entry.program.programType) !== type) {
+        continue;
+      }
+      selected.push(entry);
+      seen.add(id);
+      if (selected.length >= limit) {
+        return selected;
+      }
+    }
+  }
+  for (const entry of programs) {
+    const id = entry.program.id;
+    if (!seen.has(id)) {
+      selected.push(entry);
+      seen.add(id);
+    }
+    if (selected.length >= limit) {
+      break;
+    }
+  }
+  return selected;
+}
+
+async function buildDefaultPlanTemplates() {
+  const knowledge = await getKnowledge();
+  const programs = flattenKnowledgePrograms(knowledge)
+    .filter((entry) => entry.program?.id && entry.program?.program)
+    .sort((left, right) =>
+      cleanText(left.bank.bank).localeCompare(cleanText(right.bank.bank), "ru") ||
+      cleanText(left.program.program).localeCompare(cleanText(right.program.program), "ru")
+    );
+  const now = new Date().toISOString();
+  return DEFAULT_PLAN_TEMPLATE_DEFS.map((definition) => normalizePlanTemplate({
+    id: definition.id,
+    name: definition.name,
+    description: `Шаблонный план подач: ${definition.name}`,
+    items: pickTemplatePrograms(programs, definition.types, definition.limit).map(planTemplateItemFromProgram),
+    createdAt: now,
+    updatedAt: now
+  }));
+}
+
+async function getPlanTemplates() {
+  let stored;
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    stored = await postgresStore.listRows("plan_templates");
+  } else {
+    stored = readJson(PLAN_TEMPLATES_FILE, []);
+  }
+  const normalized = stored.map(normalizePlanTemplate).filter((template) => template.name);
+  const defaults = await buildDefaultPlanTemplates();
+  if (normalized.length) {
+    return mergePlanTemplates(defaults, normalized);
+  }
+  return defaults;
+}
+
+function validatePlanTemplate(template) {
+  if (!template.name) {
+    throw new Error("Название шаблона обязательно");
+  }
+  if (!template.items.length) {
+    throw new Error("В шаблоне должна быть хотя бы одна программа");
+  }
+}
+
+function mergePlanTemplates(defaultTemplates = [], savedTemplates = []) {
+  const savedById = new Map(savedTemplates.map((template) => [template.id, template]));
+  const defaultIds = new Set(defaultTemplates.map((template) => template.id));
+  return [
+    ...defaultTemplates.map((template) => savedById.get(template.id) || template),
+    ...savedTemplates.filter((template) => !defaultIds.has(template.id))
+  ];
+}
+
+async function updatePlanTemplate(id, payload) {
+  const now = await getMoscowNowIso();
+  const templates = await getPlanTemplates();
+  const previous = templates.find((template) => template.id === id);
+  if (!previous) {
+    return null;
+  }
+  const next = normalizePlanTemplate({
+    ...previous,
+    ...payload,
+    id,
+    createdAt: previous.createdAt || now,
+    updatedAt: now
+  });
+  validatePlanTemplate(next);
+
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    return postgresStore.insertRow("plan_templates", next).then(normalizePlanTemplate);
+  }
+
+  const stored = readJson(PLAN_TEMPLATES_FILE, []);
+  const normalizedStored = stored.map(normalizePlanTemplate);
+  const index = normalizedStored.findIndex((template) => template.id === id);
+  if (index >= 0) {
+    normalizedStored[index] = next;
+  } else {
+    normalizedStored.push(next);
+  }
+  writeJson(PLAN_TEMPLATES_FILE, normalizedStored);
+  return next;
+}
+
+function findKnowledgeProgramByTemplateItem(knowledge, item) {
+  const programId = cleanText(item.knowledgeProgramId);
+  const bankName = cleanText(item.bank).toLowerCase();
+  const programName = cleanText(item.program).toLowerCase();
+  for (const bank of knowledge) {
+    for (const program of bank.programs || []) {
+      if (programId && program.id === programId) {
+        return { bank, program };
+      }
+      if (
+        bankName &&
+        programName &&
+        cleanText(bank.bank).toLowerCase() === bankName &&
+        cleanText(program.program).toLowerCase() === programName
+      ) {
+        return { bank, program };
+      }
+    }
+  }
+  return null;
+}
+
+async function applyPlanTemplateToClient(clientId, templateId, { author } = {}) {
+  const [clients, templates, knowledge] = await Promise.all([getClients(), getPlanTemplates(), getKnowledge()]);
+  const client = clients.find((item) => item.id === clientId);
+  if (!client) {
+    throw new Error("Client not found");
+  }
+  if (client.archivedAt) {
+    throw new Error("Нельзя применить план к архивному клиенту");
+  }
+  const template = templates.find((item) => item.id === templateId);
+  if (!template) {
+    throw new Error("Шаблон не найден");
+  }
+  validatePlanTemplate(template);
+
+  const created = [];
+  const now = await getMoscowNowIso();
+  for (let index = 0; index < template.items.length; index += 1) {
+    const item = template.items[index];
+    const entry = findKnowledgeProgramByTemplateItem(knowledge, item);
+    const program = entry?.program || {};
+    const bank = entry?.bank || {};
+    const bankName = cleanText(bank.bank || item.bank);
+    const programName = cleanText(program.program || item.program);
+    if (!bankName && !programName) {
+      continue;
+    }
+    const deal = await createDeal({
+      id: `deal-template-${new Date(now).getTime()}-${index + 1}-${Math.random().toString(36).slice(2, 8)}`,
+      client: client.name,
+      manager: client.manager,
+      stage: "planned",
+      knowledgeProgramId: cleanText(program.id || item.knowledgeProgramId),
+      bank: bankName,
+      program: programName,
+      programType: cleanText(program.programType || item.programType),
+      programAmountRange: cleanText(program.amountRange),
+      programTermRange: cleanText(program.termRange),
+      amountRequested: item.amountRequested,
+      comment: cleanText(item.comment) || `План подач: ${template.name}`,
+      createdAt: now,
+      updatedAt: now
+    });
+    created.push(deal);
+  }
+  if (!created.length) {
+    throw new Error("В шаблоне нет заявок, которые можно создать");
+  }
+  return { client, template, deals: created, author: cleanText(author?.fullName) };
+}
+
 // ===== Document requests =====
 
 function normalizeDocumentRequestAttachment(raw = {}) {
@@ -957,6 +1411,7 @@ function normalizeDocumentRequest(raw = {}) {
   const updatedAt = toIsoDate(raw.updatedAt);
   const fulfilledAt = toIsoDate(raw.fulfilledAt);
   const deliveredAt = toIsoDate(raw.deliveredAt);
+  const acceptanceReminderAt = toIsoDate(raw.acceptanceReminderAt);
   let status;
   if (deliveredAt) {
     status = "delivered";
@@ -977,6 +1432,8 @@ function normalizeDocumentRequest(raw = {}) {
     items: cleanText(raw.items),
     period: cleanText(raw.period),
     openMessageId: cleanText(raw.openMessageId),
+    acceptToken: cleanText(raw.acceptToken) || makeShortToken(),
+    acceptanceReminderAt,
     partialUploadMessageIds: Array.isArray(raw.partialUploadMessageIds)
       ? raw.partialUploadMessageIds.map((v) => String(v == null ? "" : v)).filter(Boolean)
       : [],
@@ -1052,6 +1509,7 @@ async function createDocumentRequest(payload, { author } = {}) {
     items: payload.items,
     period: payload.period,
     status: "open",
+    acceptToken: payload.acceptToken || makeShortToken(),
     createdBy: cleanText(author?.fullName),
     createdByLogin: cleanText(author?.login),
     createdAt: now,
@@ -1132,6 +1590,26 @@ async function clearDocumentRequestPartialUploadMessageIds(id) {
   const patch = (current) => normalizeDocumentRequest({
     ...current,
     partialUploadMessageIds: [],
+    updatedAt: new Date().toISOString()
+  });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+async function setDocumentRequestAcceptanceReminderAt(id, reminderAt, acceptToken = "") {
+  const patch = (current) => normalizeDocumentRequest({
+    ...current,
+    acceptToken: cleanText(acceptToken) || current.acceptToken,
+    acceptanceReminderAt: toIsoDate(reminderAt) || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
   if (postgresStore.isEnabled()) {
@@ -1787,6 +2265,7 @@ module.exports = {
   getDocumentRequests,
   getKnowledge,
   getManagers,
+  getPlanTemplates,
   getTasks,
   initStore,
   appendIntegrationAudit,
@@ -1794,10 +2273,13 @@ module.exports = {
   upsertIntegrationClient,
   normalizeDocumentRequest,
   normalizeDocumentRequestAttachment,
+  normalizePlanTemplate,
+  mergePlanTemplates,
   removeDocumentRequestAttachment,
   setDocumentRequestOpenMessageId,
   addDocumentRequestPartialUploadMessageId,
   clearDocumentRequestPartialUploadMessageIds,
+  setDocumentRequestAcceptanceReminderAt,
   setClientTelegramTopicId,
   setClientTelegramBossTopicId,
   normalizeManager,
@@ -1807,13 +2289,16 @@ module.exports = {
   validateDocumentRequest,
   validateTask,
   updateDeal,
+  updateClient,
   markDealChecked,
   dealNeedsCheck,
   isDealCheckedToday,
   CHECKABLE_STAGES,
   updateKnowledgeProgram,
+  updatePlanTemplate,
   updateManager,
   updateTask,
+  applyPlanTemplateToClient,
   getProgramTypes,
   createProgramType,
   updateProgramType,
