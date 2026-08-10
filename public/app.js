@@ -127,6 +127,33 @@ const VIEWS = [
   { id: "admin-panel", label: "Панель управления", allowedRoles: ["admin"] }
 ];
 
+// Инлайн-SVG иконки разделов для сайдбара (без внешних CDN — правило проекта)
+const VIEW_ICONS = {
+  summary: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M3 16a1 1 0 0 1-1-1V4a1 1 0 1 1 2 0v10h13a1 1 0 1 1 0 2H3Zm3.3-4.7a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.4 0l1.8 1.79 3.29-3.3a1 1 0 1 1 1.42 1.42l-4 4a1 1 0 0 1-1.42 0L10 8.9l-2.3 2.4a1 1 0 0 1-1.4 0Z"/></svg>`,
+  funnels: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M7 9a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0 1c-2.67 0-5 1.34-5 3v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2c0-1.66-2.33-3-5-3Zm7-1a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Zm.5 1.1c1.9.3 3.5 1.36 3.5 2.9v1a1 1 0 0 1-1 1h-2v-2c0-1.08-.4-2.05-1.07-2.84.19-.04.38-.06.57-.06Z"/></svg>`,
+  archive: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M3 3h14a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm0 5.5h14V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5ZM8 11a1 1 0 1 0 0 2h4a1 1 0 1 0 0-2H8Z"/></svg>`,
+  knowledge: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M4 3.5A1.5 1.5 0 0 1 5.5 2H15a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5.5A1.5 1.5 0 0 1 4 15.5v-12ZM6 4v9.05c.16-.03.33-.05.5-.05H15V4H6Zm0 11v.5h9V15H6.5a.5.5 0 0 0-.5.5Z"/></svg>`,
+  "document-requests": `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2h6.59a1 1 0 0 1 .7.3l3.42 3.4a1 1 0 0 1 .29.71V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm2.5 8a1 1 0 1 0 0 2h5a1 1 0 1 0 0-2h-5Zm0 3.5a1 1 0 1 0 0 2h3a1 1 0 1 0 0-2h-3ZM11 3.5V7h3.5L11 3.5Z"/></svg>`,
+  "admin-panel": `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M8.34 2.7a1 1 0 0 1 .98-.8h1.36a1 1 0 0 1 .98.8l.28 1.36c.5.18.96.44 1.38.75l1.32-.44a1 1 0 0 1 1.18.45l.68 1.18a1 1 0 0 1-.2 1.25l-1.03.92a5.7 5.7 0 0 1 0 1.66l1.03.92a1 1 0 0 1 .2 1.25l-.68 1.18a1 1 0 0 1-1.18.45l-1.32-.44c-.42.31-.88.57-1.38.75l-.28 1.36a1 1 0 0 1-.98.8H9.32a1 1 0 0 1-.98-.8l-.28-1.36a5.9 5.9 0 0 1-1.38-.75l-1.32.44a1 1 0 0 1-1.18-.45l-.68-1.18a1 1 0 0 1 .2-1.25l1.03-.92a5.7 5.7 0 0 1 0-1.66l-1.03-.92a1 1 0 0 1-.2-1.25l.68-1.18a1 1 0 0 1 1.18-.45l1.32.44c.42-.31.88-.57 1.38-.75l.28-1.36ZM10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/></svg>`
+};
+
+// Сворачивание сайдбара: состояние переживает перезагрузку
+const SIDEBAR_COLLAPSED_KEY = "dm_sidebar_collapsed";
+function initSidebar() {
+  const shell = document.getElementById("appShell");
+  const toggle = document.getElementById("sidebarToggle");
+  if (!shell || !toggle) return;
+  if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") {
+    shell.classList.add("sidebar-collapsed");
+  }
+  toggle.addEventListener("click", () => {
+    const collapsed = shell.classList.toggle("sidebar-collapsed");
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+    toggle.title = collapsed ? "Развернуть меню" : "Свернуть меню";
+    toggle.setAttribute("aria-label", toggle.title);
+  });
+}
+
 function visibleViews() {
   const role = currentRole();
   return VIEWS.filter((view) => !view.allowedRoles || view.allowedRoles.includes(role));
@@ -986,14 +1013,18 @@ function renderViewTabs() {
 
   viewTabs.innerHTML = views
     .map((view) => {
-      const classes = ["tab"];
+      const classes = ["sidebar-item", "tab"];
       if (state.view === view.id) classes.push("is-active");
       let badge = "";
       if (view.id === "document-requests" && activeDocRequests > 0) {
         classes.push("has-doc-pending");
         badge = `<span class="tab-counter">${activeDocRequests > 99 ? "99+" : activeDocRequests}</span>`;
       }
-      return `<button class="${classes.join(" ")}" data-view="${view.id}" type="button">${view.label}${badge}</button>`;
+      const icon = VIEW_ICONS[view.id] || VIEW_ICONS.summary;
+      return `<button class="${classes.join(" ")}" data-view="${view.id}" type="button" title="${view.label}">
+        <span class="sidebar-icon" aria-hidden="true">${icon}</span>
+        <span class="sidebar-label">${view.label}</span>${badge}
+      </button>`;
     })
     .join("");
 
@@ -1004,6 +1035,17 @@ function renderViewTabs() {
       render();
     });
   });
+
+  syncViewTitle(views);
+}
+
+// Заголовок топбара = активный раздел (сайдбар сворачиваемый, подписи
+// пунктов могут быть скрыты — заголовок остаётся единственным ориентиром)
+function syncViewTitle(views) {
+  const el = document.getElementById("viewTitle");
+  if (!el) return;
+  const active = (views || visibleViews()).find((v) => v.id === state.view);
+  el.textContent = active ? active.label : "Мониторинг состояния заявок";
 }
 
 // Legacy-кнопки в топбаре скрыты, действие вызывается через делегацию
@@ -5924,6 +5966,8 @@ function openDealActionDialog(dealId) {
 }
 
 refreshButton.addEventListener("click", loadData);
+
+initSidebar();
 
 const fullscreenButton = document.querySelector("#fullscreenButton");
 if (fullscreenButton) {
