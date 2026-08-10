@@ -408,3 +408,29 @@ test("validateDocumentRequest enforces required fields", () => {
   assert.throws(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X", items: "doc" }), /Период/);
   assert.doesNotThrow(() => validateDocumentRequest({ dealId: "d", manager: "A", clientName: "X", items: "doc", period: "12 месяцев" }));
 });
+
+test("isDuplicateDocumentRequest ловит повторную отправку того же запроса", () => {
+  const { isDuplicateDocumentRequest } = require("../src/store");
+  const existing = {
+    status: "open",
+    dealId: "deal-1",
+    period: "Q1 2026",
+    items: [{ name: "Выписка" }, { name: "ОСВ" }]
+  };
+  const same = { dealId: "deal-1", period: "Q1 2026", items: [{ name: "Выписка" }, { name: "ОСВ" }] };
+  assert.equal(isDuplicateDocumentRequest(existing, same), true);
+  // Другой состав — не дубль
+  assert.equal(
+    isDuplicateDocumentRequest(existing, { ...same, items: [{ name: "Выписка" }] }),
+    false
+  );
+  // Другой период — не дубль
+  assert.equal(isDuplicateDocumentRequest(existing, { ...same, period: "Q2 2026" }), false);
+  // Другая заявка — не дубль
+  assert.equal(isDuplicateDocumentRequest(existing, { ...same, dealId: "deal-2" }), false);
+  // Закрытый запрос не блокирует новый такой же
+  assert.equal(
+    isDuplicateDocumentRequest({ ...existing, status: "fulfilled" }, same),
+    false
+  );
+});

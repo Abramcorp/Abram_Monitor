@@ -1481,6 +1481,18 @@ function validateDocumentRequest(req) {
   }
 }
 
+// Повторная отправка того же запроса документов (двойной клик, сетевой
+// ретрай): совпадают заявка, период и состав позиций, а существующий
+// запрос ещё открыт. Чистая функция — покрыта юнит-тестом.
+function isDuplicateDocumentRequest(existing, candidate) {
+  return (
+    existing.status === "open" &&
+    existing.dealId === candidate.dealId &&
+    cleanText(existing.period) === cleanText(candidate.period) &&
+    JSON.stringify(existing.items || []) === JSON.stringify(candidate.items || [])
+  );
+}
+
 async function createDocumentRequest(payload, { author } = {}) {
   const now = await getMoscowNowIso();
   const dealId = cleanText(payload.dealId);
@@ -1517,6 +1529,18 @@ async function createDocumentRequest(payload, { author } = {}) {
     fulfilledAt: ""
   });
   validateDocumentRequest(req);
+  // Дедупликация повторной отправки: двойной клик или ретрай зависшего
+  // запроса не должны плодить одинаковые ОТКРЫТЫЕ запросы. Если по этой
+  // заявке уже есть open-запрос с тем же составом документов и периодом —
+  // возвращаем его вместо создания дубля (идемпотентно для клиента).
+  const existing = (await Promise.resolve(getDocumentRequests())).find(
+    (item) => isDuplicateDocumentRequest(item, req)
+  );
+  if (existing) {
+    // Метка для server.js: повторное Telegram-уведомление не шлём.
+    // Свойство живёт только в памяти этого ответа (normalize его отсекает).
+    return Object.assign({}, existing, { reusedExisting: true });
+  }
   let saved;
   if (postgresStore.isEnabled()) {
     saved = await initStore().then(() => postgresStore.insertRow("document_requests", req)).then(normalizeDocumentRequest);
@@ -2250,6 +2274,7 @@ module.exports = {
   createDeal,
   confirmDocumentRequest,
   createDocumentRequest,
+  isDuplicateDocumentRequest,
   createKnowledgeEntry,
   createManager,
   createTask,

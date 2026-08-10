@@ -310,6 +310,30 @@ async function resolveBossChatId() {
 
 // Тянем сумму заявки из связанного deal по dealId — чтобы пробрасывать
 // её в telegram-уведомления по запросам документов.
+// Каскад: при отказе/блокировке заявки её ОТКРЫТЫЕ запросы документов
+// больше не актуальны — удаляем вместе с TG-сообщениями и файлами Drive,
+// иначе documents_officer продолжает работать по мёртвой заявке.
+async function cascadeDeleteDealDocumentRequests(deal) {
+  const all = await getDocumentRequests();
+  const related = all.filter((item) => item.dealId === deal.id && item.status === "open");
+  for (const item of related) {
+    const atts = Array.isArray(item.attachments) ? item.attachments.filter((a) => a.driveFileId) : [];
+    if (atts.length) {
+      Promise.all(atts.map((a) => googleDrive.deleteFile(a.driveFileId).catch(() => null))).catch(() => null);
+    }
+    if (item.openMessageId) {
+      try { await telegram.deleteMessage({ messageId: item.openMessageId }); } catch {}
+    }
+    const partialIds = Array.isArray(item.partialUploadMessageIds) ? item.partialUploadMessageIds : [];
+    for (const mid of partialIds) {
+      try { await telegram.deleteMessage({ messageId: mid }); } catch {}
+    }
+    await deleteDocumentRequest(item.id);
+    console.log(`[stage-change] удалён связанный запрос документов ${item.id} (заявка ${deal.id} → ${deal.stage})`);
+  }
+  return related.length;
+}
+
 async function resolveDealAmountsForDocRequest(req) {
   try {
     if (!req?.dealId) return {};
@@ -1369,6 +1393,12 @@ async function handleApi(request, response) {
             try { await markDealChecked(deal.id); }
             catch (e) { console.warn("[stage-change] auto-check error:", e.message); }
           }
+          // 1b) Отказ / невозможность заведения: связанные открытые
+          // запросы документов удаляются каскадом.
+          if (deal.stage === "rejected" || deal.stage === "blocked") {
+            try { await cascadeDeleteDealDocumentRequests(deal); }
+            catch (e) { console.warn("[stage-change] doc-requests cascade error:", e.message); }
+          }
           // 2) Уведомление в Boss-чат → топик клиента. Локальный try/catch,
           // чтобы любая ошибка TG (Boss-чат не настроен, fetch failure,
           // нет прав на топик) не помешала вызвать scheduleBossClientReport
@@ -1995,6 +2025,12 @@ async function handleApi(request, response) {
     }
     try {
       const req = await createDocumentRequest(payload, { author: request.user });
+      if (req.reusedExisting) {
+        // Дедуп повторной отправки (двойной клик): запрос уже существует —
+        // возвращаем его без повторного Telegram-уведомления и записи в хронологию.
+        sendJson(response, 200, { documentRequest: req, deduplicated: true });
+        return;
+      }
       sendJson(response, 201, { documentRequest: req });
       // Telegram-уведомление о новом запросе в топик клиента (fire-and-forget).
       // Сохраняем message_id, чтобы потом удалить сообщение при fulfillment.

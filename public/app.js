@@ -6802,15 +6802,28 @@ async function handleConfirmDocumentRequest(button) {
 }
 
 if (documentRequestForm) {
+  // Защита от повторной отправки: пока запрос в полёте, повторный сабмит
+  // (двойной клик при зависании сети) игнорируется, кнопка блокируется.
+  let documentRequestInFlight = false;
   documentRequestForm.addEventListener("submit", async (event) => {
     if (event.submitter?.value === "cancel") {
       return;
     }
     event.preventDefault();
+    if (documentRequestInFlight) {
+      return;
+    }
     if (!documentRequestForm.reportValidity()) {
       return;
     }
     const payload = Object.fromEntries(new FormData(documentRequestForm).entries());
+    const submitButton = documentRequestForm.querySelector('button[value="default"], button[type="submit"]:not([formnovalidate])');
+    documentRequestInFlight = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.dataset.originalText = submitButton.textContent;
+      submitButton.textContent = "Отправка…";
+    }
     try {
       await requestJson("/api/document-requests", {
         method: "POST",
@@ -6823,6 +6836,15 @@ if (documentRequestForm) {
       if (documentRequestError) {
         documentRequestError.hidden = false;
         documentRequestError.textContent = error.message || "Не удалось отправить запрос";
+      }
+    } finally {
+      documentRequestInFlight = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        if (submitButton.dataset.originalText) {
+          submitButton.textContent = submitButton.dataset.originalText;
+          delete submitButton.dataset.originalText;
+        }
       }
     }
   });
