@@ -119,8 +119,9 @@ function partnerManagerName() {
 }
 
 const VIEWS = [
-  { id: "summary", label: "Сводный отчет", allowedRoles: ["admin", "analyst_abram", "partner"] },
-  { id: "funnels", label: "Аналитики", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "summary", label: "Аналитика", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "tasks", label: "Задачи", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "funnels", label: "Клиенты в работе", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "document-requests", label: "Запросы документов", allowedRoles: ["admin", "documents_officer"] },
@@ -130,6 +131,7 @@ const VIEWS = [
 // Инлайн-SVG иконки разделов для сайдбара (без внешних CDN — правило проекта)
 const VIEW_ICONS = {
   summary: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M3 16a1 1 0 0 1-1-1V4a1 1 0 1 1 2 0v10h13a1 1 0 1 1 0 2H3Zm3.3-4.7a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.4 0l1.8 1.79 3.29-3.3a1 1 0 1 1 1.42 1.42l-4 4a1 1 0 0 1-1.42 0L10 8.9l-2.3 2.4a1 1 0 0 1-1.4 0Z"/></svg>`,
+  tasks: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M4 3h9a1 1 0 0 1 1 1v1H6a2 2 0 0 0-2 2v8H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm3 4h9a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Zm1.8 4.9a1 1 0 0 0-1.4 1.4l1.8 1.8a1 1 0 0 0 1.4 0l3.3-3.3a1 1 0 0 0-1.4-1.4l-2.6 2.58-1.1-1.08Z"/></svg>`,
   funnels: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M7 9a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0 1c-2.67 0-5 1.34-5 3v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2c0-1.66-2.33-3-5-3Zm7-1a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Zm.5 1.1c1.9.3 3.5 1.36 3.5 2.9v1a1 1 0 0 1-1 1h-2v-2c0-1.08-.4-2.05-1.07-2.84.19-.04.38-.06.57-.06Z"/></svg>`,
   archive: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M3 3h14a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm0 5.5h14V16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5ZM8 11a1 1 0 1 0 0 2h4a1 1 0 1 0 0-2H8Z"/></svg>`,
   knowledge: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M4 3.5A1.5 1.5 0 0 1 5.5 2H15a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5.5A1.5 1.5 0 0 1 4 15.5v-12ZM6 4v9.05c.16-.03.33-.05.5-.05H15V4H6Zm0 11v.5h9V15H6.5a.5.5 0 0 0-.5.5Z"/></svg>`,
@@ -1016,22 +1018,21 @@ function resetFilters() {
 
 function renderViewTabs() {
   const views = visibleViews();
-  if (!views.some((view) => view.id === state.view)) {
+  // «profile» — служебный вью вне сайдбара (открывается кликом по
+  // пользователю в топбаре), guard-сброс его не касается
+  if (state.view !== "profile" && !views.some((view) => view.id === state.view)) {
     state.view = views[0]?.id || "summary";
   }
-  // Подсчёт действующих запросов документов (open + fulfilled).
-  const activeDocRequests = Array.isArray(state.documentRequests)
-    ? state.documentRequests.filter((req) => req.status === "open" || req.status === "fulfilled").length
-    : 0;
-
   viewTabs.innerHTML = views
     .map((view) => {
       const classes = ["sidebar-item", "tab"];
       if (state.view === view.id) classes.push("is-active");
       let badge = "";
-      if (view.id === "document-requests" && activeDocRequests > 0) {
-        classes.push("has-doc-pending");
-        badge = `<span class="tab-counter">${activeDocRequests > 99 ? "99+" : activeDocRequests}</span>`;
+      const attention = viewAttentionCount(view.id);
+      if (attention > 0) {
+        classes.push("has-attention");
+        if (view.id === "document-requests") classes.push("has-doc-pending");
+        badge = `<span class="tab-counter">${attention > 99 ? "99+" : attention}</span>`;
       }
       const icon = VIEW_ICONS[view.id] || VIEW_ICONS.summary;
       return `<button class="${classes.join(" ")}" data-view="${view.id}" type="button" title="${view.label}">
@@ -1048,18 +1049,27 @@ function renderViewTabs() {
       render();
     });
   });
-
-  syncViewTitle(views);
 }
 
-// Заголовок топбара = активный раздел (сайдбар сворачиваемый, подписи
-// пунктов могут быть скрыты — заголовок остаётся единственным ориентиром)
-function syncViewTitle(views) {
-  const el = document.getElementById("viewTitle");
-  if (!el) return;
-  const active = (views || visibleViews()).find((v) => v.id === state.view);
-  el.textContent = active ? active.label : "Мониторинг состояния заявок";
+// Числовые индикаторы «требует внимания» на пунктах сайдбара
+// (красный кружок; в свёрнутом меню — поверх иконки):
+//   Задачи — просроченные незавершённые;
+//   Запросы документов — открытые + собранные (не подтверждённые).
+function viewAttentionCount(viewId) {
+  if (viewId === "document-requests") {
+    return Array.isArray(state.documentRequests)
+      ? state.documentRequests.filter((req) => req.status === "open" || req.status === "fulfilled").length
+      : 0;
+  }
+  if (viewId === "tasks") {
+    const now = state.dashboard?.time?.iso ? new Date(state.dashboard.time.iso) : new Date();
+    return (state.tasks || []).filter(
+      (t) => !t.completedAt && t.dueAt && new Date(t.dueAt) <= now
+    ).length;
+  }
+  return 0;
 }
+
 
 // Legacy-кнопки в топбаре скрыты, действие вызывается через делегацию
 // (data-add-manager, data-add-client, data-add-knowledge, data-add-task).
@@ -4901,12 +4911,116 @@ function pluralClients(n) {
 
 function updatePageHeader() {
   const view = VIEWS.find((item) => item.id === state.view);
-  const label = view?.label || "Мониторинг состояния заявок";
+  const label = state.view === "profile"
+    ? "Профиль"
+    : view?.label || "Мониторинг состояния заявок";
   const heading = document.querySelector(".topbar h1");
   if (heading) {
     heading.textContent = label;
   }
   document.title = `${label} · Deal Monitor`;
+}
+
+// ===== Вью «Задачи»: все задачи с постановкой по аналитику и клиенту =====
+function renderTaskRow(task, now) {
+  const overdue = !task.completedAt && task.dueAt && new Date(task.dueAt) <= now;
+  const cls = task.completedAt ? "done" : overdue ? "overdue" : "open";
+  return `
+    <li class="task-row task-${cls} tasks-view-row" data-task-id="${escapeHtml(task.id)}">
+      <label class="task-check">
+        <input type="checkbox" data-task-toggle="${escapeHtml(task.id)}" ${task.completedAt ? "checked" : ""}>
+      </label>
+      <div class="tasks-view-main">
+        <strong>${escapeHtml(task.title)}</strong>
+        <span class="muted">${escapeHtml(task.manager || "—")} · ${escapeHtml(task.client || "—")}</span>
+      </div>
+      <span class="tasks-view-due${overdue ? " is-overdue" : ""}">${task.dueAt ? formatDate(task.dueAt) : "без срока"}</span>
+      <button class="icon-button small-button" data-task-delete="${escapeHtml(task.id)}" type="button" title="Удалить">×</button>
+    </li>
+  `;
+}
+
+function renderTasksView() {
+  const now = state.dashboard?.time?.iso ? new Date(state.dashboard.time.iso) : new Date();
+  const tasks = [...(state.tasks || [])].sort((a, b) => new Date(a.dueAt || 0) - new Date(b.dueAt || 0));
+  const open = tasks.filter((t) => !t.completedAt);
+  const overdue = open.filter((t) => t.dueAt && new Date(t.dueAt) <= now);
+  const upcoming = open.filter((t) => !t.dueAt || new Date(t.dueAt) > now);
+  const done = tasks
+    .filter((t) => t.completedAt)
+    .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+
+  const section = (title, list, extraClass = "") =>
+    list.length
+      ? `<div class="tasks-view-section ${extraClass}">
+           <h3>${title} <span class="muted">${list.length}</span></h3>
+           <ul class="task-list">${list.map((t) => renderTaskRow(t, now)).join("")}</ul>
+         </div>`
+      : "";
+
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Задачи</p>
+          <h2>Открытых: ${open.length}${overdue.length ? ` · просрочено: ${overdue.length}` : ""}</h2>
+        </div>
+        <button class="primary-button" data-add-task-for="" data-task-manager="" type="button">+ Задача</button>
+      </div>
+      ${open.length || done.length ? "" : `<div class="empty">Задач пока нет. Поставьте первую — выбор аналитика и клиента в форме.</div>`}
+      ${section("Просроченные", overdue, "is-overdue-section")}
+      ${section("В работе", upcoming)}
+      ${done.length ? `
+        <details class="tasks-view-done">
+          <summary>Выполненные <span class="muted">${done.length}</span></summary>
+          <ul class="task-list">${done.slice(0, 50).map((t) => renderTaskRow(t, now)).join("")}</ul>
+        </details>` : ""}
+    </section>
+  `;
+}
+
+// ===== Вью «Профиль»: текущий пользователь =====
+function userInitials(user) {
+  const source = String(user?.fullName || user?.login || "?").trim();
+  const parts = source.split(/\s+/).filter(Boolean);
+  const initials = parts.length >= 2
+    ? parts[0][0] + parts[1][0]
+    : source.slice(0, 2);
+  return initials.toUpperCase();
+}
+
+function renderProfileView() {
+  const user = state.user || {};
+  const role = ROLE_LABELS[user.role] || user.role || "—";
+  const tgLinked = Boolean(user.telegramChatId);
+  return `
+    <section class="panel profile-panel">
+      <div class="profile-head">
+        <span class="profile-avatar" aria-hidden="true">${escapeHtml(userInitials(user))}</span>
+        <div>
+          <h2>${escapeHtml(user.fullName || user.login || "Пользователь")}</h2>
+          <p class="muted">Логин: ${escapeHtml(user.login || "—")}</p>
+        </div>
+      </div>
+      <div class="profile-grid">
+        <div class="profile-card">
+          <p class="eyebrow">Права доступа</p>
+          <p class="profile-value"><span class="user-role-badge user-role-${escapeHtml(user.role || "")}">${escapeHtml(role)}</span></p>
+          <p class="field-hint">Роль изменяет администратор в «Панели управления».
+            Пользователь и аналитик — разные сущности: их списки администратор ведёт отдельно.</p>
+        </div>
+        <div class="profile-card">
+          <p class="eyebrow">Telegram</p>
+          <p class="profile-value">${tgLinked
+            ? `✅ Подключён <span class="muted">(chat id: ${escapeHtml(String(user.telegramChatId))})</span>`
+            : "— Не подключён"}</p>
+          <p class="field-hint">${tgLinked
+            ? "Уведомления и запросы документов приходят в привязанный чат."
+            : "Попросите администратора привязать ваш Telegram chat id в «Панели управления» — туда приходят уведомления."}</p>
+        </div>
+      </div>
+    </section>
+  `;
 }
 
 function render() {
@@ -4946,6 +5060,8 @@ function render() {
     archive: renderArchiveView,
     knowledge: renderKnowledgeView,
     summary: renderSummary,
+    tasks: renderTasksView,
+    profile: renderProfileView,
     "document-requests": renderDocumentRequestsView,
     "admin-panel": renderAdminPanelView
   };
@@ -6009,6 +6125,12 @@ refreshButton.addEventListener("click", loadData);
 
 initSidebar();
 
+// Клик по пользователю в топбаре → профиль
+document.getElementById("topbarUser")?.addEventListener("click", () => {
+  state.view = "profile";
+  render();
+});
+
 const fullscreenButton = document.querySelector("#fullscreenButton");
 if (fullscreenButton) {
   fullscreenButton.addEventListener("click", () => {
@@ -6919,20 +7041,25 @@ function showAppShell() {
 }
 
 function applyUserToBadge(user) {
-  if (!userBadge || !userBadgeName || !userBadgeRole) {
-    return;
+  // Пользователь показан СВЕРХУ (топбар): аватар-инициалы + имя,
+  // клик открывает профиль. Сайдбарный бейдж больше не используется.
+  const topbarUser = document.getElementById("topbarUser");
+  const topbarAvatar = document.getElementById("topbarUserAvatar");
+  const topbarName = document.getElementById("topbarUserName");
+  if (topbarUser && topbarAvatar && topbarName) {
+    if (!user) {
+      topbarUser.hidden = true;
+      topbarAvatar.textContent = "";
+      topbarName.textContent = "";
+    } else {
+      topbarUser.hidden = false;
+      topbarAvatar.textContent = userInitials(user);
+      topbarName.textContent = user.fullName || user.login;
+      topbarUser.title = `Профиль · ${ROLE_LABELS[user.role] || user.role}`;
+    }
   }
-  if (!user) {
-    userBadge.hidden = true;
-    userBadgeName.textContent = "";
-    userBadgeRole.textContent = "";
-    if (logoutButton) logoutButton.hidden = true;
-    return;
-  }
-  userBadge.hidden = false;
-  userBadgeName.textContent = user.fullName || user.login;
-  userBadgeRole.textContent = ROLE_LABELS[user.role] || user.role;
-  if (logoutButton) logoutButton.hidden = false;
+  if (userBadge) userBadge.hidden = true;
+  if (logoutButton) logoutButton.hidden = !user;
 }
 
 function handleSessionExpired() {

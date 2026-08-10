@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260810-amocrm-shell">
+    <link rel="stylesheet" href="/styles.css?v=20260810-nav-profile-tasks">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -59,6 +59,10 @@
             <h1 id="viewTitle">Мониторинг состояния заявок</h1>
           </div>
           <div class="topbar-actions">
+            <button class="topbar-user" id="topbarUser" type="button" hidden title="Профиль">
+              <span class="topbar-user-avatar" id="topbarUserAvatar" aria-hidden="true"></span>
+              <span class="topbar-user-name" id="topbarUserName"></span>
+            </button>
             <button class="icon-button" id="refreshButton" title="Обновить данные" type="button">↻</button>
             <button class="icon-button" id="fullscreenButton" title="Полноэкранный режим (F11 тоже работает)" type="button">⛶</button>
             <!-- Скрытые legacy-кнопки: оставлены для сохранения слушателей,
@@ -541,6 +545,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260810-amocrm-shell" defer></script>
+    <script src="/app.js?v=20260810-nav-profile-tasks" defer></script>
   </body>
 </html>

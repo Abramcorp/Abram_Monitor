@@ -4657,3 +4657,104 @@ details.client-application-card.is-flash > summary {
   text-decoration: underline dotted rgba(0, 0, 0, 0.35);
   text-underline-offset: 3px;
 }
+
+/* ===== Пользователь в топбаре: аватар-инициалы + имя, клик → профиль ===== */
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+}
+.topbar-user:hover { border-color: rgba(0, 122, 255, 0.45); }
+.topbar-user-avatar {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ===== Красный индикатор «требует внимания» на пунктах сайдбара ===== */
+.sidebar .sidebar-item { position: relative; }
+.sidebar .tab-counter {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* В свёрнутом меню бейдж — поверх правого верхнего угла иконки */
+.app-shell.sidebar-collapsed .sidebar .tab-counter {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  margin-left: 0;
+}
+@media (max-width: 900px) {
+  .sidebar .tab-counter { position: absolute; top: 4px; right: 6px; margin-left: 0; }
+  .topbar-user-name { display: none; }
+}
+
+/* ===== Вью «Задачи» ===== */
+.tasks-view-section { margin-top: 16px; }
+.tasks-view-section h3 { margin: 0 0 8px; font-size: 14px; }
+.tasks-view-section.is-overdue-section h3 { color: var(--red-ink, #b3261e); }
+.tasks-view-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.tasks-view-row + .tasks-view-row { margin-top: 6px; }
+.tasks-view-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tasks-view-main strong { font-size: 13px; }
+.tasks-view-due { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tasks-view-due.is-overdue { color: #e5484d; font-weight: 700; }
+.task-done .tasks-view-main strong { text-decoration: line-through; color: var(--muted); }
+.tasks-view-done { margin-top: 16px; }
+.tasks-view-done > summary { cursor: pointer; font-weight: 600; }
+
+/* ===== Вью «Профиль» ===== */
+.profile-panel { max-width: 720px; }
+.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.profile-head h2 { margin: 0; }
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+}
+.profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.profile-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: #fbfcfd;
+  padding: 14px 16px;
+}
+.profile-value { margin: 6px 0; font-size: 14px; font-weight: 600; }
