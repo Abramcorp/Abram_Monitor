@@ -4650,3 +4650,10 @@ details.client-application-card.is-flash > summary {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* Сводка запросов КИ в карточке клиента: пунктир = есть тултип с детализацией */
+.client-ki-summary {
+  cursor: help;
+  text-decoration: underline dotted rgba(0, 0, 0, 0.35);
+  text-underline-offset: 3px;
+}

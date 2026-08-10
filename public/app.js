@@ -346,6 +346,19 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? "—" : dateTime.format(date);
 }
 
+// Только дата (дд.мм.гггг) — для полей-дат без осмысленного времени
+// (например «Дата запроса КИ»), где время из таймзоны только путает
+function formatDateOnly(value) {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
 function localDay(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -1764,6 +1777,32 @@ function renderClientLinks(client) {
   `;
 }
 
+// Сводка запросов кредитной истории по клиенту: каждая заявка несёт
+// «Дату запроса КИ» (kiRequestedAt) — агрегируем по всем заявкам,
+// свежие сверху. Частые запросы КИ ухудшают скоринг — счётчик на виду.
+function clientKiSummary(client) {
+  const apps = Array.isArray(client.applications) ? client.applications : [];
+  return apps
+    .filter((deal) => deal.kiRequestedAt)
+    .map((deal) => ({
+      at: deal.kiRequestedAt,
+      bank: deal.bank || deal.program || "—",
+      stageLabel: deal.stageLabel || deal.stage || ""
+    }))
+    .sort((a, b) => new Date(b.at) - new Date(a.at));
+}
+
+function renderClientKiBadge(client) {
+  const entries = clientKiSummary(client);
+  if (!entries.length) {
+    return `<span>Запросы КИ: <strong>нет</strong></span>`;
+  }
+  const detail = entries
+    .map((e) => `${formatDateOnly(e.at)} — ${e.bank}${e.stageLabel ? ` (${e.stageLabel})` : ""}`)
+    .join("\n");
+  return `<span class="client-ki-summary" title="${escapeHtml(detail)}">Запросы КИ: <strong>${entries.length} · последний ${formatDateOnly(entries[0].at)}</strong></span>`;
+}
+
 function renderClientSummary(client, options = {}) {
   const settings = typeof options === "object" ? options : {};
   const completedLabel = `завершено: ${client.completedCount || 0} (отказов: ${client.refusedCount || 0})`;
@@ -1791,6 +1830,7 @@ function renderClientSummary(client, options = {}) {
         ${settings.showArchivedAt && client.archivedAt ? `<span>В архиве: ${formatDateWithAge(client.archivedAt, "назад")}</span>` : ""}
         <span>Дата начала: ${formatDateWithAge(client.startedAt, "в работе")}</span>
         <span>Последнее изменение: ${formatDateWithAge(client.lastActionAt, "назад")}</span>
+        ${renderClientKiBadge(client)}
       </div>
       ${renderClientLinks(client)}
     </div>
