@@ -258,6 +258,7 @@ function scheduleBossClientReport(clientName, managerName, trigger = "checked") 
         console.warn(`[boss-report] нет привязанного chatId Биг Босса (client=${clientName})`);
         return;
       }
+      if (!(await chatAllowsNotify(bossChatId, "clientReports"))) return;
       const topicId = await resolveBossClientTopicId(clientName, managerName, bossChatId);
       await telegram.notifyBossClientReport(report, { chatId: bossChatId, topicId });
     } catch (e) {
@@ -310,6 +311,22 @@ async function resolveBossChatId() {
 
 // Тянем сумму заявки из связанного deal по dealId — чтобы пробрасывать
 // её в telegram-уведомления по запросам документов.
+// Личное TG-оповещение может быть отключено для пользователя админом
+// (user.notifyPrefs, Панель управления). Чат без привязки к пользователю
+// (например общий) — шлём как раньше.
+async function chatAllowsNotify(chatId, prefKey) {
+  if (!chatId) return false;
+  try {
+    const all = await users.listUsers();
+    const owner = all.find((u) => String(u.telegramChatId || "") === String(chatId));
+    if (!owner) return true;
+    return owner.notifyPrefs?.[prefKey] !== false;
+  } catch (e) {
+    console.warn("[notify-prefs] check error:", e.message);
+    return true;
+  }
+}
+
 // Каскад: при отказе/блокировке заявки её ОТКРЫТЫЕ запросы документов
 // больше не актуальны — удаляем вместе с TG-сообщениями и файлами Drive,
 // иначе documents_officer продолжает работать по мёртвой заявке.
@@ -1409,7 +1426,7 @@ async function handleApi(request, response) {
             const ALERT_STAGES = new Set(["submitted", "approved", "rejected", "blocked"]);
             if (!isMoscowWeekendNow() && (ALERT_STAGES.has(deal.stage) || ALERT_STAGES.has(previous.stage))) {
               const bossChatId = await resolveBossChatId();
-              if (bossChatId) {
+              if (bossChatId && (await chatAllowsNotify(bossChatId, "stageChanges"))) {
                 const topicId = await resolveBossClientTopicId(deal.client, deal.manager, bossChatId);
                 await telegram.notifyDealStageChange(deal, {
                   prevStageLabel: previous.stageLabel || previous.stage,
@@ -1847,6 +1864,7 @@ async function handleApi(request, response) {
       try {
         const chatId = await resolveAnalystChatId(task.manager);
         if (!chatId) return;
+        if (!(await chatAllowsNotify(chatId, "newTask"))) return;
         await telegram.notifyAnalystNewTask({
           chatId,
           clientName: task.client,
@@ -1974,7 +1992,8 @@ async function handleApi(request, response) {
         fullName: payload.fullName,
         role: payload.role,
         password: payload.password,
-        telegramChatId: payload.telegramChatId
+        telegramChatId: payload.telegramChatId,
+        notifyPrefs: payload.notifyPrefs
       });
       if (!updated) {
         sendJson(response, 404, { error: "User not found" });
@@ -2370,6 +2389,10 @@ async function handleApi(request, response) {
             flog("user link:", linked ? `login=${linked.login} hasChatId=${Boolean(linked.telegramChatId)}` : "none");
             recipientChatId = linked?.telegramChatId || "";
             linkedUserLogin = linked?.login || "";
+            if (recipientChatId && !(await chatAllowsNotify(recipientChatId, "docPackage"))) {
+              flog("docPackage отключён в notifyPrefs — личка пропущена");
+              recipientChatId = "";
+            }
           }
         }
       } catch (e) {
@@ -2716,6 +2739,9 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
           const linked = (manager.userId && allUsers.find((u) => u.id === manager.userId))
             || allUsers.find((u) => String(u.fullName || "").trim().toLowerCase() === nameKey);
           recipientChatId = linked?.telegramChatId || "";
+          if (recipientChatId && !(await chatAllowsNotify(recipientChatId, "docPackage"))) {
+            recipientChatId = "";
+          }
         }
         const attachments = Array.isArray(req.attachments) ? req.attachments.filter((a) => a.driveFileId) : [];
         const sources = [];
@@ -2798,6 +2824,10 @@ async function sendMorningCheckPings({ trace = `morning-${Date.now()}` } = {}) {
       const clientsList = [...byClient.entries()]
         .map(([clientName, count]) => ({ clientName, count }))
         .sort((a, b) => b.count - a.count || a.clientName.localeCompare(b.clientName, "ru"));
+      if (!(await chatAllowsNotify(chatId, "dailyCheck"))) {
+        tlog("skip", analystName, "— dailyCheck отключён в notifyPrefs");
+        continue;
+      }
       const res = await telegram.notifyAnalystDailyCheck({ chatId, analystName, clientsList });
       if (res && res.ok !== false) sent += 1;
     } catch (e) {
@@ -2840,11 +2870,14 @@ async function performDocumentAcceptanceReminders({ trace = `doc-accept-${Date.n
   let reminded = 0;
   for (const req of due) {
     try {
-      const [topicId, recipientChatId, amounts] = await Promise.all([
+      const [topicId, rawRecipientChatId, amounts] = await Promise.all([
         resolveClientTopicId(req.clientName, req.manager),
         resolveAnalystChatId(req.manager),
         resolveDealAmountsForDocRequest(req)
       ]);
+      const recipientChatId = rawRecipientChatId && (await chatAllowsNotify(rawRecipientChatId, "docPackage"))
+        ? rawRecipientChatId
+        : "";
       const processingDays = daysSinceCreated(req);
       const result = await telegram.notifyDocRequestFulfilled(req, {
         recipientChatId,

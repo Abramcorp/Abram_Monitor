@@ -56,3 +56,22 @@ test("LOGIN_PATTERN accepts any non-empty login for backwards compatibility", ()
 test("USER_ROLES enumerates known roles", () => {
   assert.deepEqual(USER_ROLES, ["admin", "analyst_abram", "partner", "documents_officer"]);
 });
+
+test("normalizeNotifyPrefs: дефолт всё включено, false сохраняется", () => {
+  const { normalizeNotifyPrefs, NOTIFY_PREF_KEYS } = require("../src/users");
+  const def = normalizeNotifyPrefs(undefined);
+  for (const key of NOTIFY_PREF_KEYS) assert.equal(def[key], true);
+  const custom = normalizeNotifyPrefs({ docPackage: false, dailyCheck: true, unknown: false });
+  assert.equal(custom.docPackage, false);
+  assert.equal(custom.dailyCheck, true);
+  assert.equal(custom.newTask, true);
+  assert.equal("unknown" in custom, false);
+});
+
+test("normalizeUser/publicUser переносят notifyPrefs", () => {
+  const { normalizeUser, publicUser } = require("../src/users");
+  const u = normalizeUser({ login: "x", notifyPrefs: { newTask: false } });
+  assert.equal(u.notifyPrefs.newTask, false);
+  assert.equal(u.notifyPrefs.dailyCheck, true);
+  assert.equal(publicUser(u).notifyPrefs.newTask, false);
+});

@@ -44,6 +44,20 @@ function normalizeLogin(value) {
   return cleanText(value).toLowerCase();
 }
 
+// Типы Telegram-оповещений, отправляемых на личный chatId пользователя.
+// Ключи используются в user.notifyPrefs (true = слать, дефолт true);
+// какие слать — задаёт АДМИН в Панели управления.
+const NOTIFY_PREF_KEYS = ["newTask", "dailyCheck", "docPackage", "stageChanges", "clientReports"];
+
+function normalizeNotifyPrefs(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const prefs = {};
+  for (const key of NOTIFY_PREF_KEYS) {
+    prefs[key] = source[key] !== false; // всё включено, пока явно не выключили
+  }
+  return prefs;
+}
+
 function normalizeUser(raw = {}) {
   const now = new Date().toISOString();
   return {
@@ -53,6 +67,7 @@ function normalizeUser(raw = {}) {
     role: normalizeRole(raw.role) || "partner",
     passwordHash: cleanText(raw.passwordHash) || "",
     telegramChatId: cleanText(raw.telegramChatId),
+    notifyPrefs: normalizeNotifyPrefs(raw.notifyPrefs),
     createdAt: cleanText(raw.createdAt) || now,
     updatedAt: cleanText(raw.updatedAt) || cleanText(raw.createdAt) || now
   };
@@ -68,6 +83,7 @@ function publicUser(user) {
     fullName: user.fullName,
     role: user.role,
     telegramChatId: user.telegramChatId || "",
+    notifyPrefs: normalizeNotifyPrefs(user.notifyPrefs),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt
   };
@@ -164,6 +180,9 @@ async function updateUser(id, patch = {}) {
   if (patch.telegramChatId !== undefined) {
     updates.telegramChatId = cleanText(patch.telegramChatId);
   }
+  if (patch.notifyPrefs !== undefined) {
+    updates.notifyPrefs = normalizeNotifyPrefs(patch.notifyPrefs);
+  }
   updates.updatedAt = new Date().toISOString();
   const next = normalizeUser(updates);
   if (postgresStore.isEnabled()) {
@@ -249,6 +268,7 @@ async function ensureBootstrapAdmin({ logger = console } = {}) {
 
 module.exports = {
   USER_ROLES,
+  NOTIFY_PREF_KEYS,
   LOGIN_PATTERN,
   authenticate,
   createUser,
@@ -257,6 +277,7 @@ module.exports = {
   findUserById,
   findUserByLogin,
   listUsers,
+  normalizeNotifyPrefs,
   normalizeUser,
   publicUser,
   updateUser

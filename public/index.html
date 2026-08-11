@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260811-ws-cascade">
+    <link rel="stylesheet" href="/styles.css?v=20260811-notify-prefs">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -358,6 +358,15 @@
           </span>
         </label>
 
+        <fieldset class="notify-prefs">
+          <legend>Telegram-оповещения пользователю</legend>
+          <label class="checkbox-row"><input type="checkbox" name="np_newTask" checked> <span>Новая задача</span></label>
+          <label class="checkbox-row"><input type="checkbox" name="np_dailyCheck" checked> <span>Ежедневная проверка клиентов</span></label>
+          <label class="checkbox-row"><input type="checkbox" name="np_docPackage" checked> <span>Пакет собранных документов (в личку)</span></label>
+          <label class="checkbox-row"><input type="checkbox" name="np_stageChanges" checked> <span>Смена стадий заявок (Босс-чат)</span></label>
+          <label class="checkbox-row"><input type="checkbox" name="np_clientReports" checked> <span>Сводные отчёты по клиентам (Босс-чат)</span></label>
+        </fieldset>
+
         <p class="login-error" id="userFormError" hidden></p>
 
         <div class="dialog-actions">
@@ -545,6 +554,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260811-ws-cascade" defer></script>
+    <script src="/app.js?v=20260811-notify-prefs" defer></script>
   </body>
 </html>

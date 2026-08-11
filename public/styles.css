@@ -4827,3 +4827,29 @@ details.client-application-card.is-flash > summary {
   white-space: nowrap;
 }
 .ws-card-body .muted { font-size: 11.5px; }
+
+/* Настройки TG-оповещений (диалог пользователя + профиль) */
+.notify-prefs {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.notify-prefs legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.profile-notify-list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.profile-notify-list .is-off { color: var(--muted); }

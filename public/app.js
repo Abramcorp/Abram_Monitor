@@ -131,6 +131,17 @@ const VIEWS = [
   { id: "admin-panel", label: "Панель управления", allowedRoles: ["admin"] }
 ];
 
+// Типы личных TG-оповещений (зеркало src/users.js NOTIFY_PREF_KEYS);
+// какие приходят пользователю — задаёт админ в Панели управления
+const NOTIFY_PREF_KEYS = ["newTask", "dailyCheck", "docPackage", "stageChanges", "clientReports"];
+const NOTIFY_PREF_LABELS = {
+  newTask: "Новая задача",
+  dailyCheck: "Ежедневная проверка клиентов",
+  docPackage: "Пакет собранных документов",
+  stageChanges: "Смена стадий заявок (Босс-чат)",
+  clientReports: "Сводные отчёты по клиентам (Босс-чат)"
+};
+
 // Инлайн-SVG иконки разделов для сайдбара (без внешних CDN — правило проекта)
 const VIEW_ICONS = {
   summary: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M3 16a1 1 0 0 1-1-1V4a1 1 0 1 1 2 0v10h13a1 1 0 1 1 0 2H3Zm3.3-4.7a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.4 0l1.8 1.79 3.29-3.3a1 1 0 1 1 1.42 1.42l-4 4a1 1 0 0 1-1.42 0L10 8.9l-2.3 2.4a1 1 0 0 1-1.4 0Z"/></svg>`,
@@ -5092,6 +5103,16 @@ function renderProfileView() {
             ? "Уведомления и запросы документов приходят в привязанный чат."
             : "Попросите администратора привязать ваш Telegram chat id в «Панели управления» — туда приходят уведомления."}</p>
         </div>
+        <div class="profile-card">
+          <p class="eyebrow">Оповещения в Telegram</p>
+          <ul class="profile-notify-list">
+            ${NOTIFY_PREF_KEYS.map((key) => {
+              const on = user.notifyPrefs?.[key] !== false;
+              return `<li class="${on ? "" : "is-off"}">${on ? "🔔" : "🔕"} ${escapeHtml(NOTIFY_PREF_LABELS[key])}</li>`;
+            }).join("")}
+          </ul>
+          <p class="field-hint">Состав оповещений настраивает администратор в «Панели управления».</p>
+        </div>
       </div>
     </section>
   `;
@@ -6640,6 +6661,11 @@ function openUserDialog(entry) {
   if (userForm.elements.telegramChatId) {
     userForm.elements.telegramChatId.value = entry?.telegramChatId || "";
   }
+  // Чекбоксы TG-оповещений: дефолт — всё включено
+  for (const key of NOTIFY_PREF_KEYS) {
+    const box = userForm.elements[`np_${key}`];
+    if (box) box.checked = entry?.notifyPrefs?.[key] !== false;
+  }
   if (userPasswordHint) {
     userPasswordHint.textContent = entry
       ? "(оставьте пустым, чтобы не менять)"
@@ -6916,6 +6942,12 @@ if (userForm) {
     }
     if (userId) {
       delete payload.login; // не позволяем менять login
+    }
+    // Чекбоксы TG-оповещений → notifyPrefs (unchecked отсутствуют в FormData)
+    payload.notifyPrefs = {};
+    for (const key of NOTIFY_PREF_KEYS) {
+      payload.notifyPrefs[key] = Boolean(userForm.elements[`np_${key}`]?.checked);
+      delete payload[`np_${key}`];
     }
     if (userFormError) {
       userFormError.hidden = true;
