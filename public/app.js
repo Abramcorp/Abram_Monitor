@@ -3932,7 +3932,9 @@ function donutSegments(items) {
   };
 }
 
-function renderDonutChart(items, centerLabel = "заявок") {
+// drillType ("status" | "group") делает строки легенды кликабельными:
+// клик открывает окно с детализацией заявок сегмента (см. openSummaryDrill)
+function renderDonutChart(items, centerLabel = "заявок", drillType = "") {
   const { total, segments } = donutSegments(items);
   if (!segments.length) {
     return `<div class="empty compact-empty">Нет данных для диаграммы.</div>`;
@@ -3941,6 +3943,23 @@ function renderDonutChart(items, centerLabel = "заявок") {
   const gradient = segments
     .map((segment) => `${segment.color} ${segment.start.toFixed(2)}% ${segment.end.toFixed(2)}%`)
     .join(", ");
+
+  const row = (segment) => {
+    const inner = `
+      <span class="donut-swatch" style="background:${segment.color}"></span>
+      <strong>${escapeHtml(segment.label)}</strong>
+      <span>${segment.share}% · ${segment.value}${segment.amount ? ` · ${money(segment.amount)}` : ""}</span>
+    `;
+    if (!drillType) {
+      return `<div class="donut-legend-row">${inner}</div>`;
+    }
+    return `
+      <button class="donut-legend-row is-clickable" type="button"
+              data-summary-drill="${escapeHtml(drillType)}"
+              data-drill-label="${escapeHtml(segment.label)}"
+              title="Показать заявки сегмента">${inner}</button>
+    `;
+  };
 
   return `
     <div class="donut-chart">
@@ -3951,20 +3970,70 @@ function renderDonutChart(items, centerLabel = "заявок") {
         </span>
       </div>
       <div class="donut-legend">
-        ${segments
-          .map(
-            (segment) => `
-              <div class="donut-legend-row">
-                <span class="donut-swatch" style="background:${segment.color}"></span>
-                <strong>${escapeHtml(segment.label)}</strong>
-                <span>${segment.share}% · ${segment.value}${segment.amount ? ` · ${money(segment.amount)}` : ""}</span>
-              </div>
-            `
-          )
-          .join("")}
+        ${segments.map(row).join("")}
       </div>
     </div>
   `;
+}
+
+// Контекст для drill-down: renderSummaryCharts вызывается, когда
+// state.dashboard.deals уже подменён на scoped-выборку — снимок здесь
+// гарантирует, что окно деталей показывает ровно то, что на диаграмме.
+let summaryDrillContext = { deals: [], status: "current", groupBy: "manager" };
+
+const DRILL_STATUS_STAGES = {
+  "План подач": ["planned"],
+  "Лиды": ["lead", "documents_requested"],
+  "В работе": ["submitted"],
+  "Одобрено": ["approved"],
+  "Отказ": ["rejected", "blocked"]
+};
+
+function summaryDrillDeals(type, label, siblingLabels = []) {
+  const deals = summaryDrillContext.deals || [];
+  if (type === "status") {
+    const stages = DRILL_STATUS_STAGES[label];
+    return stages ? deals.filter((d) => stages.includes(d.stage)) : [];
+  }
+  const keyOf = (d) => {
+    if (summaryDrillContext.groupBy === "client") return d.client || "";
+    if (summaryDrillContext.groupBy === "bank") return d.bank || "";
+    return d.manager || "";
+  };
+  if (label === "Остальные") {
+    const named = new Set(siblingLabels.filter((l) => l !== "Остальные").map(compareKey));
+    return deals.filter((d) => !named.has(compareKey(keyOf(d))));
+  }
+  return deals.filter((d) => compareKey(keyOf(d)) === compareKey(label));
+}
+
+function openSummaryDrill(type, label, siblingLabels) {
+  const dialog = document.querySelector("#summaryDrillDialog");
+  if (!dialog) return;
+  const list = summaryDrillDeals(type, label, siblingLabels)
+    .slice()
+    .sort((a, b) => Number(b.amountRequested || 0) - Number(a.amountRequested || 0));
+  const totalReq = list.reduce((s, d) => s + Number(d.amountRequested || 0), 0);
+  const totalApp = list.reduce((s, d) => s + Number(d.amountApproved || 0), 0);
+  dialog.querySelector("[data-drill-title]").textContent = label;
+  dialog.querySelector("[data-drill-subtitle]").textContent =
+    `${list.length} заявок · запрошено ${money(totalReq)}${totalApp ? ` · одобрено ${money(totalApp)}` : ""}`;
+  const rows = list.map((d) => `
+    <tr>
+      <td>${escapeHtml(d.client || "—")}</td>
+      <td>${escapeHtml(d.manager || "—")}</td>
+      <td>${escapeHtml(d.bank || "—")}${d.program ? `<div class="muted">${escapeHtml(d.program)}</div>` : ""}</td>
+      <td>${escapeHtml(d.stageLabel || APPLICATION_STAGE_LABELS[d.stage] || d.stage || "—")}</td>
+      <td class="num">${money(d.amountRequested)}${d.stage === "approved" && Number(d.amountApproved) > 0 ? `<div class="muted">одобр. ${money(d.amountApproved)}</div>` : ""}</td>
+    </tr>
+  `).join("");
+  dialog.querySelector("[data-drill-body]").innerHTML = list.length
+    ? `<table class="drill-table">
+        <thead><tr><th>Клиент</th><th>Аналитик</th><th>Банк · программа</th><th>Статус</th><th class="num">Сумма</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`
+    : `<div class="empty">Заявок в сегменте нет.</div>`;
+  dialog.showModal();
 }
 
 function areaChartLabelStep(points) {
@@ -4171,6 +4240,12 @@ function summaryTopCountTitle(status) {
 }
 
 function renderSummaryCharts(groups, status = state.board.status, totals = renderReportTotals(groups)) {
+  // Снимок данных для drill-down по сегментам диаграмм
+  summaryDrillContext = {
+    deals: (state.dashboard?.deals || []).slice(),
+    status,
+    groupBy: state.board.groupBy
+  };
   const applicationCountRows = buildStatusCountPeriodRows(status);
   const focusCountRows = buildStatusFocusPeriodRows(status);
   const applicationSeries = buildGroupedPeriodSeries(applicationCountRows, status);
@@ -4184,12 +4259,12 @@ function renderSummaryCharts(groups, status = state.board.status, totals = rende
       <article class="summary-chart-card">
         <p class="eyebrow">Доли</p>
         <h3>${summaryStatusTitle(status)}</h3>
-        ${renderDonutChart(summaryStatusShareItems(totals, status), status === "completed" ? "завершено" : "заявок")}
+        ${renderDonutChart(summaryStatusShareItems(totals, status), status === "completed" ? "завершено" : "заявок", "status")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Распределение</p>
         <h3>${summaryPortfolioTitle(status)}</h3>
-        ${renderDonutChart(summaryGroupShareItems(groups, status), "заявок")}
+        ${renderDonutChart(summaryGroupShareItems(groups, status), "заявок", "group")}
       </article>
       <article class="summary-chart-card">
         <p class="eyebrow">Период · ${chartPeriodLabel}</p>
@@ -6001,6 +6076,15 @@ function initDynamicControls() {
           window.alert(error.message);
         }
       }
+      return;
+    }
+    const drillBtn = target.closest("[data-summary-drill]");
+    if (drillBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const siblings = [...(drillBtn.closest(".donut-legend")?.querySelectorAll("[data-drill-label]") || [])]
+        .map((el) => el.dataset.drillLabel);
+      openSummaryDrill(drillBtn.dataset.summaryDrill, drillBtn.dataset.drillLabel, siblings);
       return;
     }
     const adminDeleteClientBtn = target.closest("[data-admin-delete-client]");

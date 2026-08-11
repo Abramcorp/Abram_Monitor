@@ -4917,3 +4917,41 @@ details.client-application-card.is-flash > summary {
   letter-spacing: 0.03em;
 }
 .admin-clients-details > summary { cursor: pointer; }
+
+/* Кликабельные сегменты сводных диаграмм + окно детализации */
+button.donut-legend-row.is-clickable {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+button.donut-legend-row.is-clickable:hover {
+  background: rgba(0, 122, 255, 0.07);
+  border-color: rgba(0, 122, 255, 0.25);
+}
+.summary-drill-dialog { width: min(720px, 94vw); }
+.summary-drill-body { max-height: 60vh; overflow: auto; margin-top: 10px; }
+.drill-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.drill-table th, .drill-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.drill-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+.drill-table td.num, .drill-table th.num { text-align: right; white-space: nowrap; }

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260811-phantom-clients">
+    <link rel="stylesheet" href="/styles.css?v=20260811-summary-drill">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -80,6 +80,20 @@
         </main>
       </div>
     </div>
+
+    <dialog class="deal-dialog summary-drill-dialog" id="summaryDrillDialog">
+      <div class="deal-form">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Сводная статистика</p>
+            <h2 data-drill-title>Сегмент</h2>
+            <p class="muted" data-drill-subtitle></p>
+          </div>
+          <form method="dialog"><button class="icon-button" title="Закрыть" type="submit">×</button></form>
+        </div>
+        <div class="summary-drill-body" data-drill-body></div>
+      </div>
+    </dialog>
 
     <dialog class="deal-dialog" id="dealDialog">
       <form method="dialog" class="deal-form" id="dealForm">
@@ -556,6 +570,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260811-phantom-clients" defer></script>
+    <script src="/app.js?v=20260811-summary-drill" defer></script>
   </body>
 </html>
