@@ -3271,7 +3271,63 @@ function renderAdminPanelView() {
     </section>
     ${renderTaxonomyView("Типы программ", "program-type", state.programTypes || [])}
     ${renderUsersView()}
+    ${renderClientsAdminSection()}
     ${renderIntegrationsView()}
+  `;
+}
+
+// Все клиенты в Панели управления: сироты (аналитик удалён) подсвечены,
+// удаление зачищает и сделки (?withDeals=1) — иначе клиент остаётся
+// в статистике, которая строится по deals.
+function renderClientsAdminSection() {
+  const clients = state.clients || [];
+  const managerNames = new Set((state.managers || []).map((m) => compareKey(m.name)));
+  const deals = state.dashboard?.deals || [];
+  const dealCountFor = (c) => deals.filter(
+    (d) => compareKey(d.manager) === compareKey(c.manager) && compareKey(d.client) === compareKey(c.name)
+  ).length;
+
+  const enriched = clients.map((c) => ({
+    ...c,
+    isOrphan: !managerNames.has(compareKey(c.manager)),
+    dealCount: dealCountFor(c)
+  }));
+  const orphans = enriched.filter((c) => c.isOrphan);
+
+  const row = (c) => `
+    <li class="taxonomy-row ${c.isOrphan ? "is-orphan-client" : ""}">
+      <span class="taxonomy-name">
+        ${escapeHtml(c.name)}
+        ${c.isOrphan ? `<span class="orphan-badge" title="Аналитик «${escapeHtml(c.manager || "—")}» удалён">сирота</span>` : ""}
+        ${c.isArchived ? `<span class="muted">(архив)</span>` : ""}
+      </span>
+      <span class="muted">Аналитик: ${escapeHtml(c.manager || "—")} · заявок: ${c.dealCount}</span>
+      <span class="taxonomy-actions">
+        <button class="ghost-button small-button danger-button"
+                data-admin-delete-client="${escapeHtml(c.id)}"
+                data-client-name="${escapeHtml(c.name)}"
+                data-deal-count="${c.dealCount}" type="button">Удалить</button>
+      </span>
+    </li>
+  `;
+  const list = enriched.length
+    ? `<ul class="taxonomy-list">${[...orphans, ...enriched.filter((c) => !c.isOrphan)].map(row).join("")}</ul>`
+    : `<ul class="taxonomy-list"><li class="taxonomy-empty">Клиентов нет.</li></ul>`;
+
+  return `
+    <section class="panel admin-panel-section">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Данные</p>
+          <h2>Все клиенты (${enriched.length})${orphans.length ? ` · сирот: ${orphans.length}` : ""}</h2>
+          <p class="muted">Удаление зачищает задачи, запросы документов и все заявки клиента — он исчезнет из статистики</p>
+        </div>
+      </div>
+      <details class="admin-clients-details" data-ui-state-key="admin|clients" ${orphans.length ? "open" : ""}>
+        <summary class="doc-section-title">Показать список</summary>
+        ${list}
+      </details>
+    </section>
   `;
 }
 
@@ -5908,6 +5964,26 @@ function initDynamicControls() {
           const r = res.renamed;
           const cascade = r ? ` (обновлено: сделок ${r.deals}, клиентов ${r.clients}, задач ${r.tasks})` : "";
           showToast(`Аналитик переименован${cascade}`, { type: "success" });
+          await loadData();
+        } catch (error) {
+          window.alert(error.message);
+        }
+      }
+      return;
+    }
+    const adminDeleteClientBtn = target.closest("[data-admin-delete-client]");
+    if (adminDeleteClientBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const name = adminDeleteClientBtn.dataset.clientName || "клиента";
+      const dealCount = Number(adminDeleteClientBtn.dataset.dealCount || 0);
+      const warn = dealCount
+        ? `Удалить клиента «${name}» ВМЕСТЕ с ${dealCount} заявками, задачами и запросами документов? Он исчезнет из статистики. Действие необратимо.`
+        : `Удалить клиента «${name}» (задачи и запросы документов тоже удалятся)?`;
+      if (window.confirm(warn)) {
+        try {
+          await requestJson(`/api/clients/${encodeURIComponent(adminDeleteClientBtn.dataset.adminDeleteClient)}?withDeals=1`, { method: "DELETE" });
+          showToast(`Клиент «${name}» удалён${dealCount ? ` (заявок: ${dealCount})` : ""}`, { type: "success" });
           await loadData();
         } catch (error) {
           window.alert(error.message);

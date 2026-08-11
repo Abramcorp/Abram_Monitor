@@ -997,13 +997,46 @@ async function bulkBlockClientDeals(clientName, managerName, reason) {
   return blocked;
 }
 
-async function deleteClient(id) {
+// Каскад сделок клиента: статистика и все группировки строятся по deals —
+// без этого удалённый клиент продолжает «болтаться» в отчётах.
+async function cascadeDeleteDealsByClient(managerName, clientName) {
+  const m = cleanText(managerName).toLowerCase();
+  const c = cleanText(clientName).toLowerCase();
+  const matches = (deal) =>
+    cleanText(deal.manager).toLowerCase() === m &&
+    cleanText(deal.client).toLowerCase() === c;
+
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const rows = await postgresStore.listRows("deals");
+    let removed = 0;
+    for (const row of rows) {
+      if (matches(row)) {
+        await postgresStore.deleteRow("deals", row.id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+  const deals = getDeals();
+  const rest = deals.filter((deal) => !matches(deal));
+  const removed = deals.length - rest.length;
+  if (removed) {
+    saveDeals(rest);
+  }
+  return removed;
+}
+
+async function deleteClient(id, { withDeals = false } = {}) {
   if (postgresStore.isEnabled()) {
     await initStore();
     const deleted = await postgresStore.deleteRow("clients", id);
     if (deleted) {
       await postgresStore.deleteTasksByClient(deleted.manager || "", deleted.name || "");
       await postgresStore.deleteDocumentRequestsByClient(deleted.manager || "", deleted.name || "");
+      if (withDeals) {
+        deleted.deletedDeals = await cascadeDeleteDealsByClient(deleted.manager, deleted.name);
+      }
     }
     return deleted;
   }
@@ -1016,6 +1049,9 @@ async function deleteClient(id) {
   writeJson(CLIENTS_FILE, clients);
   cascadeDeleteTasksByClient(deleted.manager, deleted.name);
   cascadeDeleteDocumentRequestsByClient(deleted.manager, deleted.name);
+  if (withDeals) {
+    deleted.deletedDeals = await cascadeDeleteDealsByClient(deleted.manager, deleted.name);
+  }
   return deleted;
 }
 

@@ -4901,3 +4901,19 @@ details.client-application-card.is-flash > summary {
   outline: 2px solid rgba(0, 122, 255, 0.55);
   outline-offset: 2px;
 }
+
+/* Секция «Все клиенты» в Панели управления */
+.taxonomy-row.is-orphan-client { background: rgba(229, 72, 77, 0.06); }
+.orphan-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(229, 72, 77, 0.14);
+  color: #c62a2f;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.admin-clients-details > summary { cursor: pointer; }

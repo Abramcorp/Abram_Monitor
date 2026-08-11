@@ -1723,6 +1723,13 @@ async function handleApi(request, response) {
 
   if (request.method === "DELETE" && clientMatch) {
     const clientId = decodeURIComponent(clientMatch[1]);
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    // ?withDeals=1 — админская зачистка «сирот»: удаляет и сделки клиента,
+    // иначе он остаётся в статистике (она строится по deals)
+    const withDeals = url.searchParams.get("withDeals") === "1";
+    if (withDeals) {
+      requireRole(request, ["admin"]);
+    }
     const existingClient = (await getClients()).find((c) => c.id === clientId);
     if (scope) {
       if (!existingClient) {
@@ -1731,7 +1738,7 @@ async function handleApi(request, response) {
       }
       ensurePartnerOwnsManager(request, existingClient.manager);
     }
-    const client = await deleteClient(clientId);
+    const client = await deleteClient(clientId, { withDeals });
     if (!client) {
       sendJson(response, 404, { error: "Client not found" });
       return;
