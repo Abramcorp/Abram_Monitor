@@ -11,6 +11,9 @@ const state = {
   documentRequests: [],
   integrations: null,
   planTemplates: [],
+  // Каскад «Клиенты в работе»: выбранный аналитик и клиент
+  wsManager: "",
+  wsClient: "",
   programTypes: [],
   programCategories: [],
   lastSeenFulfilledRequestIds: new Set(),
@@ -2153,45 +2156,70 @@ function renderManagerCard(manager) {
   `;
 }
 
-function renderManagerClientView() {
-  const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients, state.managers);
+// ===== «Клиенты в работе»: каскадный выбор аналитик → клиент =====
+// Сделанный выбор сворачивается в компактные чипы (не раздувает HUD),
+// в рабочей области — карточки заявок ОДНОГО клиента по этапам.
+function wsCrumb(label, value, resetAttr) {
+  return `
+    <button class="ws-crumb" ${resetAttr} type="button" title="Сбросить выбор">
+      <span class="ws-crumb-label">${label}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <span class="ws-crumb-x" aria-hidden="true">×</span>
+    </button>
+  `;
+}
 
-  if (!managers.length) {
-    return `
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Аналитики и клиенты</p>
-            <h2>Карточки аналитиков</h2>
-          </div>
-        </div>
-        <div class="empty">Аналитики пока не добавлены.</div>
-      </section>
-    `;
-  }
-
+function renderWsManagerGrid(managers) {
   const abram = [];
   const partners = [];
   const other = [];
   for (const manager of managers) {
     const role = managerRoleByName(manager.manager);
-    if (role === "analyst_abram" || role === "admin") {
-      abram.push(manager);
-    } else if (role === "partner") {
-      partners.push(manager);
-    } else {
-      other.push(manager);
-    }
+    if (role === "analyst_abram" || role === "admin") abram.push(manager);
+    else if (role === "partner") partners.push(manager);
+    else other.push(manager);
   }
-
-  const renderGroup = (title, items) => items.length ? `
+  const card = (m) => {
+    const clients = m.currentClients || m.clients || [];
+    return `
+      <button class="ws-card" data-ws-manager="${escapeHtml(m.manager)}" type="button">
+        <span class="ws-card-avatar">${escapeHtml(userInitials({ fullName: m.manager }))}</span>
+        <span class="ws-card-body">
+          <strong>${escapeHtml(m.manager)}</strong>
+          <span class="muted">${clients.length} клиентов · лиды ${m.leadCount || 0} · в работе ${m.workingCount || 0}</span>
+          <span class="muted">${money(m.leadAmountRequested || 0)} · ${money(m.workingAmountRequested || 0)}</span>
+        </span>
+      </button>
+    `;
+  };
+  const group = (title, items) => items.length ? `
     <div class="manager-group">
       <h3 class="manager-group-title">${escapeHtml(title)} <span>(${items.length})</span></h3>
-      <div class="manager-stack">
-        ${items.map(renderManagerCard).join("")}
-      </div>
+      <div class="ws-grid">${items.map(card).join("")}</div>
     </div>
   ` : "";
+  return group("Аналитики AbramCorp", abram) + group("Партнёрский контур", partners) + group("Без привязки к учётке", other);
+}
+
+function renderWsClientGrid(manager) {
+  const clients = manager.currentClients || manager.clients || [];
+  if (!clients.length) {
+    return `<div class="empty">У аналитика нет клиентов в работе.</div>`;
+  }
+  const card = (c) => `
+    <button class="ws-card" data-ws-client="${escapeHtml(c.client)}" type="button">
+      <span class="ws-card-body">
+        <strong>${escapeHtml(c.client)}</strong>
+        <span class="muted">Лиды ${c.leadCount || 0} · В работе ${c.workingCount || 0} · Одобрено ${c.successfulCount || 0}</span>
+        <span class="muted">${renderClientKiBadge(c).replace(/<[^>]+>/g, "").trim()}</span>
+      </span>
+    </button>
+  `;
+  return `<div class="ws-grid">${clients.map(card).join("")}</div>`;
+}
+
+function renderManagerClientView() {
+  const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients, state.managers);
 
   const docsOnly = isDocumentsOfficer();
   const actions = !docsOnly ? `
@@ -2201,18 +2229,64 @@ function renderManagerClientView() {
     </div>
   ` : "";
 
+  if (!managers.length) {
+    return `
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Клиенты в работе</p>
+            <h2>Выберите аналитика</h2>
+          </div>
+          ${actions}
+        </div>
+        <div class="empty">Аналитики пока не добавлены.</div>
+      </section>
+    `;
+  }
+
+  const selectedManager = managers.find((m) => m.manager === state.wsManager) || null;
+  const clients = selectedManager ? (selectedManager.currentClients || selectedManager.clients || []) : [];
+  const selectedClient = selectedManager
+    ? clients.find((c) => c.client === state.wsClient) || null
+    : null;
+
+  const crumbs = (selectedManager || selectedClient) ? `
+    <div class="ws-crumbs">
+      ${selectedManager ? wsCrumb("Аналитик", selectedManager.manager, "data-ws-reset-manager") : ""}
+      ${selectedClient ? wsCrumb("Клиент", selectedClient.client, "data-ws-reset-client") : ""}
+    </div>
+  ` : "";
+
+  let heading;
+  let body;
+  if (!selectedManager) {
+    heading = "Выберите аналитика";
+    body = renderWsManagerGrid(managers);
+  } else if (!selectedClient) {
+    heading = "Выберите клиента";
+    body = renderWsClientGrid(selectedManager);
+  } else {
+    heading = selectedClient.client;
+    body = `
+      <div class="client-drilldown ws-client-workspace">
+        ${renderClientActions(selectedClient, { allowAddApplication: true, allowArchive: true })}
+        ${renderClientTaskList(selectedClient)}
+        ${renderClientApplicationSections(selectedClient)}
+      </div>
+    `;
+  }
+
   return `
     <section class="panel">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Аналитики и клиенты</p>
-          <h2>Карточки аналитиков</h2>
+          <p class="eyebrow">Клиенты в работе</p>
+          <h2>${escapeHtml(heading)}</h2>
         </div>
         ${actions}
       </div>
-      ${renderGroup("Аналитики AbramCorp", abram)}
-      ${renderGroup("Партнёрский контур", partners)}
-      ${renderGroup("Без привязки к учётке", other)}
+      ${crumbs}
+      ${body}
     </section>
   `;
 }
@@ -5862,6 +5936,34 @@ function initDynamicControls() {
 }
 
 function bindDynamicControls() {
+  // Каскад «Клиенты в работе»: выбор аналитика/клиента и сброс чипами
+  app.querySelectorAll("[data-ws-manager]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.wsManager = el.dataset.wsManager;
+      state.wsClient = "";
+      render();
+    });
+  });
+  app.querySelectorAll("[data-ws-client]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.wsClient = el.dataset.wsClient;
+      render();
+    });
+  });
+  app.querySelectorAll("[data-ws-reset-manager]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.wsManager = "";
+      state.wsClient = "";
+      render();
+    });
+  });
+  app.querySelectorAll("[data-ws-reset-client]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.wsClient = "";
+      render();
+    });
+  });
+
   initDynamicControls();
 }
 
