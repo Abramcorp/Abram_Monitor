@@ -990,7 +990,13 @@ function readBody(request) {
   });
 }
 
-function staticCacheControl(ext) {
+function staticCacheControl(ext, { versioned = false } = {}) {
+  // css/js подключаются с cache-bust (?v=YYYYMMDD-slug) — версионированные
+  // запросы можно кешировать «навечно»: новая версия = новый URL. Это
+  // убирает ревалидацию каждого ресурса при каждой загрузке страницы.
+  if (versioned && (ext === ".css" || ext === ".js")) {
+    return "public, max-age=31536000, immutable";
+  }
   if (ext === ".html" || ext === ".css" || ext === ".js") {
     return "no-cache";
   }
@@ -1021,7 +1027,7 @@ function serveStatic(request, response) {
 
     const ext = path.extname(filePath);
     const contentType = MIME_TYPES[ext] || "application/octet-stream";
-    const cacheControl = staticCacheControl(ext);
+    const cacheControl = staticCacheControl(ext, { versioned: url.searchParams.has("v") });
     const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
 
     if (request.headers["if-none-match"] === etag) {
