@@ -1258,12 +1258,18 @@ async function getPlanTemplates() {
   } else {
     stored = readJson(PLAN_TEMPLATES_FILE, []);
   }
-  const normalized = stored.map(normalizePlanTemplate).filter((template) => template.name);
+  // Tombstone {id, deleted:true} прячет и дефолтный шаблон (их нельзя
+  // удалить физически — они генерируются кодом при каждом запросе)
+  const deletedIds = new Set(
+    stored.filter((t) => t && t.deleted).map((t) => String(t.id))
+  );
+  const normalized = stored
+    .filter((t) => !t?.deleted)
+    .map(normalizePlanTemplate)
+    .filter((template) => template.name);
   const defaults = await buildDefaultPlanTemplates();
-  if (normalized.length) {
-    return mergePlanTemplates(defaults, normalized);
-  }
-  return defaults;
+  const merged = normalized.length ? mergePlanTemplates(defaults, normalized) : defaults;
+  return merged.filter((template) => !deletedIds.has(String(template.id)));
 }
 
 function validatePlanTemplate(template) {
@@ -1282,6 +1288,46 @@ function mergePlanTemplates(defaultTemplates = [], savedTemplates = []) {
     ...defaultTemplates.map((template) => savedById.get(template.id) || template),
     ...savedTemplates.filter((template) => !defaultIds.has(template.id))
   ];
+}
+
+async function createPlanTemplate(payload) {
+  const now = await getMoscowNowIso();
+  const next = normalizePlanTemplate({
+    ...payload,
+    id: cleanText(payload.id) || `tpl-${new Date(now).getTime()}`,
+    createdAt: now,
+    updatedAt: now
+  });
+  validatePlanTemplate(next);
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    return postgresStore.insertRow("plan_templates", next).then(normalizePlanTemplate);
+  }
+  const stored = readJson(PLAN_TEMPLATES_FILE, []);
+  stored.push(next);
+  writeJson(PLAN_TEMPLATES_FILE, stored);
+  return next;
+}
+
+async function deletePlanTemplate(id) {
+  const templates = await getPlanTemplates();
+  const existing = templates.find((template) => template.id === id);
+  if (!existing) {
+    return null;
+  }
+  // Дефолтные шаблоны генерируются кодом — вместо физического удаления
+  // пишем tombstone, который прячет их в getPlanTemplates
+  const tombstone = { id, deleted: true };
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    await postgresStore.insertRow("plan_templates", tombstone);
+    return existing;
+  }
+  const stored = readJson(PLAN_TEMPLATES_FILE, []);
+  const rest = stored.filter((t) => String(t?.id) !== String(id));
+  rest.push(tombstone);
+  writeJson(PLAN_TEMPLATES_FILE, rest);
+  return existing;
 }
 
 async function updatePlanTemplate(id, payload) {
@@ -2320,6 +2366,8 @@ module.exports = {
   isDealCheckedToday,
   CHECKABLE_STAGES,
   updateKnowledgeProgram,
+  createPlanTemplate,
+  deletePlanTemplate,
   updatePlanTemplate,
   updateManager,
   updateTask,

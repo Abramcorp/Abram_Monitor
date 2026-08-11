@@ -4853,3 +4853,5 @@ details.client-application-card.is-flash > summary {
   font-size: 13px;
 }
 .profile-notify-list .is-off { color: var(--muted); }
+
+.plan-template-toolbar { margin-bottom: 12px; display: flex; justify-content: flex-end; }

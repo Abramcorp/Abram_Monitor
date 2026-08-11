@@ -282,10 +282,11 @@ const PROGRAM_CATEGORIES = new Proxy([], {
   }
 });
 const CATEGORY_FALLBACK_LABEL = "Без категории";
+// Категории банков убраны из интерфейса (решение пользователя 2026-08-11):
+// данные program.category в хранилище не трогаем, но UI их не показывает.
 const KNOWLEDGE_SECTIONS = {
   banks: "Банки",
   programs: "Программы",
-  categories: "Категории",
   templates: "Планы подач"
 };
 const MOSCOW_TIME_ZONE = "Europe/Moscow";
@@ -2304,10 +2305,8 @@ function renderManagerClientView() {
 
 function filteredKnowledge() {
   const query = state.filters.query.toLowerCase();
-  const categoryFilter = state.filters.category;
   const programTypeFilter = state.filters.programType;
   const programTypeActive = programTypeFilter && programTypeFilter !== "all";
-  const categoryActive = categoryFilter && categoryFilter !== "all";
   return state.knowledge
     .filter((bank) => state.filters.bank === "all" || bank.bank === state.filters.bank)
     .map((bank) => ({
@@ -2315,16 +2314,6 @@ function filteredKnowledge() {
       programs: (bank.programs || []).filter((program) => {
         if (programTypeActive && (program.programType || "Стандарт") !== programTypeFilter) {
           return false;
-        }
-        if (categoryActive) {
-          const programCategory = program.category || "";
-          if (categoryFilter === "__none__") {
-            if (programCategory) {
-              return false;
-            }
-          } else if (programCategory !== categoryFilter) {
-            return false;
-          }
         }
         if (!query) {
           return true;
@@ -2337,7 +2326,6 @@ function filteredKnowledge() {
           program.program,
           program.programUrl,
           program.programType,
-          program.category,
           program.amountRange,
           program.termRange,
           program.reviewTermDeclared,
@@ -2351,7 +2339,7 @@ function filteredKnowledge() {
       })
     }))
     .filter((bank) => {
-      if (!query && !categoryActive && !programTypeActive) {
+      if (!query && !programTypeActive) {
         return true;
       }
       return bank.programs.length > 0;
@@ -2567,14 +2555,9 @@ function renderKnowledgeFilters() {
   const programTypeOptions = PROGRAM_TYPES
     .map((type) => `<option value="${escapeHtml(type)}" ${programTypeFilter === type ? "selected" : ""}>${escapeHtml(type)}</option>`)
     .join("");
-  const categoryFilter = state.filters.category || "all";
-  const categoryOptions = PROGRAM_CATEGORIES
-    .map((category) => `<option value="${escapeHtml(category)}" ${categoryFilter === category ? "selected" : ""}>${escapeHtml(category)}</option>`)
-    .join("");
-
   return `
     <div class="filters">
-      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, категория, требование">
+      <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, требование">
       <select id="bankFilter">
         <option value="all">Банки — все</option>
         ${bankOptions}
@@ -2582,11 +2565,6 @@ function renderKnowledgeFilters() {
       <select id="programTypeFilter">
         <option value="all" ${programTypeFilter === "all" ? "selected" : ""}>Программы — все</option>
         ${programTypeOptions}
-      </select>
-      <select id="categoryFilter">
-        <option value="all" ${categoryFilter === "all" ? "selected" : ""}>Категории — все</option>
-        <option value="__none__" ${categoryFilter === "__none__" ? "selected" : ""}>${escapeHtml(CATEGORY_FALLBACK_LABEL)}</option>
-        ${categoryOptions}
       </select>
     </div>
   `;
@@ -2647,8 +2625,6 @@ function renderRequirementGrid(requirements = {}) {
 function renderKnowledgeProgramCard(program, bank, showBank = false) {
   const programUrl = safeExternalUrl(program.programUrl);
   const reviewStats = programReviewStats(program, bank);
-  const categoryLabel = program.category || "";
-  const categoryClass = categoryLabel ? ` is-${categorySlug(categoryLabel)}` : " is-none";
   const contactPhone = program.bankPhone || bank.phone;
   return `
     <details class="knowledge-card">
@@ -2664,7 +2640,6 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
           </h4>
           <div class="knowledge-card-badges">
             <span class="badge badge-type">${escapeHtml(program.programType || "Стандарт")}</span>
-            <span class="badge badge-category${categoryClass}">${escapeHtml(categoryLabel || CATEGORY_FALLBACK_LABEL)}</span>
           </div>
         </div>
       </summary>
@@ -2691,10 +2666,7 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
   `;
 }
 
-function categorySlug(category) {
-  const index = PROGRAM_CATEGORIES.indexOf(category);
-  return index >= 0 ? `cat-${index + 1}` : "cat-other";
-}
+
 
 function renderKnowledgeBanks(banks) {
   if (!banks.length) {
@@ -2759,43 +2731,6 @@ function renderKnowledgePrograms(banks) {
   `;
 }
 
-function renderKnowledgeCategories(banks) {
-  const programs = banks.flatMap((bank) => (bank.programs || []).map((program) => ({ bank, program })));
-  if (!programs.length) {
-    return `<div class="empty">В базе знаний пока нет программ под выбранные фильтры.</div>`;
-  }
-
-  const groups = new Map(PROGRAM_CATEGORIES.map((category) => [category, []]));
-  groups.set("", []);
-  programs.forEach((entry) => {
-    const category = entry.program.category && PROGRAM_CATEGORIES.includes(entry.program.category) ? entry.program.category : "";
-    groups.get(category).push(entry);
-  });
-
-  return `
-    <div class="knowledge-program-groups">
-      ${[...groups.entries()]
-        .filter(([, entries]) => entries.length)
-        .map(([category, entries]) => {
-          const label = category || CATEGORY_FALLBACK_LABEL;
-          const slug = category ? categorySlug(category) : "cat-none";
-          return `
-            <details class="knowledge-program-group is-${slug}" open>
-              <summary class="knowledge-program-group-head">
-                <h4>${escapeHtml(label)}</h4>
-                <span>${entries.length}</span>
-              </summary>
-              <div class="knowledge-grid">
-                ${entries.map(({ bank, program }) => renderKnowledgeProgramCard(program, bank, true)).join("")}
-              </div>
-            </details>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
 function planTemplateAmount(template) {
   return (template.items || []).reduce((total, item) => total + Number(item.amountRequested || 0), 0);
 }
@@ -2817,7 +2752,8 @@ function renderPlanTemplateCard(template) {
       <div class="knowledge-card-body">
         <div class="knowledge-card-actions">
           <time>${formatDate(template.updatedAt || template.createdAt)}</time>
-          ${canEditKnowledge() ? `<button class="ghost-button small-button" data-edit-plan-template="${escapeHtml(template.id)}" type="button">Редактировать</button>` : ""}
+          ${canEditKnowledge() ? `<button class="ghost-button small-button" data-edit-plan-template="${escapeHtml(template.id)}" type="button">Редактировать</button>
+          <button class="ghost-button small-button danger-button" data-delete-plan-template="${escapeHtml(template.id)}" data-template-name="${escapeHtml(template.name)}" type="button">Удалить</button>` : ""}
         </div>
         ${template.description ? `<p class="knowledge-note">${escapeHtml(template.description)}</p>` : ""}
         <div class="plan-template-items">
@@ -2838,10 +2774,14 @@ function renderPlanTemplateCard(template) {
 
 function renderPlanTemplatesSection() {
   const templates = state.planTemplates || [];
+  const addBtn = canEditKnowledge()
+    ? `<div class="plan-template-toolbar"><button class="primary-button" data-add-plan-template type="button">+ Шаблон</button></div>`
+    : "";
   if (!templates.length) {
-    return `<div class="empty">Шаблоны планов пока не загружены.</div>`;
+    return `${addBtn}<div class="empty">Шаблонов планов пока нет — создайте первый.</div>`;
   }
   return `
+    ${addBtn}
     <div class="knowledge-grid">
       ${templates.map(renderPlanTemplateCard).join("")}
     </div>
@@ -2869,9 +2809,6 @@ function renderKnowledgeSectionContent(items) {
   }
   if (state.knowledgeSection === "banks") {
     return renderKnowledgeBanks(items);
-  }
-  if (state.knowledgeSection === "categories") {
-    return renderKnowledgeCategories(items);
   }
   return renderKnowledgePrograms(items);
 }
@@ -3292,7 +3229,6 @@ function renderAdminPanelView() {
       </div>
     </section>
     ${renderTaxonomyView("Типы программ", "program-type", state.programTypes || [])}
-    ${renderTaxonomyView("Категории программ", "program-category", state.programCategories || [])}
     ${renderUsersView()}
     ${renderIntegrationsView()}
   `;
@@ -5574,10 +5510,6 @@ function initDynamicControls() {
         state.filters.programType = target.value;
         render();
         break;
-      case "categoryFilter":
-        state.filters.category = target.value;
-        render();
-        break;
       case "stageFilter":
         state.filters.stage = target.value;
         render();
@@ -5775,6 +5707,31 @@ function initDynamicControls() {
       const template = state.planTemplates.find((item) => item.id === editPlanTemplateBtn.dataset.editPlanTemplate);
       if (template) {
         openPlanTemplateDialog(template);
+      }
+      return;
+    }
+
+    const addPlanTemplateBtn = target.closest("[data-add-plan-template]");
+    if (addPlanTemplateBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      openPlanTemplateDialog(null);
+      return;
+    }
+
+    const deletePlanTemplateBtn = target.closest("[data-delete-plan-template]");
+    if (deletePlanTemplateBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const name = deletePlanTemplateBtn.dataset.templateName || "шаблон";
+      if (window.confirm(`Удалить шаблонный план «${name}»?`)) {
+        try {
+          await requestJson(`/api/plan-templates/${encodeURIComponent(deletePlanTemplateBtn.dataset.deletePlanTemplate)}`, { method: "DELETE" });
+          await loadData({ targets: ["planTemplates"] });
+          showToast("Шаблон удалён", { type: "success" });
+        } catch (error) {
+          window.alert(error.message);
+        }
       }
       return;
     }
@@ -6035,15 +5992,9 @@ function findKnowledgeProgram(programId) {
 // Перестраивает <option> в селектах диалога БЗ из актуальных списков таксономии.
 function rebuildKnowledgeTaxonomySelects() {
   const typeSelect = knowledgeForm?.elements?.programType;
-  const categorySelect = knowledgeForm?.elements?.category;
   if (typeSelect) {
     const types = PROGRAM_TYPES_LIST();
     typeSelect.innerHTML = types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
-  }
-  if (categorySelect) {
-    const cats = PROGRAM_CATEGORIES_LIST();
-    categorySelect.innerHTML = `<option value="">Без категории</option>`
-      + cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   }
 }
 
@@ -6090,16 +6041,9 @@ function openKnowledgeDialog(entry = null) {
   }
   typeSel.value = currentType || (typeList.includes("Стандарт") ? "Стандарт" : typeList[0] || "");
 
-  const currentCat = entry?.program?.category || "";
-  const catList = PROGRAM_CATEGORIES_LIST();
-  const catSel = knowledgeForm.elements.category;
-  if (currentCat && !catList.includes(currentCat) && catSel) {
-    const opt = document.createElement("option");
-    opt.value = currentCat;
-    opt.textContent = `${currentCat} (нет в списке)`;
-    catSel.appendChild(opt);
-  }
-  catSel.value = currentCat;
+  // Категории убраны из UI: hidden-поле сохраняет прежнее значение
+  // программы, чтобы редактирование не стирало данные
+  knowledgeForm.elements.category.value = entry?.program?.category || "";
 
   const requirements = entry?.program?.requirements || {};
   Object.keys(REQUIREMENT_LABELS).forEach((key) => {
@@ -6175,12 +6119,14 @@ function openPlanTemplateDialog(template) {
   }
   planTemplateForm.reset();
   if (planTemplateDialogTitle) {
-    planTemplateDialogTitle.textContent = `Редактировать: ${template.name}`;
+    planTemplateDialogTitle.textContent = template
+      ? `Редактировать: ${template.name}`
+      : "Новый шаблонный план";
   }
-  planTemplateForm.elements.templateId.value = template.id;
-  planTemplateForm.elements.name.value = template.name || "";
-  planTemplateForm.elements.description.value = template.description || "";
-  renderPlanTemplateEditorRows(template.items || []);
+  planTemplateForm.elements.templateId.value = template?.id || "";
+  planTemplateForm.elements.name.value = template?.name || "";
+  planTemplateForm.elements.description.value = template?.description || "";
+  renderPlanTemplateEditorRows(template?.items?.length ? template.items : [{}]);
   planTemplateDialog.showModal();
 }
 
@@ -6624,10 +6570,11 @@ if (planTemplateForm) {
     const templateId = payload.templateId;
     delete payload.templateId;
     payload.items = collectPlanTemplateItems();
-    await requestJson(`/api/plan-templates/${encodeURIComponent(templateId)}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload)
-    });
+    // templateId пуст — создание нового шаблона (POST), иначе PATCH
+    await requestJson(
+      templateId ? `/api/plan-templates/${encodeURIComponent(templateId)}` : "/api/plan-templates",
+      { method: templateId ? "PATCH" : "POST", body: JSON.stringify(payload) }
+    );
     planTemplateDialog.close();
     state.view = "knowledge";
     state.knowledgeSection = "templates";

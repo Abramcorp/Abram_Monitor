@@ -162,14 +162,18 @@ test("client card can be edited through the client dialog", () => {
   assert.match(indexSource, /<input name="clientId" type="hidden">/);
 });
 
-test("knowledge programs expose category grouping and filters", () => {
+test("категории банков убраны из UI, но данные программ сохраняются", () => {
   const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
 
-  assert.match(appSource, /PROGRAM_CATEGORIES/);
-  assert.match(appSource, /categoryFilter/);
-  assert.match(appSource, /renderKnowledgeCategories/);
+  // UI категорий больше нет (решение пользователя 2026-08-11)
+  assert.doesNotMatch(appSource, /categoryFilter/);
+  assert.doesNotMatch(appSource, /renderKnowledgeCategories/);
+  // Бейджи программ остались (тип программы)
   assert.match(appSource, /knowledge-card-badges/);
-  assert.match(indexSource, /<select name="category">/);
+  // Hidden-поле сохраняет старое значение category при редактировании,
+  // чтобы PATCH не стирал данные
+  assert.match(indexSource, /<input name="category" type="hidden">/);
+  assert.match(appSource, /knowledgeForm\.elements\.category\.value = entry\?\.program\?\.category \|\| ""/);
 });
 
 test("completed clients stay visible until explicitly archived", () => {

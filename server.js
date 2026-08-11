@@ -44,6 +44,8 @@ const {
   updateDeal,
   updateClient,
   updateKnowledgeProgram,
+  createPlanTemplate,
+  deletePlanTemplate,
   updatePlanTemplate,
   updateManager,
   updateTask,
@@ -1823,6 +1825,18 @@ async function handleApi(request, response) {
     return;
   }
 
+  if (request.method === "POST" && pathname === "/api/plan-templates") {
+    requireRole(request, ["admin", "analyst_abram"]);
+    const payload = await readBody(request);
+    try {
+      const template = await createPlanTemplate(payload);
+      sendJson(response, 201, { planTemplate: template });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+
   const planTemplateMatch = pathname.match(/^\/api\/plan-templates\/([^/]+)$/);
   if (request.method === "PATCH" && planTemplateMatch) {
     requireRole(request, ["admin", "analyst_abram"]);
@@ -1833,6 +1847,17 @@ async function handleApi(request, response) {
       return;
     }
     sendJson(response, 200, { planTemplate: template });
+    return;
+  }
+
+  if (request.method === "DELETE" && planTemplateMatch) {
+    requireRole(request, ["admin", "analyst_abram"]);
+    const removed = await deletePlanTemplate(decodeURIComponent(planTemplateMatch[1]));
+    if (!removed) {
+      sendJson(response, 404, { error: "Plan template not found" });
+      return;
+    }
+    sendJson(response, 200, { planTemplate: removed });
     return;
   }
 
