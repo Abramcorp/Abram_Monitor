@@ -2253,16 +2253,19 @@ function renderWsClientGrid(manager) {
   if (!clients.length) {
     return `<div class="empty">У аналитика нет клиентов в работе.</div>`;
   }
+  // Крупные карточки с полной детализацией стадий и запросов КИ —
+  // разворот именно на шаге выбора клиента (правка по скринам 11.08).
+  // div[role=button]: внутри block-контент, который недопустим в <button>
   const card = (c) => `
-    <button class="ws-card" data-ws-client="${escapeHtml(c.client)}" type="button">
-      <span class="ws-card-body">
+    <div class="ws-card ws-card-client" data-ws-client="${escapeHtml(c.client)}" role="button" tabindex="0">
+      <div class="ws-card-body">
         <strong>${escapeHtml(c.client)}</strong>
-        <span class="muted">Лиды ${c.leadCount || 0} · В работе ${c.workingCount || 0} · Одобрено ${c.successfulCount || 0}</span>
-        <span class="muted">${renderClientKiBadge(c).replace(/<[^>]+>/g, "").trim()}</span>
-      </span>
-    </button>
+        ${renderClientStageBreakdown(c)}
+        <span class="muted">${renderClientKiBadge(c)}</span>
+      </div>
+    </div>
   `;
-  return `<div class="ws-grid">${clients.map(card).join("")}</div>`;
+  return `<div class="ws-grid ws-grid-clients">${clients.map(card).join("")}</div>`;
 }
 
 function renderManagerClientView() {
@@ -2314,10 +2317,9 @@ function renderManagerClientView() {
     body = renderWsClientGrid(selectedManager);
   } else {
     heading = selectedClient.client;
+    // Детализация стадий живёт в карточках ВЫБОРА клиента (шаг 2) —
+    // здесь только рабочая область с заявками (правка по скринам 11.08)
     body = `
-      <div class="ws-client-summary">
-        ${renderClientSummary(selectedClient, "active")}
-      </div>
       <div class="client-drilldown ws-client-workspace">
         ${renderClientActions(selectedClient, { allowAddApplication: true, allowArchive: true })}
         ${renderClientTaskList(selectedClient)}
@@ -6048,6 +6050,13 @@ function bindDynamicControls() {
     el.addEventListener("click", () => {
       state.wsClient = el.dataset.wsClient;
       render();
+    });
+    // div[role=button]: Enter/Space как клик
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        el.click();
+      }
     });
   });
   app.querySelectorAll("[data-ws-reset-manager]").forEach((el) => {

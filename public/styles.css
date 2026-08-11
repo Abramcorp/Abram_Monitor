@@ -4886,3 +4886,18 @@ details.client-application-card.is-flash > summary {
   margin-bottom: 12px;
 }
 .ws-client-summary .applications-toggle { display: none; }
+
+/* Крупные карточки клиентов на шаге выбора (детализация стадий внутри) */
+.ws-grid-clients {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
+.ws-card-client {
+  cursor: pointer;
+  align-items: flex-start;
+}
+.ws-card-client .ws-card-body { width: 100%; }
+.ws-card-client .client-stage-breakdown { margin: 8px 0 6px; }
+.ws-card-client:focus-visible {
+  outline: 2px solid rgba(0, 122, 255, 0.55);
+  outline-offset: 2px;
+}
