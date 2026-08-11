@@ -47,6 +47,7 @@ const {
   createPlanTemplate,
   deletePlanTemplate,
   updatePlanTemplate,
+  renameManagerReferences,
   updateManager,
   updateTask,
   applyPlanTemplateToClient,
@@ -1812,12 +1813,18 @@ async function handleApi(request, response) {
     if (payload.name !== undefined) {
       patch.name = String(payload.name || "");
     }
+    // Имя ДО обновления — для каскада по сделкам/клиентам/задачам
+    const before = (await getManagers()).find((m) => m.id === managerId);
     const updated = await updateManager(managerId, patch);
     if (!updated) {
       sendJson(response, 404, { error: "Manager not found" });
       return;
     }
-    sendJson(response, 200, { manager: updated });
+    let renamed = null;
+    if (patch.name && before && before.name !== updated.name) {
+      renamed = await renameManagerReferences(before.name, updated.name);
+    }
+    sendJson(response, 200, { manager: updated, renamed });
     return;
   }
 

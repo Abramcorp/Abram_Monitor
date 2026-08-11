@@ -467,6 +467,66 @@ async function updateManager(id, patch) {
   return managers[index];
 }
 
+// Каскад переименования аналитика: сделки/клиенты/задачи ссылаются на него
+// ТЕКСТОВЫМ полем manager — без каскада переименование отрывает их от
+// аналитика во всех группировках. Возвращает счётчики затронутых записей.
+async function renameManagerReferences(oldName, newName) {
+  const from = cleanText(oldName);
+  const to = cleanText(newName);
+  const counts = { deals: 0, clients: 0, tasks: 0 };
+  if (!from || !to || from === to) {
+    return counts;
+  }
+  const matches = (value) => cleanText(value).toLowerCase() === from.toLowerCase();
+
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    for (const [table, key] of [["deals", "deals"], ["clients", "clients"], ["tasks", "tasks"]]) {
+      const rows = await postgresStore.listRows(table);
+      for (const row of rows) {
+        if (matches(row.manager)) {
+          await postgresStore.updateRow(table, row.id, (current) => ({
+            ...current,
+            manager: to,
+            updatedAt: new Date().toISOString()
+          }));
+          counts[key] += 1;
+        }
+      }
+    }
+    return counts;
+  }
+
+  const deals = getDeals();
+  deals.forEach((deal) => {
+    if (matches(deal.manager)) {
+      deal.manager = to;
+      counts.deals += 1;
+    }
+  });
+  if (counts.deals) saveDeals(deals);
+
+  const clients = readJson(CLIENTS_FILE, []);
+  clients.forEach((client) => {
+    if (matches(client.manager)) {
+      client.manager = to;
+      counts.clients += 1;
+    }
+  });
+  if (counts.clients) writeJson(CLIENTS_FILE, clients);
+
+  const tasks = readJson(TASKS_FILE, []);
+  tasks.forEach((task) => {
+    if (matches(task.manager)) {
+      task.manager = to;
+      counts.tasks += 1;
+    }
+  });
+  if (counts.tasks) writeJson(TASKS_FILE, tasks);
+
+  return counts;
+}
+
 function deleteManager(id) {
   if (postgresStore.isEnabled()) {
     return initStore().then(() => postgresStore.deleteRow("managers", id));
@@ -2369,6 +2429,7 @@ module.exports = {
   createPlanTemplate,
   deletePlanTemplate,
   updatePlanTemplate,
+  renameManagerReferences,
   updateManager,
   updateTask,
   applyPlanTemplateToClient,

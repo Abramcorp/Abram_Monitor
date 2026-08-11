@@ -4855,3 +4855,34 @@ details.client-application-card.is-flash > summary {
 .profile-notify-list .is-off { color: var(--muted); }
 
 .plan-template-toolbar { margin-bottom: 12px; display: flex; justify-content: flex-end; }
+
+.manager-user-link { max-width: 260px; font-size: 12px; }
+
+/* Детализация стадий в сводке клиента */
+.client-stage-breakdown {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 4px;
+}
+.client-stage-row {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.client-stage-row strong { color: var(--ink); }
+.client-stage-label { font-weight: 600; color: var(--ink); }
+.client-stage-banks { overflow-wrap: anywhere; }
+.client-stage-total { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.client-stage-row.is-approved .client-stage-label { color: #1a7f37; }
+.client-stage-row.is-submitted .client-stage-label { color: #9a6700; }
+.client-ki-list { color: var(--muted); overflow-wrap: anywhere; }
+
+/* Сводка клиента на шаге 3 каскада: статичная карточка, без details-тогглера */
+.ws-client-summary {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: #fbfcfd;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.ws-client-summary .applications-toggle { display: none; }

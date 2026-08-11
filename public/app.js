@@ -1822,10 +1822,47 @@ function renderClientKiBadge(client) {
   if (!entries.length) {
     return `<span>Запросы КИ: <strong>нет</strong></span>`;
   }
-  const detail = entries
-    .map((e) => `${formatDateOnly(e.at)} — ${e.bank}${e.stageLabel ? ` (${e.stageLabel})` : ""}`)
-    .join("\n");
-  return `<span class="client-ki-summary" title="${escapeHtml(detail)}">Запросы КИ: <strong>${entries.length} · последний ${formatDateOnly(entries[0].at)}</strong></span>`;
+  // Развёрнутый формат: «Запросы КИ: 4 (Точка (03.08.2026), Т-банк (07.08.2026), …)»
+  const parts = entries
+    .map((e) => `${escapeHtml(e.bank)} (${formatDateOnly(e.at)})`)
+    .join(", ");
+  return `<span class="client-ki-summary">Запросы КИ: <strong>${entries.length}</strong> <span class="client-ki-list">(${parts})</span></span>`;
+}
+
+// Детализация заявок по стадиям для сводки клиента:
+// «Лиды: 2 (Ак-барс (1 200 000), Озон (500 000)) · итого 1 700 000»
+const CLIENT_STAGE_BREAKDOWN_ROWS = [
+  ["lead", "Лиды"],
+  ["documents_requested", "Запрос документов"],
+  ["submitted", "Рассматривается"],
+  ["approved", "Одобрено"]
+];
+
+function renderClientStageBreakdown(client) {
+  const apps = Array.isArray(client.applications) ? client.applications : [];
+  const rows = CLIENT_STAGE_BREAKDOWN_ROWS.map(([stage, label]) => {
+    const list = apps.filter((deal) => deal.stage === stage);
+    if (!list.length) {
+      return "";
+    }
+    // Для одобренных показываем одобренную сумму (fallback — запрошенная)
+    const amountOf = (deal) => Number(
+      (stage === "approved" ? (deal.amountApproved || deal.amountRequested) : deal.amountRequested) || 0
+    );
+    const parts = list
+      .map((deal) => `${escapeHtml(deal.bank || deal.program || "—")} (${money(amountOf(deal))})`)
+      .join(", ");
+    const total = list.reduce((sum, deal) => sum + amountOf(deal), 0);
+    return `
+      <div class="client-stage-row is-${escapeHtml(stage)}">
+        <span class="client-stage-label">${label}:</span>
+        <strong>${list.length}</strong>
+        <span class="client-stage-banks">(${parts})</span>
+        <span class="client-stage-total">итого ${money(total)}</span>
+      </div>
+    `;
+  }).filter(Boolean).join("");
+  return rows ? `<div class="client-stage-breakdown">${rows}</div>` : "";
 }
 
 function renderClientSummary(client, options = {}) {
@@ -1843,11 +1880,9 @@ function renderClientSummary(client, options = {}) {
     ${renderClientDocStrip(client)}
     <div class="client-summary-main">
       <strong class="client-title">${escapeHtml(client.client)}</strong>
+      ${renderClientStageBreakdown(client)}
       <div class="client-summary-amounts">
         <span>План подач <strong>${client.plannedCount || 0} · ${money(client.plannedAmountRequested)}</strong></span>
-        <span>Лиды <strong>${client.leadCount || 0} · ${money(client.leadAmountRequested)}</strong></span>
-        <span>Заявки в работе <strong>${client.workingCount || 0} · ${money(client.workingAmountRequested)}</strong></span>
-        <span>Одобрения <strong>${client.successfulCount || 0} · ${money(client.approvedAmount)}</strong></span>
         <span>Завершенные подачи <strong>${completedLabel}</strong></span>
       </div>
       <div class="client-summary-dates">
@@ -2280,6 +2315,9 @@ function renderManagerClientView() {
   } else {
     heading = selectedClient.client;
     body = `
+      <div class="ws-client-summary">
+        ${renderClientSummary(selectedClient, "active")}
+      </div>
       <div class="client-drilldown ws-client-workspace">
         ${renderClientActions(selectedClient, { allowAddApplication: true, allowArchive: true })}
         ${renderClientTaskList(selectedClient)}
@@ -3221,17 +3259,49 @@ function renderAdminPanelView() {
         <div>
           <p class="eyebrow">Команда</p>
           <h2>Аналитики</h2>
-          <p class="muted">Создавайте аналитиков и привязывайте их к учёткам</p>
+          <p class="muted">Переименование каскадно обновляет сделки, клиентов и задачи аналитика</p>
         </div>
         <div class="panel-head-actions">
           <button class="primary-button" data-add-manager type="button">+ Аналитик</button>
         </div>
       </div>
+      ${renderManagersAdminList()}
     </section>
     ${renderTaxonomyView("Типы программ", "program-type", state.programTypes || [])}
     ${renderUsersView()}
     ${renderIntegrationsView()}
   `;
+}
+
+// Список аналитиков в Панели управления: переименование (с каскадом на
+// сервере), привязка к учётке, удаление. Паттерн — taxonomy-row.
+function renderManagersAdminList() {
+  const managers = state.managers || [];
+  if (!managers.length) {
+    return `<ul class="taxonomy-list"><li class="taxonomy-empty">Аналитиков пока нет.</li></ul>`;
+  }
+  const users = state.users || [];
+  const rows = managers.map((m) => {
+    const options = [`<option value="">— без учётки —</option>`]
+      .concat(users.map((u) => `
+        <option value="${escapeHtml(u.id)}" ${String(m.userId || "") === String(u.id) ? "selected" : ""}>
+          ${escapeHtml(u.fullName || u.login)} (${escapeHtml(ROLE_LABELS[u.role] || u.role)})
+        </option>`))
+      .join("");
+    return `
+      <li class="taxonomy-row" data-manager-row="${escapeHtml(m.id)}">
+        <span class="taxonomy-name">${escapeHtml(m.name)}</span>
+        <select class="manager-user-link" data-manager-link-user="${escapeHtml(m.id)}" title="Привязанная учётка">
+          ${options}
+        </select>
+        <span class="taxonomy-actions">
+          <button class="ghost-button small-button" data-rename-manager="${escapeHtml(m.id)}" data-name="${escapeHtml(m.name)}" type="button">Переименовать</button>
+          <button class="ghost-button small-button danger-button" data-delete-manager="${escapeHtml(m.id)}" data-name="${escapeHtml(m.name)}" type="button">Удалить</button>
+        </span>
+      </li>
+    `;
+  }).join("");
+  return `<ul class="taxonomy-list">${rows}</ul>`;
 }
 
 // Универсальный рендер списка taxonomy + inline-форма добавления.
@@ -5494,6 +5564,20 @@ function initDynamicControls() {
       await handleUploadAttachment(target);
       return;
     }
+    if (target.dataset?.managerLinkUser !== undefined) {
+      // Привязка аналитика к учётке из Панели управления
+      try {
+        await requestJson(`/api/managers/${encodeURIComponent(target.dataset.managerLinkUser)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ userId: target.value })
+        });
+        showToast("Привязка учётки обновлена", { type: "success" });
+        await loadData({ targets: ["managers", "users"] });
+      } catch (error) {
+        window.alert(error.message);
+      }
+      return;
+    }
     if (!target.id) {
       return;
     }
@@ -5805,6 +5889,44 @@ function initDynamicControls() {
       event.preventDefault();
       event.stopPropagation();
       if (newManagerButton) newManagerButton.click();
+      return;
+    }
+    const renameManagerBtn = target.closest("[data-rename-manager]");
+    if (renameManagerBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const oldName = renameManagerBtn.dataset.name || "";
+      const next = window.prompt("Новое имя аналитика:", oldName);
+      if (next && next.trim() && next.trim() !== oldName) {
+        try {
+          const res = await requestJson(`/api/managers/${encodeURIComponent(renameManagerBtn.dataset.renameManager)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ name: next.trim() })
+          });
+          const r = res.renamed;
+          const cascade = r ? ` (обновлено: сделок ${r.deals}, клиентов ${r.clients}, задач ${r.tasks})` : "";
+          showToast(`Аналитик переименован${cascade}`, { type: "success" });
+          await loadData();
+        } catch (error) {
+          window.alert(error.message);
+        }
+      }
+      return;
+    }
+    const deleteManagerBtn = target.closest("[data-delete-manager]");
+    if (deleteManagerBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const name = deleteManagerBtn.dataset.name || "аналитика";
+      if (window.confirm(`Удалить аналитика «${name}»? Его сделки и клиенты останутся, но потеряют карточку аналитика.`)) {
+        try {
+          await requestJson(`/api/managers/${encodeURIComponent(deleteManagerBtn.dataset.deleteManager)}`, { method: "DELETE" });
+          showToast("Аналитик удалён", { type: "success" });
+          await loadData({ targets: ["managers", "dashboard"] });
+        } catch (error) {
+          window.alert(error.message);
+        }
+      }
       return;
     }
     const addClientBtn = target.closest("[data-add-client]");
