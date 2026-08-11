@@ -3294,6 +3294,20 @@ function renderClientsAdminSection() {
   }));
   const orphans = enriched.filter((c) => c.isOrphan);
 
+  // «Фантомы»: пары (аналитик, клиент) из СДЕЛОК без записи в clients —
+  // старые данные до карточек клиентов. Видны в статистике, но не в архиве.
+  const clientKeys = new Set(clients.map((c) => `${compareKey(c.manager)}|${compareKey(c.name)}`));
+  const phantomMap = new Map();
+  for (const d of deals) {
+    const key = `${compareKey(d.manager)}|${compareKey(d.client)}`;
+    if (!d.client || clientKeys.has(key)) continue;
+    if (!phantomMap.has(key)) {
+      phantomMap.set(key, { manager: d.manager || "", name: d.client, dealCount: 0 });
+    }
+    phantomMap.get(key).dealCount += 1;
+  }
+  const phantoms = [...phantomMap.values()];
+
   const row = (c) => `
     <li class="taxonomy-row ${c.isOrphan ? "is-orphan-client" : ""}">
       <span class="taxonomy-name">
@@ -3310,8 +3324,25 @@ function renderClientsAdminSection() {
       </span>
     </li>
   `;
-  const list = enriched.length
-    ? `<ul class="taxonomy-list">${[...orphans, ...enriched.filter((c) => !c.isOrphan)].map(row).join("")}</ul>`
+  const phantomRow = (p) => `
+    <li class="taxonomy-row is-orphan-client">
+      <span class="taxonomy-name">
+        ${escapeHtml(p.name)}
+        <span class="orphan-badge" title="Сделки есть, а карточки клиента нет (старые данные) — виден в статистике, но не в архиве">без карточки</span>
+      </span>
+      <span class="muted">Аналитик: ${escapeHtml(p.manager || "—")} · заявок: ${p.dealCount}</span>
+      <span class="taxonomy-actions">
+        <button class="ghost-button small-button danger-button"
+                data-admin-purge-phantom
+                data-phantom-manager="${escapeHtml(p.manager)}"
+                data-phantom-client="${escapeHtml(p.name)}"
+                data-deal-count="${p.dealCount}" type="button">Удалить</button>
+      </span>
+    </li>
+  `;
+  const totalIssues = orphans.length + phantoms.length;
+  const list = (enriched.length || phantoms.length)
+    ? `<ul class="taxonomy-list">${phantoms.map(phantomRow).join("")}${[...orphans, ...enriched.filter((c) => !c.isOrphan)].map(row).join("")}</ul>`
     : `<ul class="taxonomy-list"><li class="taxonomy-empty">Клиентов нет.</li></ul>`;
 
   return `
@@ -3319,11 +3350,12 @@ function renderClientsAdminSection() {
       <div class="panel-head">
         <div>
           <p class="eyebrow">Данные</p>
-          <h2>Все клиенты (${enriched.length})${orphans.length ? ` · сирот: ${orphans.length}` : ""}</h2>
-          <p class="muted">Удаление зачищает задачи, запросы документов и все заявки клиента — он исчезнет из статистики</p>
+          <h2>Все клиенты (${enriched.length + phantoms.length})${totalIssues ? ` · требуют внимания: ${totalIssues}` : ""}</h2>
+          <p class="muted">Удаление зачищает задачи, запросы документов и все заявки клиента — он исчезнет из статистики.
+          «Без карточки» — клиент существует только в сделках (виден в статистике, но не в архиве).</p>
         </div>
       </div>
-      <details class="admin-clients-details" data-ui-state-key="admin|clients" ${orphans.length ? "open" : ""}>
+      <details class="admin-clients-details" data-ui-state-key="admin|clients" ${totalIssues ? "open" : ""}>
         <summary class="doc-section-title">Показать список</summary>
         ${list}
       </details>
@@ -5984,6 +6016,24 @@ function initDynamicControls() {
         try {
           await requestJson(`/api/clients/${encodeURIComponent(adminDeleteClientBtn.dataset.adminDeleteClient)}?withDeals=1`, { method: "DELETE" });
           showToast(`Клиент «${name}» удалён${dealCount ? ` (заявок: ${dealCount})` : ""}`, { type: "success" });
+          await loadData();
+        } catch (error) {
+          window.alert(error.message);
+        }
+      }
+      return;
+    }
+    const purgePhantomBtn = target.closest("[data-admin-purge-phantom]");
+    if (purgePhantomBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const pm = purgePhantomBtn.dataset.phantomManager || "";
+      const pc = purgePhantomBtn.dataset.phantomClient || "";
+      const dc = Number(purgePhantomBtn.dataset.dealCount || 0);
+      if (window.confirm(`Удалить «${pc}» (без карточки): ${dc} заявок, задачи и запросы документов? Он исчезнет из статистики. Действие необратимо.`)) {
+        try {
+          const res = await requestJson(`/api/admin/client-data?manager=${encodeURIComponent(pm)}&client=${encodeURIComponent(pc)}`, { method: "DELETE" });
+          showToast(`«${pc}» удалён (заявок: ${res.removed?.deals ?? dc})`, { type: "success" });
           await loadData();
         } catch (error) {
           window.alert(error.message);

@@ -1027,6 +1027,22 @@ async function cascadeDeleteDealsByClient(managerName, clientName) {
   return removed;
 }
 
+// Зачистка данных клиента-«фантома»: сделки существуют, а записи в clients
+// нет (старые данные до введения карточек клиентов) — удалять нечего через
+// deleteClient, чистим напрямую по паре (аналитик, клиент).
+async function purgeClientData(managerName, clientName) {
+  const removedDeals = await cascadeDeleteDealsByClient(managerName, clientName);
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    await postgresStore.deleteTasksByClient(managerName || "", clientName || "");
+    await postgresStore.deleteDocumentRequestsByClient(managerName || "", clientName || "");
+  } else {
+    cascadeDeleteTasksByClient(managerName, clientName);
+    cascadeDeleteDocumentRequestsByClient(managerName, clientName);
+  }
+  return { deals: removedDeals };
+}
+
 async function deleteClient(id, { withDeals = false } = {}) {
   if (postgresStore.isEnabled()) {
     await initStore();
@@ -2421,6 +2437,7 @@ module.exports = {
   createManager,
   createTask,
   deleteClient,
+  purgeClientData,
   deleteDeal,
   deleteDocumentRequest,
   deleteManager,

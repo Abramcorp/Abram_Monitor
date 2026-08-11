@@ -22,6 +22,7 @@ const {
   createManager,
   createTask,
   deleteClient,
+  purgeClientData,
   deleteDeal,
   deleteDocumentRequest,
   deleteManager,
@@ -1758,6 +1759,22 @@ async function handleApi(request, response) {
         }
       }
     })().catch(() => {});
+    return;
+  }
+
+  // Админская зачистка «фантомных» клиентов: сделки есть, записи в clients
+  // нет — удаляет сделки/задачи/запросы документов по паре аналитик+клиент
+  if (request.method === "DELETE" && pathname === "/api/admin/client-data") {
+    requireRole(request, ["admin"]);
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const managerName = String(url.searchParams.get("manager") || "").trim();
+    const clientName = String(url.searchParams.get("client") || "").trim();
+    if (!clientName) {
+      sendJson(response, 400, { error: "Параметр client обязателен" });
+      return;
+    }
+    const removed = await purgeClientData(managerName, clientName);
+    sendJson(response, 200, { removed });
     return;
   }
 
