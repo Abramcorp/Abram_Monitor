@@ -5082,7 +5082,15 @@ function renderDealsByGrouping(kind) {
 
   const keyFallback = kind === "bank" ? "Без банка" : "Без программы";
   const uiKind = kind === "bank" ? "summary-bank" : "summary-program";
-  const keyOf = (d) => (kind === "bank" ? (d.bank || keyFallback) : (d.program || keyFallback));
+  // Программы подписываются «Банк — Программа»: одноимённые программы
+  // разных банков не сливаются, и сразу видно, чей продукт
+  const keyOf = (d) => {
+    if (kind === "bank") {
+      return d.bank || keyFallback;
+    }
+    const program = d.program || keyFallback;
+    return d.bank ? `${d.bank} — ${program}` : program;
+  };
 
   const byKey = new Map();
   for (const deal of deals) {
