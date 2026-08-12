@@ -434,3 +434,40 @@ test("isDuplicateDocumentRequest ловит повторную отправку 
     false
   );
 });
+
+test("submissionNumber нумеруется отдельно для каждого клиента", () => {
+  const { assignSubmissionNumberIfNeeded } = require("../src/store.js");
+  const deals = [
+    { manager: "Граф", client: "ООО Один", submissionNumber: 3 },
+    { manager: "Граф", client: "ООО Два", submissionNumber: 7 },
+    { manager: "Юта", client: "ООО Один", submissionNumber: 2 }
+  ];
+  // Новая подача «ООО Один» у Графа: max по ПАРЕ (Граф, Один) = 3 → №4
+  const a = assignSubmissionNumberIfNeeded(
+    { submissionNumber: 0 },
+    { manager: "Граф", client: "ООО Один", stage: "submitted" },
+    deals
+  );
+  assert.equal(a.submissionNumber, 4);
+  // Первый переход нового клиента — №1, чужие номера не влияют
+  const b = assignSubmissionNumberIfNeeded(
+    { submissionNumber: 0 },
+    { manager: "Граф", client: "ООО Новый", stage: "submitted" },
+    deals
+  );
+  assert.equal(b.submissionNumber, 1);
+  // Рикошет submitted → rejected → submitted не переприсваивает
+  const c = assignSubmissionNumberIfNeeded(
+    { submissionNumber: 2 },
+    { manager: "Граф", client: "ООО Один", stage: "submitted" },
+    deals
+  );
+  assert.equal(c.submissionNumber, undefined);
+  // Не-submitted стадии номер не получают
+  const d = assignSubmissionNumberIfNeeded(
+    { submissionNumber: 0 },
+    { manager: "Граф", client: "ООО Один", stage: "lead" },
+    deals
+  );
+  assert.equal(d.submissionNumber, undefined);
+});

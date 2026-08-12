@@ -237,6 +237,8 @@ async function markDealChecked(id) {
 }
 
 // Присваивает submissionNumber при первом переходе в stage=submitted.
+// Нумерация СВОЯ ДЛЯ КАЖДОГО КЛИЕНТА (пара аналитик+клиент): первая
+// поданная заявка клиента — №1, вторая — №2 и т.д.
 // Один раз за жизнь заявки: если previous.submissionNumber > 0 —
 // не переприсваиваем, даже при рикошете submitted → rejected → submitted.
 // deals — уже загруженный массив (не тянем повторно, экономим Postgres RTT).
@@ -244,9 +246,13 @@ function assignSubmissionNumberIfNeeded(previous, next, deals) {
   if (next.stage !== "submitted") return next;
   if (Number(previous?.submissionNumber) > 0) return next;
   if (Number(next.submissionNumber) > 0) return next;
-  const maxExisting = deals.reduce((m, d) => {
+  const m = cleanText(next.manager).toLowerCase();
+  const c = cleanText(next.client).toLowerCase();
+  const maxExisting = deals.reduce((max, d) => {
+    if (cleanText(d?.manager).toLowerCase() !== m) return max;
+    if (cleanText(d?.client).toLowerCase() !== c) return max;
     const n = Number(d?.submissionNumber);
-    return Number.isFinite(n) && n > m ? n : m;
+    return Number.isFinite(n) && n > max ? n : max;
   }, 0);
   const nextNumber = maxExisting + 1;
   return { ...next, submissionNumber: nextNumber };
@@ -2458,6 +2464,7 @@ module.exports = {
   normalizeDocumentRequest,
   normalizeDocumentRequestAttachment,
   normalizePlanTemplate,
+  assignSubmissionNumberIfNeeded,
   mergePlanTemplates,
   removeDocumentRequestAttachment,
   setDocumentRequestOpenMessageId,
