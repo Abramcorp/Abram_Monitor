@@ -4591,6 +4591,37 @@ function ageBadge(days, { stalledFrom = 7 } = {}) {
   return `<span class="deal-card-age is-${tone}">${word}</span>`;
 }
 
+// Момент входа заявки в ТЕКУЩИЙ статус: дата последней записи
+// «Смена статуса: …» в хронологии; если смен не было — дата заявки.
+function dealStageEnteredAt(deal) {
+  const actions = Array.isArray(deal.actions) ? deal.actions : [];
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const a = actions[i];
+    if (typeof a?.action === "string" && a.action.startsWith("Смена статуса:")) {
+      return a.actionAt || null;
+    }
+  }
+  return deal.applicationDate || deal.createdAt || null;
+}
+
+function pluralDaysRu(n) {
+  const abs = Math.abs(n) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return "дней";
+  if (last === 1) return "день";
+  if (last >= 2 && last <= 4) return "дня";
+  return "дней";
+}
+
+// «Закинули лид · 1 день» — сколько заявка сидит в текущем статусе
+function stageDurationLabel(deal) {
+  const from = dealStageEnteredAt(deal);
+  if (!from) return "";
+  const days = daysSince(from);
+  if (days == null || Number.isNaN(days)) return "";
+  return days <= 0 ? "сегодня" : `${days} ${pluralDaysRu(days)}`;
+}
+
 function renderBoardApplicationRows(applications, groupBy) {
   if (!applications.length) {
     return `<div class="empty compact-empty">Заявок нет.</div>`;
@@ -4613,7 +4644,10 @@ function renderBoardApplicationRows(applications, groupBy) {
           return `
             <article class="deal-card is-${tone}">
               <header class="deal-card-head">
-                <span class="deal-card-stage is-${tone}">${escapeHtml(deal.stageLabel || "—")}</span>
+                <span class="deal-card-stage is-${tone}" title="Время в текущем статусе">${escapeHtml(deal.stageLabel || "—")}${(() => {
+                  const dur = stageDurationLabel(deal);
+                  return dur ? ` <span class="deal-card-stage-age">· ${dur}</span>` : "";
+                })()}</span>
                 ${Number(deal.submissionNumber) > 0 ? `<span class="submission-number" title="Номер поданной заявки">№ ${deal.submissionNumber}</span>` : ""}
                 ${ageBadge(ageDays)}
               </header>

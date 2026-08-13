@@ -4955,3 +4955,6 @@ button.donut-legend-row.is-clickable:hover {
   color: var(--muted);
 }
 .drill-table td.num, .drill-table th.num { text-align: right; white-space: nowrap; }
+
+/* Длительность текущего статуса в карточке заявки сводного отчёта */
+.deal-card-stage-age { opacity: 0.75; font-weight: 500; }

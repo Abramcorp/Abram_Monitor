@@ -180,3 +180,12 @@ test("completed clients stay visible until explicitly archived", () => {
   assert.doesNotMatch(appSource, /activeCount === 0 && client\.completedCount > 0/);
   assert.match(appSource, /const archivedClients = clientGroups\.filter\(\(client\) => client\.isArchived\)/);
 });
+
+test("карточка заявки в сводке показывает время в текущем статусе", () => {
+  // Момент входа в статус — последняя запись «Смена статуса:» из хронологии
+  assert.match(appSource, /function dealStageEnteredAt/);
+  assert.match(appSource, /a\.action\.startsWith\("Смена статуса:"\)/);
+  // Бейдж «Стадия · N дней» в карточке
+  assert.match(appSource, /stageDurationLabel/);
+  assert.match(appSource, /deal-card-stage-age/);
+});
