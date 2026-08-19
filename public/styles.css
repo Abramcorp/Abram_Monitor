@@ -178,6 +178,32 @@ button {
 .app-shell.sidebar-collapsed .sidebar-item { justify-content: center; padding: 0; }
 .app-shell.sidebar-collapsed .sidebar-collapse .sidebar-icon { transform: rotate(180deg); }
 
+/* Смежные сервисы (Печати, декларации, договоры) — отдельный блок
+   под разделами мониторинга, ссылки наружу */
+.sidebar-services {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-services[hidden] { display: none; }
+
+.sidebar-section-title {
+  padding: 0 10px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(207, 216, 227, 0.55);
+}
+
+.sidebar .sidebar-service {
+  text-decoration: none;
+  color: inherit;
+}
+
 .sidebar-footer {
   display: flex;
   flex-direction: column;

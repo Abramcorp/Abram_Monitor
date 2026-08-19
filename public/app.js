@@ -46,6 +46,7 @@ const state = {
 
 const app = document.querySelector("#app");
 const viewTabs = document.querySelector("#viewTabs");
+const serviceLinks = document.querySelector("#serviceLinks");
 const refreshButton = document.querySelector("#refreshButton");
 const newManagerButton = document.querySelector("#newManagerButton");
 const newClientButton = document.querySelector("#newClientButton");
@@ -130,6 +131,35 @@ const VIEWS = [
   { id: "document-requests", label: "Запросы документов", allowedRoles: ["admin", "documents_officer"] },
   { id: "admin-panel", label: "Панель управления", allowedRoles: ["admin"] }
 ];
+
+// Смежные сервисы Абрамкорпа в сайдбаре. «Печати» (STAMP) и «Формирование
+// декларации» (EDO) закрыты учётной записью Монитора: ведём их через
+// /sso/authorize — базовый адрес берётся из SSO_SERVICES на сервере, тикет
+// выдаётся уже вошедшему пользователю (src/sso.js). Договоры — статический
+// GitHub Pages, идут прямой ссылкой.
+const SERVICE_LINKS = [
+  {
+    key: "stamp",
+    label: "Печати",
+    href: "/sso/authorize?service=stamp",
+    icon: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M10 2a4 4 0 0 0-3.66 5.62c.35.79.52 1.3.52 1.63 0 .38-.3.5-.86.5H5a1 1 0 1 0 0 2h10a1 1 0 1 0 0-2h-1c-.56 0-.86-.12-.86-.5 0-.33.17-.84.52-1.63A4 4 0 0 0 10 2ZM4.5 14h11a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1Z"/></svg>`
+  },
+  {
+    key: "edo",
+    label: "Формирование декларации",
+    href: "/sso/authorize?service=edo",
+    icon: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2h6.59a1 1 0 0 1 .7.3l3.42 3.4a1 1 0 0 1 .29.71V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm6 1.5V7h3.5L11 3.5ZM7.8 9.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm4.4 3.4a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm.5-3.4a1 1 0 0 0-1.4-1.4l-5 5a1 1 0 1 0 1.4 1.4l5-5Z"/></svg>`
+  },
+  {
+    key: "dogovor",
+    label: "Формирование договоров",
+    href: "https://abramcorp.github.io/Dogovor/",
+    icon: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2h6.59a1 1 0 0 1 .7.3l3.42 3.4a1 1 0 0 1 .29.71v2.3l-2 2V7h-3.5a1 1 0 0 1-1-1V4H6v12h4.2l-.2.78V18H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm11.9 7.4a1 1 0 0 1 1.4 1.4l-.75.75-1.4-1.4.75-.75Zm-1.45 2.16 1.4 1.4-3.9 3.9a1 1 0 0 1-.44.26l-1.85.5a.5.5 0 0 1-.62-.61l.5-1.86a1 1 0 0 1 .26-.44l3.9-3.9Z"/></svg>`
+  }
+];
+// Партнёрский контур в смежные сервисы не пускаем — зеркало DENIED_ROLES
+// из src/sso.js (сервер всё равно отдаст 403, но кнопку не показываем).
+const SERVICE_DENIED_ROLES = new Set(["partner", "service_analytics"]);
 
 // Типы личных TG-оповещений (зеркало src/users.js NOTIFY_PREF_KEYS);
 // какие приходят пользователю — задаёт админ в Панели управления
@@ -1064,6 +1094,33 @@ function renderViewTabs() {
       render();
     });
   });
+
+  renderServiceLinks();
+}
+
+// Блок «Сервисы» под разделами мониторинга: обычные ссылки, открываются
+// в новой вкладке — Монитор остаётся на месте.
+function renderServiceLinks() {
+  if (!serviceLinks) {
+    return;
+  }
+  const role = currentRole();
+  const allowed = Boolean(role) && !SERVICE_DENIED_ROLES.has(role);
+  serviceLinks.hidden = !allowed;
+  serviceLinks.innerHTML = allowed
+    ? `
+      <span class="sidebar-section-title sidebar-label">Сервисы</span>
+      ${SERVICE_LINKS.map(
+        (service) => `
+          <a class="sidebar-item sidebar-service" href="${escapeHtml(service.href)}"
+             target="_blank" rel="noopener noreferrer" title="${escapeHtml(service.label)}">
+            <span class="sidebar-icon" aria-hidden="true">${service.icon}</span>
+            <span class="sidebar-label">${escapeHtml(service.label)}</span>
+          </a>
+        `
+      ).join("")}
+    `
+    : "";
 }
 
 // Числовые индикаторы «требует внимания» на пунктах сайдбара
