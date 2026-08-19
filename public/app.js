@@ -2262,6 +2262,7 @@ function renderWsClientGrid(manager) {
         <strong>${escapeHtml(c.client)}</strong>
         ${renderClientStageBreakdown(c)}
         <span class="muted">${renderClientKiBadge(c)}</span>
+        ${renderClientLinks(c)}
       </div>
     </div>
   `;
@@ -2321,6 +2322,7 @@ function renderManagerClientView() {
     // здесь только рабочая область с заявками (правка по скринам 11.08)
     body = `
       <div class="client-drilldown ws-client-workspace">
+        ${renderClientLinks(selectedClient)}
         ${renderClientActions(selectedClient, { allowAddApplication: true, allowArchive: true })}
         ${renderClientTaskList(selectedClient)}
         ${renderClientApplicationSections(selectedClient)}
@@ -6299,7 +6301,10 @@ function bindDynamicControls() {
     });
   });
   app.querySelectorAll("[data-ws-client]").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (event) => {
+      // Ссылки CRM/Диск/Инструкция внутри карточки открываются сами —
+      // клик по ним не должен ещё и проваливать в карточку клиента.
+      if (event.target.closest("a")) return;
       state.wsClient = el.dataset.wsClient;
       render();
     });
