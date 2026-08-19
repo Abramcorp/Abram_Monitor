@@ -60,6 +60,7 @@ const {
 } = require("./src/store");
 const users = require("./src/users");
 const { defaultStore: sessionStore } = require("./src/sessions");
+const sso = require("./src/sso");
 const googleDrive = require("./src/googleDrive");
 const telegram = require("./src/telegram");
 const eventBus = require("./src/eventBus");
@@ -2722,11 +2723,144 @@ async function handleApi(request, response) {
   sendJson(response, 404, { error: "API route not found" });
 }
 
+// ── Единый вход в смежные сервисы ────────────────────────────────────────────
+// Сервис (макеты печатей, ЭДО) присылает сюда пользователя, Монитор проверяет
+// свою сессию и возвращает его обратно с подписанным тикетом. Сессии Монитора
+// живут в памяти процесса, поэтому снаружи их проверить нельзя.
+const SSO_SERVICES = sso.parseServices(process.env.SSO_SERVICES || "");
+
+function ssoPage(title, body, statusCode = 200) {
+  return {
+    statusCode,
+    html: `<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
+<style>
+ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:#f4f5f7;color:#1c1f24;font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+ .card{background:#fff;border:1px solid #d9dce1;border-radius:10px;padding:26px 28px;
+       width:min(360px,92vw);box-shadow:0 6px 24px rgba(20,24,32,.08)}
+ h1{font-size:17px;margin:0 0 6px}
+ p{color:#666e79;margin:0 0 18px;font-size:14px}
+ label{display:block;margin-bottom:12px}
+ label span{display:block;font-size:12px;color:#666e79;margin-bottom:4px}
+ input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #d9dce1;
+       border-radius:6px;font:inherit}
+ button{width:100%;padding:10px;border:0;border-radius:6px;background:#1f5fbf;color:#fff;
+        font:inherit;cursor:pointer}
+ .err{color:#b3261e;font-size:13px;min-height:18px;margin-top:10px}
+ a{color:#1f5fbf}
+</style></head><body><div class="card">${body}</div></body></html>`
+  };
+}
+
+function ssoLoginPage(serviceId) {
+  const safeService = String(serviceId || "").replace(/[^a-z0-9_-]/gi, "");
+  return ssoPage(
+    "Вход",
+    `<h1>Вход в Монитор</h1>
+     <p>Сервис «${safeService}» доступен только сотрудникам: войдите учётной записью Монитора.</p>
+     <form id="f">
+       <label><span>Логин</span><input name="login" autocomplete="username" autofocus></label>
+       <label><span>Пароль</span><input name="password" type="password" autocomplete="current-password"></label>
+       <button type="submit">Войти</button>
+       <div class="err" id="e"></div>
+     </form>
+     <script>
+      document.getElementById("f").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = new FormData(event.target);
+        const res = await fetch("/api/auth/login", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({login: data.get("login"), password: data.get("password")})
+        });
+        if (res.ok) { location.reload(); return; }
+        const body = await res.json().catch(() => ({}));
+        document.getElementById("e").textContent = body.error || "Не удалось войти";
+      });
+     </script>`,
+    401
+  );
+}
+
+async function handleSso(request, response) {
+  const url = new URL(request.url, `http://${request.headers.host}`);
+
+  if (request.method === "GET" && url.pathname === "/sso/services") {
+    requireAuth(request);
+    sendJson(response, 200, {
+      services: [...SSO_SERVICES.keys()],
+      allowed: sso.isRoleAllowed(request.user.role)
+    });
+    return;
+  }
+
+  if (request.method !== "GET" || url.pathname !== "/sso/authorize") {
+    sendJson(response, 404, { error: "SSO route not found" });
+    return;
+  }
+
+  const serviceId = String(url.searchParams.get("service") || "").trim().toLowerCase();
+  const base = SSO_SERVICES.get(serviceId);
+  const secret = process.env.SSO_SHARED_SECRET || "";
+
+  if (!base) {
+    const page = ssoPage("Сервис не найден",
+      `<h1>Сервис не подключён</h1><p>«${serviceId || "—"}» нет в списке разрешённых.
+       Проверьте переменную SSO_SERVICES.</p>`, 404);
+    response.writeHead(page.statusCode, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(page.html);
+    return;
+  }
+  if (!secret) {
+    const page = ssoPage("Вход не настроен",
+      `<h1>Единый вход не настроен</h1><p>Не задан SSO_SHARED_SECRET.</p>`, 503);
+    response.writeHead(page.statusCode, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(page.html);
+    return;
+  }
+
+  const redirect = String(url.searchParams.get("redirect") || `${base}/sso/callback`);
+  if (!sso.isAllowedRedirect(redirect, base)) {
+    const page = ssoPage("Неверный адрес возврата",
+      `<h1>Неверный адрес возврата</h1><p>Возврат разрешён только на ${base}.</p>`, 400);
+    response.writeHead(page.statusCode, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(page.html);
+    return;
+  }
+
+  if (!request.user) {
+    const page = ssoLoginPage(serviceId);
+    response.writeHead(page.statusCode, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(page.html);
+    return;
+  }
+
+  if (!sso.isRoleAllowed(request.user.role)) {
+    const page = ssoPage("Доступ закрыт",
+      `<h1>Доступ закрыт</h1><p>Роль «${request.user.role}» не имеет доступа к сервису
+       «${serviceId}». <a href="/">Вернуться в Монитор</a></p>`, 403);
+    response.writeHead(page.statusCode, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(page.html);
+    return;
+  }
+
+  const ticket = sso.createTicket(request.user, { audience: serviceId, secret });
+  const target = new URL(redirect);
+  target.searchParams.set("ticket", ticket);
+  response.writeHead(302, { Location: target.toString() });
+  response.end();
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.url.startsWith("/api/")) {
       await attachUser(request);
       await handleApi(request, response);
+      return;
+    }
+    if (request.url.startsWith("/sso/")) {
+      await attachUser(request);
+      await handleSso(request, response);
       return;
     }
     serveStatic(request, response);
