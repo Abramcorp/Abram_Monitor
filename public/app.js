@@ -1090,7 +1090,10 @@ function renderViewTabs() {
       if (attention > 0) {
         classes.push("has-attention");
         if (view.id === "document-requests") classes.push("has-doc-pending");
-        badge = `<span class="tab-counter">${attention > 99 ? "99+" : attention}</span>`;
+        // «Клиенты в работе»: счётчик личных действий — мигает, чтобы его
+        // было видно в свёрнутом меню.
+        const counterClass = view.id === "funnels" ? "tab-counter is-pulsing" : "tab-counter";
+        badge = `<span class="${counterClass}">${attention > 99 ? "99+" : attention}</span>`;
       }
       const icon = VIEW_ICONS[view.id] || VIEW_ICONS.summary;
       return `<button class="${classes.join(" ")}" data-view="${view.id}" type="button" title="${view.label}">
@@ -1152,17 +1155,36 @@ function viewAttentionCount(viewId) {
       (t) => !t.completedAt && t.dueAt && new Date(t.dueAt) <= now
     ).length;
   }
-  // «Клиенты в работе» — сколько действий ждёт аналитика: заявки без
-  // сегодняшней проверки статуса + живые запросы документов. Считаем по
-  // плоским спискам (а не по группировке) — это тот же итог, но дешевле.
+  // «Клиенты в работе» — сколько действий ждёт лично этого пользователя:
+  // заявки без сегодняшней проверки статуса + живые запросы документов, но
+  // только по его собственным клиентам. Считаем по плоским спискам (а не по
+  // группировке) — это тот же итог, но дешевле.
   if (viewId === "funnels") {
-    const unchecked = (state.dashboard?.deals || []).filter(dealNeedsCheck).length;
+    const mine = currentUserManagerKeys();
+    const isMine = (managerName) => !mine.size || mine.has(compareKey(managerName));
+    const unchecked = (state.dashboard?.deals || []).filter(
+      (deal) => isMine(deal.manager) && dealNeedsCheck(deal)
+    ).length;
     const docs = (state.documentRequests || []).filter(
-      (req) => req.status === "open" || req.status === "fulfilled"
+      (req) => isMine(req.manager) && (req.status === "open" || req.status === "fulfilled")
     ).length;
     return unchecked + docs;
   }
   return 0;
+}
+
+// Аналитики текущей учётки: сначала по привязке userId (её ставит админ
+// в «Панели управления»), иначе — по совпадению ФИО. Пустое множество =
+// у пользователя нет своей карточки аналитика (обычно админ), тогда
+// счётчик показывает всё, что он и так видит в каскаде.
+function currentUserManagerKeys() {
+  const list = state.managers || [];
+  const userId = state.user?.id || "";
+  const linked = userId ? list.filter((manager) => manager.userId === userId) : [];
+  const source = linked.length
+    ? linked
+    : list.filter((manager) => compareKey(manager.name) === compareKey(state.user?.fullName));
+  return new Set(source.map((manager) => compareKey(manager.name)).filter(Boolean));
 }
 
 

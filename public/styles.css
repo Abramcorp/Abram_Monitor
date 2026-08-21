@@ -4727,6 +4727,21 @@ details.client-application-card.is-flash > summary {
   font-weight: 700;
   line-height: 1;
 }
+/* Счётчик личных действий («Клиенты в работе») мигает — его ждут к разбору */
+.sidebar .tab-counter.is-pulsing {
+  animation: sidebar-counter-pulse 1.4s ease-out infinite;
+}
+
+@keyframes sidebar-counter-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(229, 72, 77, 0.65); }
+  70%  { box-shadow: 0 0 0 8px rgba(229, 72, 77, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(229, 72, 77, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar .tab-counter.is-pulsing { animation: none; }
+}
+
 /* В свёрнутом меню бейдж — поверх правого верхнего угла иконки */
 .app-shell.sidebar-collapsed .sidebar .tab-counter {
   position: absolute;
