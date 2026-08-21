@@ -701,6 +701,19 @@ function managerUncheckedClientNames(manager) {
   return out;
 }
 
+// «Действия к выполнению» по клиенту: непроверенные сегодня активные заявки
+// + живые запросы документов (открытые и собранные, но не подтверждённые).
+// По этому счётчику карточка клиента мигает, а в сайдбаре горит бейдж.
+function clientActionCount(client) {
+  if (!client || client.isArchived) return 0;
+  const docs = summarizeDocRequests(documentRequestsForClient(client.manager || "", client.client));
+  return clientUncheckedCount(client.applications || []) + docs.open + docs.fulfilled;
+}
+
+function managerActionCount(manager) {
+  return (manager?.clients || []).reduce((total, client) => total + clientActionCount(client), 0);
+}
+
 function getStageDateRequirements(stage, currentStage = "") {
   const requirements = [];
   if (LEAD_BUCKET_STAGES.has(stage)) {
@@ -1138,6 +1151,16 @@ function viewAttentionCount(viewId) {
     return (state.tasks || []).filter(
       (t) => !t.completedAt && t.dueAt && new Date(t.dueAt) <= now
     ).length;
+  }
+  // «Клиенты в работе» — сколько действий ждёт аналитика: заявки без
+  // сегодняшней проверки статуса + живые запросы документов. Считаем по
+  // плоским спискам (а не по группировке) — это тот же итог, но дешевле.
+  if (viewId === "funnels") {
+    const unchecked = (state.dashboard?.deals || []).filter(dealNeedsCheck).length;
+    const docs = (state.documentRequests || []).filter(
+      (req) => req.status === "open" || req.status === "fulfilled"
+    ).length;
+    return unchecked + docs;
   }
   return 0;
 }
@@ -1985,7 +2008,7 @@ function renderManagerGroups(deals) {
               <div class="client-stack">
                 ${manager.clients
                   .map((client) => {
-                    const clientDeliveryClass = clientHasDocDelivery(client) ? " has-doc-delivery" : "";
+                    const clientDeliveryClass = `${clientHasDocDelivery(client) ? " has-doc-delivery" : ""}${clientActionCount(client) ? " has-actions" : ""}`;
                     return `
                       <details class="client-card${clientDeliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("current-client", manager.manager, client.client))}">
                         <summary>
@@ -2019,7 +2042,7 @@ function renderClientCards(clients, emptyText, options = {}) {
     <div class="client-stack">
       ${clients
         .map((client) => {
-          const deliveryClass = clientHasDocDelivery(client) ? " has-doc-delivery" : "";
+          const deliveryClass = `${clientHasDocDelivery(client) ? " has-doc-delivery" : ""}${clientActionCount(client) ? " has-actions" : ""}`;
           return `
             <details class="client-card${deliveryClass}" data-ui-state-key="${escapeHtml(uiStateKey("client", client.manager || "", client.client, settings.showArchivedAt ? "archive" : "active"))}">
               <summary>
@@ -2273,6 +2296,23 @@ function wsCrumb(label, value, resetAttr) {
   `;
 }
 
+// Красный счётчик действий в углу карточки каскада (аналитик/клиент).
+function renderActionCounter(count) {
+  if (!count) {
+    return "";
+  }
+  return `<span class="ws-card-actions" title="Действий к выполнению: ${count}"
+    aria-label="Действий к выполнению: ${count}">${count > 99 ? "99+" : count}</span>`;
+}
+
+// Каскад «Клиенты в работе» показывает ВСЕХ неархивных клиентов аналитика.
+// Раньше здесь брался currentClients (только с активными заявками), и клиент
+// пропадал из меню, как только закрывали его последнюю заявку — уйти из
+// каскада он должен только через архив.
+function workspaceClients(manager) {
+  return manager?.clients || [];
+}
+
 function renderWsManagerGrid(managers) {
   const abram = [];
   const partners = [];
@@ -2284,15 +2324,17 @@ function renderWsManagerGrid(managers) {
     else other.push(manager);
   }
   const card = (m) => {
-    const clients = m.currentClients || m.clients || [];
+    const clients = workspaceClients(m);
+    const actions = managerActionCount(m);
     return `
-      <button class="ws-card" data-ws-manager="${escapeHtml(m.manager)}" type="button">
+      <button class="ws-card${actions ? " has-actions" : ""}" data-ws-manager="${escapeHtml(m.manager)}" type="button">
         <span class="ws-card-avatar">${escapeHtml(userInitials({ fullName: m.manager }))}</span>
         <span class="ws-card-body">
           <strong>${escapeHtml(m.manager)}</strong>
           <span class="muted">${clients.length} клиентов · лиды ${m.leadCount || 0} · в работе ${m.workingCount || 0}</span>
           <span class="muted">${money(m.leadAmountRequested || 0)} · ${money(m.workingAmountRequested || 0)}</span>
         </span>
+        ${renderActionCounter(actions)}
       </button>
     `;
   };
@@ -2306,23 +2348,27 @@ function renderWsManagerGrid(managers) {
 }
 
 function renderWsClientGrid(manager) {
-  const clients = manager.currentClients || manager.clients || [];
+  const clients = workspaceClients(manager);
   if (!clients.length) {
     return `<div class="empty">У аналитика нет клиентов в работе.</div>`;
   }
   // Крупные карточки с полной детализацией стадий и запросов КИ —
   // разворот именно на шаге выбора клиента (правка по скринам 11.08).
   // div[role=button]: внутри block-контент, который недопустим в <button>
-  const card = (c) => `
-    <div class="ws-card ws-card-client" data-ws-client="${escapeHtml(c.client)}" role="button" tabindex="0">
+  const card = (c) => {
+    const actions = clientActionCount(c);
+    return `
+    <div class="ws-card ws-card-client${actions ? " has-actions" : ""}" data-ws-client="${escapeHtml(c.client)}" role="button" tabindex="0">
       <div class="ws-card-body">
         <strong>${escapeHtml(c.client)}</strong>
         ${renderClientStageBreakdown(c)}
         <span class="muted">${renderClientKiBadge(c)}</span>
         ${renderClientLinks(c)}
       </div>
+      ${renderActionCounter(actions)}
     </div>
   `;
+  };
   return `<div class="ws-grid ws-grid-clients">${clients.map(card).join("")}</div>`;
 }
 
@@ -2353,7 +2399,7 @@ function renderManagerClientView() {
   }
 
   const selectedManager = managers.find((m) => m.manager === state.wsManager) || null;
-  const clients = selectedManager ? (selectedManager.currentClients || selectedManager.clients || []) : [];
+  const clients = selectedManager ? workspaceClients(selectedManager) : [];
   const selectedClient = selectedManager
     ? clients.find((c) => c.client === state.wsClient) || null
     : null;
