@@ -46,6 +46,21 @@ test("webhook отмечает приём запроса в работу и гл
   assert.match(serverSource, /Кнопка устарела: приём пакета подтверждается в Мониторе/);
 });
 
+test("отбивка «Принято» уходит в тот же чат и подписана ником нажавшего", () => {
+  const fn = telegramSource.slice(
+    telegramSource.indexOf("function notifyDocRequestAcknowledged"),
+    telegramSource.indexOf("function notifyDocRequestConfirmed")
+  );
+  assert.match(fn, /actor\?\.username\s*\n?\s*\? `@\$\{escapeHtml\(actor\.username\)\}`/);
+  assert.match(fn, /sendTelegramMessage\(text, \{ chatId, topicId:/);
+  // Чат и топик берём из самого callback-сообщения.
+  assert.match(serverSource, /const chatId = source\.chat\?\.id \? String\(source\.chat\.id\) : "";/);
+  assert.match(serverSource, /const topicId = source\.message_thread_id/);
+  assert.match(serverSource, /notifyDocRequestAcknowledged\(updated, \{ actor, chatId, topicId \}\)/);
+  // Ник попадает и в отметку, которую видно в Мониторе.
+  assert.match(serverSource, /name = `\$\{realName\} \(@\$\{username\}\)`/);
+});
+
 test("напоминание раз в 2 часа обновляет сообщение с запросом, пока никто не принял", () => {
   const job = serverSource.slice(
     serverSource.indexOf("async function performDocumentAcceptanceReminders"),

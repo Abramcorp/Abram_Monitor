@@ -461,14 +461,18 @@ function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], total
 
 // Запрос взяли в работу — короткая отбивка в тот же топик, чтобы в группе
 // было видно, кто ответственный.
-function notifyDocRequestAcknowledged(req, { actor, topicId } = {}) {
+function notifyDocRequestAcknowledged(req, { actor, chatId, topicId } = {}) {
   if (!isEnabled() || !req) return null;
-  const text = `🤝 <b>Запрос принят в работу</b>\n`
+  const who = actor?.username
+    ? `@${escapeHtml(actor.username)}`
+    : escapeHtml(actor?.fullName || req.acknowledgedBy || "—");
+  const text = `🤝 <b>Принято</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
     + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
     + `Аналитик: ${escapeHtml(req.manager)}\n`
-    + `Принял: ${escapeHtml(actor?.fullName || req.acknowledgedBy || "—")}`;
-  return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
+    + `Принял: ${who}`;
+  // chatId — чат, где нажали кнопку; без него уходим в общий топик документов.
+  return sendTelegramMessage(text, { chatId, topicId: topicId || (chatId ? "" : TOPIC_DOCUMENTS) });
 }
 
 function notifyDocRequestConfirmed(req, { actor, topicId, amountRequested, amountApproved } = {}) {

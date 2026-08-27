@@ -1164,13 +1164,18 @@ async function handleAuth(request, response, pathname) {
 
 function telegramCallbackActor(callbackQuery = {}) {
   const user = callbackQuery.from || {};
-  const name = [user.first_name, user.last_name].filter(Boolean).join(" ").trim()
-    || user.username
-    || `Telegram ${user.id || ""}`.trim()
-    || "Telegram";
+  const username = String(user.username || "").trim();
+  const realName = [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+  // В чат должно уходить имя с ником — по нику в группе понятно, кто взял
+  // запрос. Если ника нет, остаётся только имя (или id).
+  let name;
+  if (username && realName) name = `${realName} (@${username})`;
+  else if (username) name = `@${username}`;
+  else name = realName || `Telegram ${user.id || ""}`.trim() || "Telegram";
   return {
     fullName: name,
-    login: user.id ? `telegram:${user.id}` : "telegram"
+    username,
+    login: username ? `telegram:@${username}` : (user.id ? `telegram:${user.id}` : "telegram")
   };
 }
 
@@ -1228,8 +1233,13 @@ async function handleTelegramWebhook(request, response) {
   await telegram.answerCallbackQuery(callbackQuery.id, "Принято в работу");
   sendJson(response, 200, { ok: true, acknowledged: true, documentRequest: updated });
   (async () => {
-    const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
-    await telegram.notifyDocRequestAcknowledged(updated, { actor, topicId });
+    // Отбивка идёт ровно туда, где нажали кнопку — тот же чат и тот же топик.
+    // Если Telegram почему-то не прислал сообщение, падаем на топик клиента.
+    const source = callbackQuery.message || {};
+    const chatId = source.chat?.id ? String(source.chat.id) : "";
+    const topicId = source.message_thread_id
+      || (chatId ? "" : await resolveClientTopicId(updated.clientName, updated.manager));
+    await telegram.notifyDocRequestAcknowledged(updated, { actor, chatId, topicId });
   })().catch((e) => console.warn("[telegram] callback ack notify:", e.message));
 }
 
