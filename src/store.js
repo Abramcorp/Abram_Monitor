@@ -1576,6 +1576,10 @@ function normalizeDocumentRequest(raw = {}) {
   const fulfilledAt = toIsoDate(raw.fulfilledAt);
   const deliveredAt = toIsoDate(raw.deliveredAt);
   const acceptanceReminderAt = toIsoDate(raw.acceptanceReminderAt);
+  // Отметка «запрос принят в работу» — её ставит кнопкой в топике документов
+  // тот, кто взял запрос. Статус запроса при этом не меняется: пока документы
+  // не собраны, он остаётся open, просто напоминания каждые 2 часа прекращаются.
+  const acknowledgedAt = toIsoDate(raw.acknowledgedAt);
   let status;
   if (deliveredAt) {
     status = "delivered";
@@ -1598,6 +1602,9 @@ function normalizeDocumentRequest(raw = {}) {
     openMessageId: cleanText(raw.openMessageId),
     acceptToken: cleanText(raw.acceptToken) || makeShortToken(),
     acceptanceReminderAt,
+    acknowledgedAt,
+    acknowledgedBy: cleanText(raw.acknowledgedBy),
+    acknowledgedByLogin: cleanText(raw.acknowledgedByLogin),
     partialUploadMessageIds: Array.isArray(raw.partialUploadMessageIds)
       ? raw.partialUploadMessageIds.map((v) => String(v == null ? "" : v)).filter(Boolean)
       : [],
@@ -1800,6 +1807,35 @@ async function setDocumentRequestAcceptanceReminderAt(id, reminderAt, acceptToke
     acceptanceReminderAt: toIsoDate(reminderAt) || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   });
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("document_requests", id, patch);
+    return updated ? normalizeDocumentRequest(updated) : null;
+  }
+  const list = getDocumentRequests();
+  const index = list.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  list[index] = patch(list[index]);
+  saveDocumentRequests(list);
+  return list[index];
+}
+
+// «Принял в работу» из топика документов. Идемпотентно: повторное нажатие
+// (или вторая кнопка из старого сообщения) ничего не перетирает.
+async function acknowledgeDocumentRequest(id, { actor } = {}) {
+  const now = await getMoscowNowIso();
+  const patch = (current) => {
+    if (current?.acknowledgedAt) {
+      return current;
+    }
+    return normalizeDocumentRequest({
+      ...current,
+      acknowledgedAt: now,
+      acknowledgedBy: cleanText(actor?.fullName),
+      acknowledgedByLogin: cleanText(actor?.login),
+      updatedAt: now
+    });
+  };
   if (postgresStore.isEnabled()) {
     await initStore();
     const updated = await postgresStore.updateRow("document_requests", id, patch);
@@ -2437,6 +2473,7 @@ module.exports = {
   createClient,
   createDeal,
   confirmDocumentRequest,
+  acknowledgeDocumentRequest,
   createDocumentRequest,
   isDuplicateDocumentRequest,
   createKnowledgeEntry,

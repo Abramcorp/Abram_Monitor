@@ -14,6 +14,7 @@ const {
   archiveClient,
   bulkBlockClientDeals,
   confirmDocumentRequest,
+  acknowledgeDocumentRequest,
   createBank,
   createClient,
   createDeal,
@@ -1186,7 +1187,16 @@ async function handleTelegramWebhook(request, response) {
   const update = await readBody(request);
   const callbackQuery = update.callback_query;
   const data = String(callbackQuery?.data || "");
-  const match = data.match(/^docreq_confirm:([^:]+):([a-f0-9]+)$/i);
+  // Старая кнопка «Подтвердить принятие» висела на пакете документов —
+  // приёмку пакета в Telegram больше не подтверждают, она закрывается
+  // в Мониторе. Отвечаем на такие нажатия, но ничего не меняем.
+  if (callbackQuery && /^docreq_confirm:/i.test(data)) {
+    await telegram.answerCallbackQuery(callbackQuery.id, "Кнопка устарела: приём пакета подтверждается в Мониторе");
+    sendJson(response, 200, { ok: true, ignored: true, legacy: true });
+    return;
+  }
+
+  const match = data.match(/^docreq_ack:([^:]+):([a-f0-9]+)$/i);
   if (!callbackQuery || !match) {
     sendJson(response, 200, { ok: true, ignored: true });
     return;
@@ -1196,33 +1206,31 @@ async function handleTelegramWebhook(request, response) {
   const existing = (await getDocumentRequests()).find((item) => item.id === reqId);
   if (!existing) {
     await telegram.answerCallbackQuery(callbackQuery.id, "Запрос не найден");
-    sendJson(response, 200, { ok: true, confirmed: false });
-    return;
-  }
-  if (existing.status === "delivered") {
-    await telegram.answerCallbackQuery(callbackQuery.id, "Уже подтверждено");
-    sendJson(response, 200, { ok: true, confirmed: true, already: true });
-    return;
-  }
-  if (existing.status !== "fulfilled") {
-    await telegram.answerCallbackQuery(callbackQuery.id, "Документы еще не готовы");
-    sendJson(response, 200, { ok: true, confirmed: false });
+    sendJson(response, 200, { ok: true, acknowledged: false });
     return;
   }
   if (!existing.acceptToken || existing.acceptToken !== token) {
     await telegram.answerCallbackQuery(callbackQuery.id, "Кнопка устарела");
-    sendJson(response, 200, { ok: true, confirmed: false });
+    sendJson(response, 200, { ok: true, acknowledged: false });
+    return;
+  }
+  if (existing.acknowledgedAt) {
+    await telegram.answerCallbackQuery(
+      callbackQuery.id,
+      `Уже принято: ${existing.acknowledgedBy || "—"}`
+    );
+    sendJson(response, 200, { ok: true, acknowledged: true, already: true });
     return;
   }
 
-  const updated = await confirmDocumentRequest(reqId, { actor: telegramCallbackActor(callbackQuery) });
-  await telegram.answerCallbackQuery(callbackQuery.id, "Принятие подтверждено");
-  sendJson(response, 200, { ok: true, confirmed: true, documentRequest: updated });
+  const actor = telegramCallbackActor(callbackQuery);
+  const updated = await acknowledgeDocumentRequest(reqId, { actor });
+  await telegram.answerCallbackQuery(callbackQuery.id, "Принято в работу");
+  sendJson(response, 200, { ok: true, acknowledged: true, documentRequest: updated });
   (async () => {
     const topicId = await resolveClientTopicId(updated.clientName, updated.manager);
-    const amounts = await resolveDealAmountsForDocRequest(updated);
-    await telegram.notifyDocRequestConfirmed(updated, { actor: telegramCallbackActor(callbackQuery), topicId, ...amounts });
-  })().catch((e) => console.warn("[telegram] callback confirm notify:", e.message));
+    await telegram.notifyDocRequestAcknowledged(updated, { actor, topicId });
+  })().catch((e) => console.warn("[telegram] callback ack notify:", e.message));
 }
 
 async function handleApi(request, response) {
@@ -2925,6 +2933,11 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
           try { await setDocumentRequestOpenMessageId(req.id, newMessageId); }
           catch (e) { tlog("save openMessageId failed:", e.message); }
         }
+        // Сообщение с кнопкой только что обновилось — 2-часовой отсчёт
+        // напоминания стартует заново.
+        if (sentRes && sentRes.ok !== false && !req.acknowledgedAt) {
+          await setDocumentRequestAcceptanceReminderAt(req.id, new Date().toISOString(), req.acceptToken);
+        }
         results.open += 1;
         results.details.push({ id: req.id, status: "open", clientName: req.clientName, processingDays, topicId });
       } else if (req.status === "fulfilled") {
@@ -2951,10 +2964,7 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
             }
           }
         }
-        const fulfilledResult = await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, ...amounts });
-        if (fulfilledResult && fulfilledResult.ok !== false) {
-          await setDocumentRequestAcceptanceReminderAt(req.id, new Date().toISOString(), req.acceptToken);
-        }
+        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, ...amounts });
         // На всякий случай добиваем оставшиеся partial-сообщения (если первый /fulfill
         // их не удалил из-за сетевой ошибки) — переотправка пакета должна давать
         // чистый топик с одним финальным сообщением.
@@ -3051,12 +3061,15 @@ async function performDocumentAcceptanceReminders({ trace = `doc-accept-${Date.n
     return { reminded: 0, total: 0, skipped: "weekend" };
   }
   const all = await getDocumentRequests();
+  // Ждём кнопку «Принял» под самим запросом в топике документов. Пока её
+  // никто не нажал, каждые 2 часа обновляем сообщение: старое удаляем,
+  // шлём заново — снова с кнопкой.
   const due = all.filter((req) => {
-    if (req.status !== "fulfilled" || req.deliveredAt || !req.fulfilledAt) {
+    if (req.status !== "open" || req.acknowledgedAt) {
       return false;
     }
-    const fulfilledAge = msSince(req.fulfilledAt);
-    if (fulfilledAge == null || fulfilledAge < DOC_ACCEPTANCE_REMINDER_AFTER_MS) {
+    const createdAge = msSince(req.createdAt);
+    if (createdAge == null || createdAge < DOC_ACCEPTANCE_REMINDER_AFTER_MS) {
       return false;
     }
     const reminderAge = req.acceptanceReminderAt ? msSince(req.acceptanceReminderAt) : null;
@@ -3066,22 +3079,25 @@ async function performDocumentAcceptanceReminders({ trace = `doc-accept-${Date.n
   let reminded = 0;
   for (const req of due) {
     try {
-      const [topicId, rawRecipientChatId, amounts] = await Promise.all([
+      const [topicId, amounts] = await Promise.all([
         resolveClientTopicId(req.clientName, req.manager),
-        resolveAnalystChatId(req.manager),
         resolveDealAmountsForDocRequest(req)
       ]);
-      const recipientChatId = rawRecipientChatId && (await chatAllowsNotify(rawRecipientChatId, "docPackage"))
-        ? rawRecipientChatId
-        : "";
+      if (req.openMessageId) {
+        await telegram.deleteMessage({ messageId: req.openMessageId }).catch(() => null);
+      }
       const processingDays = daysSinceCreated(req);
-      const result = await telegram.notifyDocRequestFulfilled(req, {
-        recipientChatId,
+      const result = await telegram.notifyDocRequestCreated(req, {
         topicId,
         processingDays,
         ...amounts
       });
       if (result && result.ok !== false) {
+        const newMessageId = result?.result?.message_id;
+        if (newMessageId) {
+          try { await setDocumentRequestOpenMessageId(req.id, newMessageId); }
+          catch (e) { tlog("save openMessageId failed:", e.message); }
+        }
         await setDocumentRequestAcceptanceReminderAt(req.id, new Date().toISOString(), req.acceptToken);
         reminded += 1;
       }

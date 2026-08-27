@@ -3219,6 +3219,9 @@ function renderDocumentRequestsView() {
           <time>${headTime}</time>
         </div>
         ${req.period ? `<div class="doc-request-period"><span>Период</span><strong>${escapeHtml(req.period)}</strong></div>` : ""}
+        ${req.acknowledgedAt
+          ? `<div class="doc-request-ack">Принял в работу: <strong>${escapeHtml(req.acknowledgedBy || "—")}</strong> · ${formatDate(req.acknowledgedAt)}</div>`
+          : (req.status === "open" ? `<div class="doc-request-ack is-waiting">Ждём «Принял» в Telegram · напоминание каждые 2 часа</div>` : "")}
         <div class="doc-request-items">${escapeHtml(req.items)}</div>
         ${attachmentsList}
         ${uploader}

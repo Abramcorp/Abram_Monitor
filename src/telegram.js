@@ -78,15 +78,19 @@ function amountLines({ amountRequested, amountApproved } = {}) {
   return out;
 }
 
-function documentRequestConfirmKeyboard(req) {
-  if (!req?.id || !req?.acceptToken) {
+// Кнопка «Принял» живёт на сообщении с САМИМ запросом документов в топике:
+// её жмёт тот, кто взял запрос в работу. Пока никто не нажал, запрос
+// переотправляется каждые 2 часа — снова с кнопкой. Уже принятый запрос
+// кнопку не несёт.
+function documentRequestAcceptKeyboard(req) {
+  if (!req?.id || !req?.acceptToken || req?.acknowledgedAt) {
     return null;
   }
   return {
     inline_keyboard: [[
       {
-        text: "Подтвердить принятие",
-        callback_data: `docreq_confirm:${req.id}:${req.acceptToken}`
+        text: "✅ Принял",
+        callback_data: `docreq_ack:${req.id}:${req.acceptToken}`
       }
     ]]
   };
@@ -298,8 +302,14 @@ function notifyDocRequestCreated(req, { topicId, processingDays, amountRequested
     + amountLines({ amountRequested, amountApproved })
     + periodLine
     + processingLine(processingDays)
-    + itemsBlock;
-  return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
+    + itemsBlock
+    + (req.acknowledgedAt
+      ? `\n\nПринял в работу: <b>${escapeHtml(req.acknowledgedBy || "—")}</b>`
+      : `\n\nНажмите «Принял», когда возьмёте запрос в работу.`);
+  return sendTelegramMessage(text, {
+    topicId: topicId || TOPIC_DOCUMENTS,
+    replyMarkup: documentRequestAcceptKeyboard(req)
+  });
 }
 
 // Отправка файла-документа. fileSource: { fileName, mimeType, stream } или { fileName, mimeType, buffer }
@@ -365,7 +375,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   if (!BOT_TOKEN || !req) return null;
   const isResend = typeof processingDays === "number";
   const headEmoji = isResend ? "🔁" : "📦";
-  const headText = isResend ? "Напоминание · документы ждут вашего подтверждения" : "Документы готовы к отправке";
+  const headText = isResend ? "Напоминание · документы собраны" : "Документы готовы к отправке";
   const periodLineF = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
   const text = `${headEmoji} <b>${headText}</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
@@ -376,11 +386,13 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
     + periodLineF
     + (actor?.fullName ? `Подготовил: ${escapeHtml(actor.fullName)}\n` : "")
     + processingLine(processingDays)
-    + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "")
-    + `Нажмите кнопку ниже, чтобы подтвердить принятие.`;
+    + (attachmentSources.length ? `Файлов в пакете: <b>${attachmentSources.length}</b>\n` : "");
   const targetChatId = recipientChatId || "";
   const groupTopicId = topicId || TOPIC_DOCUMENTS;
-  const replyMarkup = documentRequestConfirmKeyboard(req);
+  // Кнопки здесь нет: приёмку пакета в Telegram не подтверждают — она
+  // закрывается в самом Мониторе. В Telegram подтверждают только приём
+  // запроса в работу (кнопка на сообщении с запросом).
+  const replyMarkup = null;
   // Если файлов нет — просто текст (старое поведение).
   if (!attachmentSources.length) {
     if (targetChatId) {
@@ -444,6 +456,18 @@ function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], total
     + amountLines({ amountRequested, amountApproved })
     + `Всего файлов в пакете: <b>${totalCount}</b>\n`
     + `\n${filesBlock}${moreLine ? `\n${moreLine}` : ""}`;
+  return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
+}
+
+// Запрос взяли в работу — короткая отбивка в тот же топик, чтобы в группе
+// было видно, кто ответственный.
+function notifyDocRequestAcknowledged(req, { actor, topicId } = {}) {
+  if (!isEnabled() || !req) return null;
+  const text = `🤝 <b>Запрос принят в работу</b>\n`
+    + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`
+    + `Банк: <b>${escapeHtml(req.bank || "—")}</b>\n`
+    + `Аналитик: ${escapeHtml(req.manager)}\n`
+    + `Принял: ${escapeHtml(actor?.fullName || req.acknowledgedBy || "—")}`;
   return sendTelegramMessage(text, { topicId: topicId || TOPIC_DOCUMENTS });
 }
 
@@ -599,6 +623,7 @@ module.exports = {
   notifyDocRequestCreated,
   notifyDocRequestPartialUpload,
   notifyDocRequestFulfilled,
+  notifyDocRequestAcknowledged,
   notifyDocRequestConfirmed,
   notifyDealStageChange,
   notifyAnalystDailyCheck,
