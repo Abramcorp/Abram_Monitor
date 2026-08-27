@@ -654,29 +654,8 @@ async function updateKnowledgeProgram(programId, buildNext) {
   }
 }
 
-async function listProgramDiscoveries({ status = "", limit = 200 } = {}) {
-  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
-  const params = [];
-  let where = "";
-  if (String(status || "").trim()) {
-    params.push(String(status).trim());
-    where = `WHERE d.status = $${params.length}`;
-  }
-  params.push(safeLimit);
-  const result = await getPool().query(
-    `SELECT d.*, COALESCE(s.snapshot_count, 0)::int AS snapshot_count
-     FROM credit_analytics.program_discoveries d
-     LEFT JOIN (
-       SELECT discovery_id, count(*) AS snapshot_count
-       FROM credit_analytics.program_discovery_snapshots
-       GROUP BY discovery_id
-     ) s ON s.discovery_id = d.id
-     ${where}
-     ORDER BY d.updated_at DESC, d.id
-     LIMIT $${params.length}`,
-    params
-  );
-  return result.rows.map((row) => ({
+function mapProgramDiscoveryRow(row = {}) {
+  return {
     id: row.id,
     bank: row.bank,
     program: row.program,
@@ -689,9 +668,55 @@ async function listProgramDiscoveries({ status = "", limit = 200 } = {}) {
     lastSeenAt: row.last_seen_at?.toISOString?.() || "",
     officialVerifiedAt: row.official_verified_at?.toISOString?.() || "",
     currentSnapshotHash: row.current_snapshot_hash,
+    extracted: row.current_snapshot_extracted || {},
+    snapshot: {
+      contentHash: row.current_snapshot_hash || "",
+      capturedAt: row.current_snapshot_captured_at?.toISOString?.() || "",
+      title: row.current_snapshot_title || "",
+      snippet: row.current_snapshot_snippet || "",
+    },
     details: row.details || {},
     snapshotCount: Number(row.snapshot_count || 0)
-  }));
+  };
+}
+
+async function listProgramDiscoveries({ status = "", limit = 200 } = {}) {
+  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
+  const params = [];
+  let where = "";
+  if (String(status || "").trim()) {
+    params.push(String(status).trim());
+    where = `WHERE d.status = $${params.length}`;
+  }
+  params.push(safeLimit);
+  const result = await getPool().query(
+    `SELECT d.*, COALESCE(s.snapshot_count, 0)::int AS snapshot_count,
+            current_snapshot.current_snapshot_captured_at,
+            current_snapshot.current_snapshot_title,
+            current_snapshot.current_snapshot_snippet,
+            current_snapshot.current_snapshot_extracted
+     FROM credit_analytics.program_discoveries d
+     LEFT JOIN (
+       SELECT discovery_id, count(*) AS snapshot_count
+       FROM credit_analytics.program_discovery_snapshots
+       GROUP BY discovery_id
+     ) s ON s.discovery_id = d.id
+     LEFT JOIN LATERAL (
+       SELECT ps.captured_at AS current_snapshot_captured_at,
+              ps.title AS current_snapshot_title,
+              ps.snippet AS current_snapshot_snippet,
+              ps.extracted AS current_snapshot_extracted
+       FROM credit_analytics.program_discovery_snapshots ps
+       WHERE ps.discovery_id = d.id
+       ORDER BY (ps.content_hash = d.current_snapshot_hash) DESC, ps.captured_at DESC
+       LIMIT 1
+     ) current_snapshot ON true
+     ${where}
+     ORDER BY d.updated_at DESC, d.id
+     LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map(mapProgramDiscoveryRow);
 }
 
 async function upsertProgramDiscovery(item) {
@@ -867,6 +892,7 @@ module.exports = {
   insertKnowledgeProgram,
   insertRow,
   isEnabled,
+  mapProgramDiscoveryRow,
   listKnowledge,
   listProgramDiscoveries,
   listRows,

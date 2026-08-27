@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const postgresStore = require("../src/postgresStore");
 const {
   buildInitialCommentAction,
@@ -26,6 +27,41 @@ function restoreEnv(name, value) {
   }
   process.env[name] = value;
 }
+
+test("program discovery API returns the current extracted snapshot", () => {
+  const mapped = postgresStore.mapProgramDiscoveryRow({
+    id: "pd-1",
+    bank: "Уралсиб",
+    program: "Кредит для бизнеса",
+    source_type: "official",
+    source_url: "https://uralsib.ru/business/credit",
+    official_url: "https://uralsib.ru/business/credit",
+    status: "pilot",
+    confidence: "high",
+    current_snapshot_hash: "snapshot-current",
+    current_snapshot_captured_at: new Date("2026-07-28T18:00:00.000Z"),
+    current_snapshot_title: "Кредит до 30 млн",
+    current_snapshot_snippet: "Без залога, решение за 2 дня",
+    current_snapshot_extracted: {
+      maxAmountRub: 30_000_000,
+      collateralRequired: false,
+      decisionDays: 2
+    },
+    details: {},
+    snapshot_count: 2
+  });
+  assert.deepEqual(mapped.extracted, {
+    maxAmountRub: 30_000_000,
+    collateralRequired: false,
+    decisionDays: 2
+  });
+  assert.equal(mapped.snapshot.title, "Кредит до 30 млн");
+  assert.equal(mapped.snapshot.contentHash, "snapshot-current");
+
+  const source = fs.readFileSync(require.resolve("../src/postgresStore"), "utf8");
+  assert.match(source, /LEFT JOIN LATERAL[\s\S]+content_hash = d\.current_snapshot_hash/u);
+  assert.match(source, /ps\.extracted AS current_snapshot_extracted/u);
+});
 
 test("validateDealDates requires inquiry date for lead applications", () => {
   assert.throws(
