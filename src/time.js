@@ -139,6 +139,20 @@ async function getMoscowNowIso(options = {}) {
   return (await getMoscowNow(options)).iso;
 }
 
+// Суббота/воскресенье по Москве. По выходным Монитор молчит: ни плановых
+// рассылок, ни уведомлений по запросам документов в группы.
+function isMoscowWeekend(now = new Date()) {
+  try {
+    const weekday = new Intl.DateTimeFormat("en-US", {
+      timeZone: MOSCOW_TIME_ZONE,
+      weekday: "short"
+    }).format(now);
+    return weekday === "Sat" || weekday === "Sun";
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   MOSCOW_TIME_ZONE,
   MOSCOW_UTC_OFFSET,
@@ -148,6 +162,7 @@ module.exports = {
   clearMoscowTimeCache,
   getMoscowNow,
   getMoscowNowIso,
+  isMoscowWeekend,
   parseWorldTimePayload,
   toIsoDate
 };

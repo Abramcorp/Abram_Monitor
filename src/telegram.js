@@ -17,8 +17,18 @@ const TOPIC_DOCUMENTS = process.env.TELEGRAM_TOPIC_DOCUMENTS || "";
 // все его активные заявки проверены за день. Без топиков.
 const BOSS_CHAT_ID = process.env.TELEGRAM_BOSS_CHAT_ID || "";
 
+const { isMoscowWeekend } = require("./time");
+
 function isEnabled() {
   return Boolean(BOT_TOKEN && CHAT_ID);
+}
+
+// По субботам и воскресеньям группа с запросами документов молчит: новые
+// запросы, догрузки и готовые пакеты копятся до понедельника. Заглушаем
+// именно групповые отправки — личные сообщения аналитику и ответ на
+// нажатие кнопки в группе этим гейтом не режутся.
+function isDocGroupSilenced() {
+  return isMoscowWeekend();
 }
 
 function escapeHtml(value) {
@@ -286,6 +296,7 @@ async function deleteForumTopic(threadId, { chatId } = {}) {
 
 function notifyDocRequestCreated(req, { topicId, processingDays, amountRequested, amountApproved } = {}) {
   if (!isEnabled() || !req) return null;
+  if (isDocGroupSilenced()) return null;
   const itemsText = truncate(req.items || "");
   const itemsBlock = itemsText
     ? `\n<b>Что нужно:</b>\n${escapeHtml(itemsText)}`
@@ -393,13 +404,16 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   // закрывается в самом Мониторе. В Telegram подтверждают только приём
   // запроса в работу (кнопка на сообщении с запросом).
   const replyMarkup = null;
+  // По выходным группа молчит: остаётся только личная отправка аналитику,
+  // групповой фолбэк отключаем.
+  const groupAllowed = !isDocGroupSilenced();
   // Если файлов нет — просто текст (старое поведение).
   if (!attachmentSources.length) {
     if (targetChatId) {
       const res = await sendTelegramMessage(text, { chatId: targetChatId, replyMarkup });
       if (res && res.ok !== false) return res;
     }
-    if (!CHAT_ID) return null;
+    if (!CHAT_ID || !groupAllowed) return null;
     return sendTelegramMessage(text, { topicId: groupTopicId, replyMarkup });
   }
   // Файлы есть. Раньше caption с шапкой клеили к первому документу — но
@@ -407,7 +421,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   // получатель оставался без контекста. Теперь шапка идёт ОТДЕЛЬНЫМ
   // сообщением, документы — без caption.
   const usePersonal = Boolean(targetChatId);
-  const fallbackChatId = CHAT_ID;
+  const fallbackChatId = groupAllowed ? CHAT_ID : "";
 
   // Шапка: пробуем личку, при провале — в групповой топик.
   let headerSentToPersonal = false;
@@ -444,6 +458,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
 // всего: M». Не дублирует уведомления аналитику — только в топик.
 function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], totalCount = 0, actor, amountRequested, amountApproved } = {}) {
   if (!isEnabled() || !req) return null;
+  if (isDocGroupSilenced()) return null;
   const added = uploadedNames.length;
   if (added === 0) return null;
   const visibleNames = uploadedNames.slice(0, 5);
@@ -477,6 +492,7 @@ function notifyDocRequestAcknowledged(req, { actor, chatId, topicId } = {}) {
 
 function notifyDocRequestConfirmed(req, { actor, topicId, amountRequested, amountApproved } = {}) {
   if (!isEnabled() || !req) return null;
+  if (isDocGroupSilenced()) return null;
   const periodLineC = req.period ? `Период: <b>${escapeHtml(req.period)}</b>\n` : "";
   const text = `✅ <b>Документы получены</b>\n`
     + `Клиент: <b>${escapeHtml(req.clientName)}</b>\n`

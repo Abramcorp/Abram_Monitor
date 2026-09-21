@@ -84,3 +84,22 @@ test("store хранит отметку о приёме запроса в раб
   assert.doesNotMatch(fn, /status:/);
   assert.match(fn, /if \(current\?\.acknowledgedAt\)/);
 });
+
+test("по выходным группа запросов документов молчит", () => {
+  assert.match(telegramSource, /const \{ isMoscowWeekend \} = require\("\.\/time"\);/);
+  assert.match(telegramSource, /function isDocGroupSilenced\(\) \{[\s\S]*?return isMoscowWeekend\(\);/);
+  // Групповые уведомления по запросу документов гейтим все до одного.
+  for (const fn of ["notifyDocRequestCreated", "notifyDocRequestPartialUpload", "notifyDocRequestConfirmed"]) {
+    const body = telegramSource.slice(telegramSource.indexOf(`function ${fn}(`));
+    assert.match(body.slice(0, 400), /if \(isDocGroupSilenced\(\)\) return null;/, fn);
+  }
+  // У готового пакета глушится только групповая ветка — личка аналитику остаётся.
+  const fulfilled = telegramSource.slice(
+    telegramSource.indexOf("async function notifyDocRequestFulfilled"),
+    telegramSource.indexOf("function notifyDocRequestPartialUpload")
+  );
+  assert.match(fulfilled, /const groupAllowed = !isDocGroupSilenced\(\);/);
+  assert.match(fulfilled, /if \(!CHAT_ID \|\| !groupAllowed\) return null;/);
+  assert.match(fulfilled, /const fallbackChatId = groupAllowed \? CHAT_ID : "";/);
+  assert.match(fulfilled, /sendTelegramMessage\(text, \{ chatId: targetChatId, replyMarkup \}\)/);
+});

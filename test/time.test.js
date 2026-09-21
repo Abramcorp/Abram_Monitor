@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { clearMoscowTimeCache, getMoscowNow, parseWorldTimePayload, toIsoDate } = require("../src/time");
+const { clearMoscowTimeCache, getMoscowNow, isMoscowWeekend, parseWorldTimePayload, toIsoDate } = require("../src/time");
 
 test("toIsoDate treats datetime-local input as Moscow time", () => {
   assert.equal(toIsoDate("2026-05-19T10:30"), "2026-05-19T07:30:00.000Z");
@@ -71,4 +71,15 @@ test("getMoscowNow reuses the shared internet time check briefly", async (contex
   assert.equal(second.source, "worldtimeapi");
   assert.equal(second.checkedAt, first.checkedAt);
   assert.ok(new Date(second.iso).getTime() >= new Date(first.iso).getTime());
+});
+
+test("isMoscowWeekend считает выходные по московскому календарю", () => {
+  // 2026-09-19 — суббота, 2026-09-20 — воскресенье, 2026-09-21 — понедельник.
+  assert.equal(isMoscowWeekend(new Date("2026-09-19T12:00:00Z")), true);
+  assert.equal(isMoscowWeekend(new Date("2026-09-20T12:00:00Z")), true);
+  assert.equal(isMoscowWeekend(new Date("2026-09-21T12:00:00Z")), false);
+  // Граница суток: 21:30 UTC пятницы — это уже 00:30 субботы в Москве.
+  assert.equal(isMoscowWeekend(new Date("2026-09-18T21:30:00Z")), true);
+  // И наоборот: 21:30 UTC воскресенья — уже понедельник в Москве.
+  assert.equal(isMoscowWeekend(new Date("2026-09-20T21:30:00Z")), false);
 });

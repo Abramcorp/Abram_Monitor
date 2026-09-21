@@ -6,7 +6,7 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");
 const { calculateDashboard } = require("./src/analytics");
-const { getMoscowNow } = require("./src/time");
+const { getMoscowNow, isMoscowWeekend } = require("./src/time");
 const {
   addDealAction,
   appendIntegrationAudit,
@@ -223,16 +223,10 @@ const BOSS_REPORT_DEBOUNCE_MS = 60 * 1000;
 
 // Выходные по МСК — тишина по всем автоматическим TG-уведомлениям.
 // Ручные действия админа (refresh-status) работают всегда.
+// Единая точка правды про выходные — src/time.js: её же использует
+// telegram.js, чтобы по субботам и воскресеньям молчали группы.
 function isMoscowWeekendNow() {
-  try {
-    const weekday = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Europe/Moscow",
-      weekday: "short"
-    }).format(new Date());
-    return weekday === "Sat" || weekday === "Sun";
-  } catch {
-    return false;
-  }
+  return isMoscowWeekend();
 }
 
 function scheduleBossClientReport(clientName, managerName, trigger = "checked") {
