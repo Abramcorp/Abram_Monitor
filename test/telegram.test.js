@@ -91,14 +91,16 @@ test("по выходным группа запросов документов �
   // Групповые уведомления по запросу документов гейтим все до одного.
   for (const fn of ["notifyDocRequestCreated", "notifyDocRequestPartialUpload", "notifyDocRequestConfirmed"]) {
     const body = telegramSource.slice(telegramSource.indexOf(`function ${fn}(`));
-    assert.match(body.slice(0, 400), /if \(isDocGroupSilenced\(\)\) return null;/, fn);
+    assert.match(body.slice(0, 400), /if \((?:!force && )?isDocGroupSilenced\(\)\) return null;/, fn);
   }
   // У готового пакета глушится только групповая ветка — личка аналитику остаётся.
   const fulfilled = telegramSource.slice(
     telegramSource.indexOf("async function notifyDocRequestFulfilled"),
     telegramSource.indexOf("function notifyDocRequestPartialUpload")
   );
-  assert.match(fulfilled, /const groupAllowed = !isDocGroupSilenced\(\);/);
+  assert.match(fulfilled, /const groupAllowed = force \|\| !isDocGroupSilenced\(\);/);
+  // Ручной resend админом гейт обходит — плановый (без actor) нет.
+  assert.match(serverSource, /notifyDocRequestCreated\(req, \{ topicId, processingDays, force: Boolean\(actor\)/);
   assert.match(fulfilled, /if \(!CHAT_ID \|\| !groupAllowed\) return null;/);
   assert.match(fulfilled, /const fallbackChatId = groupAllowed \? CHAT_ID : "";/);
   assert.match(fulfilled, /sendTelegramMessage\(text, \{ chatId: targetChatId, replyMarkup \}\)/);

@@ -294,9 +294,9 @@ async function deleteForumTopic(threadId, { chatId } = {}) {
   }
 }
 
-function notifyDocRequestCreated(req, { topicId, processingDays, amountRequested, amountApproved } = {}) {
+function notifyDocRequestCreated(req, { topicId, processingDays, amountRequested, amountApproved, force = false } = {}) {
   if (!isEnabled() || !req) return null;
-  if (isDocGroupSilenced()) return null;
+  if (!force && isDocGroupSilenced()) return null;
   const itemsText = truncate(req.items || "");
   const itemsBlock = itemsText
     ? `\n<b>Что нужно:</b>\n${escapeHtml(itemsText)}`
@@ -382,7 +382,7 @@ async function sendDocument({ chatId, topicId, fileSource, caption } = {}) {
   }
 }
 
-async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId, processingDays, amountRequested, amountApproved } = {}) {
+async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources = [], topicId, processingDays, amountRequested, amountApproved, force = false } = {}) {
   if (!BOT_TOKEN || !req) return null;
   const isResend = typeof processingDays === "number";
   const headEmoji = isResend ? "🔁" : "📦";
@@ -406,7 +406,7 @@ async function notifyDocRequestFulfilled(req, { actor, recipientChatId, attachme
   const replyMarkup = null;
   // По выходным группа молчит: остаётся только личная отправка аналитику,
   // групповой фолбэк отключаем.
-  const groupAllowed = !isDocGroupSilenced();
+  const groupAllowed = force || !isDocGroupSilenced();
   // Если файлов нет — просто текст (старое поведение).
   if (!attachmentSources.length) {
     if (targetChatId) {

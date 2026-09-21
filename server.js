@@ -2931,7 +2931,9 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
         if (req.openMessageId) {
           await telegram.deleteMessage({ messageId: req.openMessageId }).catch(() => null);
         }
-        const sentRes = await telegram.notifyDocRequestCreated(req, { topicId, processingDays, ...amounts });
+        // Ручной resend админом («🔄 Переотправить уведомления») проходит
+        // и в выходной — это осознанное действие, а не плановая рассылка.
+        const sentRes = await telegram.notifyDocRequestCreated(req, { topicId, processingDays, force: Boolean(actor), ...amounts });
         const newMessageId = sentRes?.result?.message_id;
         if (newMessageId) {
           try { await setDocumentRequestOpenMessageId(req.id, newMessageId); }
@@ -2968,7 +2970,7 @@ async function performResendActiveRequests({ actor = null, trace = `resend-${Dat
             }
           }
         }
-        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, ...amounts });
+        await telegram.notifyDocRequestFulfilled(req, { actor, recipientChatId, attachmentSources: sources, topicId, processingDays, force: Boolean(actor), ...amounts });
         // На всякий случай добиваем оставшиеся partial-сообщения (если первый /fulfill
         // их не удалил из-за сетевой ошибки) — переотправка пакета должна давать
         // чистый топик с одним финальным сообщением.
