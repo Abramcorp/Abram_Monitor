@@ -1144,11 +1144,13 @@ function renderServiceLinks() {
 // Числовые индикаторы «требует внимания» на пунктах сайдбара
 // (красный кружок; в свёрнутом меню — поверх иконки):
 //   Задачи — просроченные незавершённые;
-//   Запросы документов — открытые + собранные (не подтверждённые).
+//   Запросы документов — только документы, готовые к отправке.
+// Открытые запросы не считаем нигде: документы по ним ещё собирают,
+// действия они не ждут. Их видно списком в самом разделе.
 function viewAttentionCount(viewId) {
   if (viewId === "document-requests") {
     return Array.isArray(state.documentRequests)
-      ? state.documentRequests.filter((req) => req.status === "open" || req.status === "fulfilled").length
+      ? state.documentRequests.filter((req) => req.status === "fulfilled").length
       : 0;
   }
   if (viewId === "tasks") {
@@ -1251,15 +1253,14 @@ function summaryAlerts() {
     const due = new Date(t.dueAt || 0).getTime();
     return Number.isFinite(due) && due > 0 && due < now;
   }).length;
-  // 3. Документы на отправку (fulfilled, ожидают подтверждения)
+  // 3. Документы на отправку (fulfilled, ожидают подтверждения). Открытые
+  // запросы в «Требует внимания» не выносим — по ним ждут отдел документов,
+  // а не аналитика.
   const docFulfilled = (state.documentRequests || []).filter((r) => r.status === "fulfilled").length;
-  // 4. Открытые запросы документов (open)
-  const docOpen = (state.documentRequests || []).filter((r) => r.status === "open").length;
 
   const pills = [];
   if (overdueTasks > 0) pills.push({ tone: "danger", label: "Просрочено задач", value: overdueTasks });
   if (docFulfilled > 0) pills.push({ tone: "warning", label: "Документы на отправку", value: docFulfilled });
-  if (docOpen > 0)      pills.push({ tone: "warning", label: "Открытых запросов документов", value: docOpen });
 
   const hasStalledLeads = stalledLeadsList.length > 0;
   if (!hasStalledLeads && !pills.length) return "";
@@ -2705,7 +2706,10 @@ function renderApplicationProgramOptions() {
             .sort((left, right) => left.label.localeCompare(right.label, "ru"))
             .map((entry) => {
               const approved = programHasApproval(entry.program, entry.bank, approvedKeys);
-              return `<option value="${escapeHtml(entry.program.id)}"${approved ? ` class="has-approval"` : ""}>${escapeHtml(entry.label)}</option>`;
+              // Заливка option в выпадающем списке выглядит блёкло, поэтому
+              // ещё и галочка перед названием — её видно в любом браузере.
+              const label = `${approved ? "✅ " : ""}${entry.label}`;
+              return `<option value="${escapeHtml(entry.program.id)}"${approved ? ` class="has-approval"` : ""}>${escapeHtml(label)}</option>`;
             })
             .join("")}
         </optgroup>
@@ -2843,6 +2847,7 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
           </h4>
           <div class="knowledge-card-badges">
             <span class="badge badge-type">${escapeHtml(program.programType || "Стандарт")}</span>
+            ${approvedClass ? `<span class="badge badge-approval">✅ Есть опыт одобрения</span>` : ""}
           </div>
         </div>
       </summary>

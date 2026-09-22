@@ -2079,7 +2079,15 @@ textarea:focus-visible {
 }
 
 select option.has-approval {
-  background-color: #e8f7ec;
+  background-color: #d7f0de;
+  color: var(--green);
+  font-weight: 700;
+}
+
+.knowledge-card-head .badge-approval {
+  background: rgba(18, 128, 108, 0.14);
+  color: var(--green);
+  border-color: rgba(18, 128, 108, 0.3);
 }
 
 .knowledge-card-head {
