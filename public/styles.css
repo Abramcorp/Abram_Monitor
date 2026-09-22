@@ -2049,6 +2049,21 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+/* Светло-зелёная заливка = по программе уже есть одобренные заявки.
+   Тем же цветом подсвечены такие программы в селекторе заявки. */
+.knowledge-card.has-approval {
+  background: #e8f7ec;
+  border-color: rgba(18, 128, 108, 0.35);
+}
+
+.knowledge-card.has-approval .knowledge-card-body {
+  background: #fbfcfd;
+}
+
+select option.has-approval {
+  background-color: #e8f7ec;
+}
+
 .knowledge-card-head {
   display: flex;
   align-items: flex-start;

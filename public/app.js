@@ -702,12 +702,14 @@ function managerUncheckedClientNames(manager) {
 }
 
 // «Действия к выполнению» по клиенту: непроверенные сегодня активные заявки
-// + живые запросы документов (открытые и собранные, но не подтверждённые).
+// + документы на отправку (собранный пакет, который ещё не подтвердили).
+// Открытые запросы документов сюда не идут — это работа отдела документов,
+// от аналитика по ним действия не ждут.
 // По этому счётчику карточка клиента мигает, а в сайдбаре горит бейдж.
 function clientActionCount(client) {
   if (!client || client.isArchived) return 0;
   const docs = summarizeDocRequests(documentRequestsForClient(client.manager || "", client.client));
-  return clientUncheckedCount(client.applications || []) + docs.open + docs.fulfilled;
+  return clientUncheckedCount(client.applications || []) + docs.fulfilled;
 }
 
 function managerActionCount(manager) {
@@ -1156,7 +1158,7 @@ function viewAttentionCount(viewId) {
     ).length;
   }
   // «Клиенты в работе» — сколько действий ждёт лично этого пользователя:
-  // заявки без сегодняшней проверки статуса + живые запросы документов, но
+  // заявки без сегодняшней проверки статуса + документы на отправку, но
   // только по его собственным клиентам. Считаем по плоским спискам (а не по
   // группировке) — это тот же итог, но дешевле.
   if (viewId === "funnels") {
@@ -1166,7 +1168,7 @@ function viewAttentionCount(viewId) {
       (deal) => isMine(deal.manager) && dealNeedsCheck(deal)
     ).length;
     const docs = (state.documentRequests || []).filter(
-      (req) => isMine(req.manager) && (req.status === "open" || req.status === "fulfilled")
+      (req) => isMine(req.manager) && req.status === "fulfilled"
     ).length;
     return unchecked + docs;
   }
@@ -2626,6 +2628,29 @@ function dealMatchesKnowledgeProgram(deal, program, bank) {
     && String(deal.program || "").trim().toLowerCase() === String(program.program || "").trim().toLowerCase();
 }
 
+// Программы с опытом одобрения: хотя бы одна заявка дошла до стадии
+// «Одобрено». Ключи собираем один раз за рендер — и по id программы из БЗ,
+// и по паре «банк + программа» (у старых заявок ссылки на БЗ нет).
+function approvedProgramKeys() {
+  const keys = new Set();
+  for (const deal of state.dashboard?.deals || []) {
+    if (deal.stage !== "approved") continue;
+    if (deal.knowledgeProgramId) keys.add(`id:${deal.knowledgeProgramId}`);
+    const bankKey = compareKey(deal.bank);
+    const programKey = compareKey(deal.program);
+    if (bankKey && programKey) keys.add(`np:${bankKey}|${programKey}`);
+  }
+  return keys;
+}
+
+function programHasApproval(program, bank, keys) {
+  const set = keys || approvedProgramKeys();
+  if (program?.id && set.has(`id:${program.id}`)) return true;
+  const bankKey = compareKey(bank?.bank);
+  const programKey = compareKey(program?.program);
+  return Boolean(bankKey && programKey && set.has(`np:${bankKey}|${programKey}`));
+}
+
 function programReviewStats(program, bank) {
   const reviewDays = (state.dashboard?.deals || [])
     .filter((deal) => deal.statusGroup === "completed" && deal.signedAt && deal.completedAt && dealMatchesKnowledgeProgram(deal, program, bank))
@@ -2665,6 +2690,10 @@ function renderApplicationProgramOptions() {
     grouped.get(type).push(entry);
   });
 
+  // Программы с опытом одобрения заливаем светло-зелёным — видно сразу,
+  // где банк уже одобрял. Ключи считаем один раз на весь селектор.
+  const approvedKeys = approvedProgramKeys();
+
   return [...grouped.entries()]
     .filter(([, items]) => items.length)
     .map(
@@ -2672,7 +2701,10 @@ function renderApplicationProgramOptions() {
         <optgroup label="${escapeHtml(type)}">
           ${items
             .sort((left, right) => left.label.localeCompare(right.label, "ru"))
-            .map((entry) => `<option value="${escapeHtml(entry.program.id)}">${escapeHtml(entry.label)}</option>`)
+            .map((entry) => {
+              const approved = programHasApproval(entry.program, entry.bank, approvedKeys);
+              return `<option value="${escapeHtml(entry.program.id)}"${approved ? ` class="has-approval"` : ""}>${escapeHtml(entry.label)}</option>`;
+            })
             .join("")}
         </optgroup>
       `
@@ -2793,8 +2825,10 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
   const programUrl = safeExternalUrl(program.programUrl);
   const reviewStats = programReviewStats(program, bank);
   const contactPhone = program.bankPhone || bank.phone;
+  // Светло-зелёная заливка = по программе уже есть одобренные заявки.
+  const approvedClass = programHasApproval(program, bank) ? " has-approval" : "";
   return `
-    <details class="knowledge-card">
+    <details class="knowledge-card${approvedClass}">
       <summary class="knowledge-card-head">
         <div>
           <p class="eyebrow">Банк</p>
