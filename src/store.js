@@ -83,6 +83,13 @@ function makeShortToken() {
   return crypto.randomBytes(8).toString("hex");
 }
 
+// Чекбоксы из формы приходят строками ("true"/"on"/"1"), из API — булевыми.
+function toBool(value) {
+  if (typeof value === "boolean") return value;
+  const text = cleanText(value).toLowerCase();
+  return text === "true" || text === "on" || text === "1" || text === "yes";
+}
+
 function amountFromRange(value) {
   const text = cleanText(value).toLowerCase();
   const match = text.match(/(\d+(?:[.,]\d+)?)/);
@@ -2079,6 +2086,7 @@ function createKnowledgeEntry(payload) {
     amountRange: payload.amountRange,
     termRange: payload.termRange,
     reviewTermDeclared: payload.reviewTermDeclared,
+    hasApprovalExperience: payload.hasApprovalExperience,
     requirements: payload.requirements || payload,
     notes: payload.notes,
     changeHistory: payload.changeHistory,
@@ -2264,6 +2272,10 @@ function normalizeKnowledgeProgram(raw = {}) {
     amountRange: cleanText(raw.amountRange || raw.amount || raw.limit || raw.sum),
     termRange: cleanText(raw.termRange || raw.term || raw.period || raw.duration || raw.creditTerm),
     reviewTermDeclared: cleanText(raw.reviewTermDeclared || raw.reviewTerm || raw.declaredReviewTerm || raw.reviewPeriod),
+    // Ручная отметка «есть опыт одобрения»: аналитик ставит её сам, когда
+    // одобрение было вне Монитора. Автоматическая подсветка по одобренным
+    // заявкам работает независимо от этого флага.
+    hasApprovalExperience: toBool(raw.hasApprovalExperience ?? raw.approvalExperience),
     requirements: normalizeRequirements({
       ...requirements,
       documentation: requirements.documentation || legacyDocuments,

@@ -2644,6 +2644,8 @@ function approvedProgramKeys() {
 }
 
 function programHasApproval(program, bank, keys) {
+  // Ручная отметка из карточки программы — одобрения бывают и вне Монитора.
+  if (program?.hasApprovalExperience) return true;
   const set = keys || approvedProgramKeys();
   if (program?.id && set.has(`id:${program.id}`)) return true;
   const bankKey = compareKey(bank?.bank);
@@ -6578,6 +6580,9 @@ function openKnowledgeDialog(entry = null) {
   knowledgeForm.elements.amountRange.value = entry?.program?.amountRange || "";
   knowledgeForm.elements.termRange.value = entry?.program?.termRange || "";
   knowledgeForm.elements.reviewTermDeclared.value = entry?.program?.reviewTermDeclared || "";
+  if (knowledgeForm.elements.hasApprovalExperience) {
+    knowledgeForm.elements.hasApprovalExperience.checked = Boolean(entry?.program?.hasApprovalExperience);
+  }
   // Тип программы: если у программы значение из устаревшего/удалённого списка —
   // добавляем как option на лету, чтобы при сохранении оно не сменилось.
   const currentType = entry?.program?.programType || "";
@@ -7076,6 +7081,9 @@ knowledgeForm.addEventListener("submit", async (event) => {
   const note = payload.changeNote;
   delete payload.changeNote;
   payload.changeHistory = buildChangeHistoryWithNote(payload.changeHistory, note);
+  // Снятый чекбокс в FormData не приходит вовсе — шлём явный boolean,
+  // иначе снять отметку «есть опыт одобрения» было бы нельзя.
+  payload.hasApprovalExperience = knowledgeForm.elements.hasApprovalExperience?.checked === true;
   await requestJson(programId ? `/api/knowledge/programs/${encodeURIComponent(programId)}` : "/api/knowledge", {
     method: programId ? "PATCH" : "POST",
     body: JSON.stringify(payload)
