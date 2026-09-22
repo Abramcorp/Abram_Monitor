@@ -89,7 +89,7 @@ test("по выходным группа запросов документов �
   assert.match(telegramSource, /const \{ isMoscowWeekend \} = require\("\.\/time"\);/);
   assert.match(telegramSource, /function isDocGroupSilenced\(\) \{[\s\S]*?return isMoscowWeekend\(\);/);
   // Групповые уведомления по запросу документов гейтим все до одного.
-  for (const fn of ["notifyDocRequestCreated", "notifyDocRequestPartialUpload", "notifyDocRequestConfirmed"]) {
+  for (const fn of ["notifyDocRequestCreated", "notifyDocRequestPartialUpload", "notifyDocRequestConfirmed", "notifyDocRequestAcknowledged"]) {
     const body = telegramSource.slice(telegramSource.indexOf(`function ${fn}(`));
     assert.match(body.slice(0, 400), /if \((?:!force && )?isDocGroupSilenced\(\)\) return null;/, fn);
   }

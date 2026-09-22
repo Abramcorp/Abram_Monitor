@@ -478,6 +478,9 @@ function notifyDocRequestPartialUpload(req, { topicId, uploadedNames = [], total
 // было видно, кто ответственный.
 function notifyDocRequestAcknowledged(req, { actor, chatId, topicId } = {}) {
   if (!isEnabled() || !req) return null;
+  // В выходные группа молчит целиком: нажавший видит всплывашку от Telegram,
+  // а отметка о приёме всё равно сохраняется в Мониторе.
+  if (isDocGroupSilenced()) return null;
   const who = actor?.username
     ? `@${escapeHtml(actor.username)}`
     : escapeHtml(actor?.fullName || req.acknowledgedBy || "—");
