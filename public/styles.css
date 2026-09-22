@@ -2080,7 +2080,7 @@ textarea:focus-visible {
 
 select option.has-approval {
   background-color: #d7f0de;
-  color: var(--green);
+  color: var(--ink);
   font-weight: 700;
 }
 
