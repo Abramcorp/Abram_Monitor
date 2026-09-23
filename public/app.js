@@ -151,6 +151,12 @@ const SERVICE_LINKS = [
     icon: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2h6.59a1 1 0 0 1 .7.3l3.42 3.4a1 1 0 0 1 .29.71V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm6 1.5V7h3.5L11 3.5ZM7.8 9.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm4.4 3.4a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm.5-3.4a1 1 0 0 0-1.4-1.4l-5 5a1 1 0 1 0 1.4 1.4l5-5Z"/></svg>`
   },
   {
+    key: "anketa",
+    label: "Анкеты",
+    href: "/sso/authorize?service=anketa",
+    icon: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2h6.59a1 1 0 0 1 .7.3l3.42 3.4a1 1 0 0 1 .29.71V17a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm6 1.5V7h3.5L11 3.5ZM7 10h6v1.5H7V10Zm0 3h6v1.5H7V13Z"/></svg>`
+  },
+  {
     key: "dogovor",
     label: "Формирование договоров",
     href: "/sso/authorize?service=dogovor",
@@ -1428,6 +1434,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
             crmUrl: meta.crmUrl || "",
             driveUrl: meta.driveUrl || "",
             instructionUrl: meta.instructionUrl || "",
+            inn: meta.inn || "",
             comment: meta.comment || "",
             archivedAt: meta.archivedAt || "",
             isArchived,
@@ -1889,6 +1896,10 @@ function renderClientLinks(client) {
   ]
     .map(([label, url]) => [label, safeExternalUrl(url)])
     .filter(([, url]) => url);
+  // Сервис «Анкеты» открывается сразу на этом клиенте: единый вход вернёт на /?inn=… (нужен ИНН в карточке)
+  if (client.inn) {
+    links.push(["Анкеты", `/sso/authorize?service=anketa&next=${encodeURIComponent(`/?inn=${client.inn}`)}`]);
+  }
 
   if (!links.length) {
     return "";
@@ -6565,6 +6576,7 @@ function openClientDialog(client = null) {
   clientForm.elements.clientId.value = client?.id || "";
   clientForm.elements.manager.value = client?.manager || (isPartner() ? partnerManagerName() : "");
   clientForm.elements.name.value = client?.name || "";
+  clientForm.elements.inn.value = client?.inn || "";
   clientForm.elements.crmUrl.value = client?.crmUrl || "";
   clientForm.elements.driveUrl.value = client?.driveUrl || "";
   clientForm.elements.instructionUrl.value = client?.instructionUrl || "";

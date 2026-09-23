@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260922-counter-check2">
+    <link rel="stylesheet" href="/styles.css?v=20260923-anketa">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -204,6 +204,10 @@
         <label>
           Наименование
           <input name="name" required autocomplete="off">
+        </label>
+        <label>
+          ИНН
+          <input name="inn" inputmode="numeric" pattern="\d{10}|\d{12}" placeholder="10 или 12 цифр" autocomplete="off">
         </label>
 
         <div class="form-grid">
@@ -576,6 +580,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260922-counter-check2" defer></script>
+    <script src="/app.js?v=20260923-anketa" defer></script>
   </body>
 </html>

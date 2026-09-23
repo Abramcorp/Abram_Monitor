@@ -2831,7 +2831,10 @@ async function handleSso(request, response) {
     return;
   }
 
-  const redirect = String(url.searchParams.get("redirect") || `${base}/sso/callback`);
+  // next — относительный путь внутри сервиса (например «/?inn=…» из карточки клиента), сервис вернёт на него после входа
+  const next = String(url.searchParams.get("next") || "").trim();
+  const nextQuery = next.startsWith("/") && !next.startsWith("//") ? `?next=${encodeURIComponent(next)}` : "";
+  const redirect = String(url.searchParams.get("redirect") || `${base}/sso/callback${nextQuery}`);
   if (!sso.isAllowedRedirect(redirect, base)) {
     const page = ssoPage("Неверный адрес возврата",
       `<h1>Неверный адрес возврата</h1><p>Возврат разрешён только на ${base}.</p>`, 400);
