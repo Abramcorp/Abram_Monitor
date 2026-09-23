@@ -1896,9 +1896,11 @@ function renderClientLinks(client) {
   ]
     .map(([label, url]) => [label, safeExternalUrl(url)])
     .filter(([, url]) => url);
-  // Сервис «Анкеты» открывается сразу на этом клиенте: единый вход вернёт на /?inn=… (нужен ИНН в карточке)
-  if (client.inn) {
-    links.push(["Анкеты", `/sso/authorize?service=anketa&next=${encodeURIComponent(`/?inn=${client.inn}`)}`]);
+  // Сервис «Анкеты» открывается сразу на этом клиенте: единый вход вернёт на /?client=<id карточки>.
+  // ИНН в карточке не ведут — сервис возьмёт его из Инструкции, поэтому ссылка есть у всех, у кого задана Инструкция или Диск.
+  if (client.clientId && (client.instructionUrl || client.driveUrl)) {
+    const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
+    links.push(["Анкеты", `/sso/authorize?service=anketa&next=${encodeURIComponent(next)}`]);
   }
 
   if (!links.length) {
