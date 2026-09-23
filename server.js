@@ -687,6 +687,108 @@ function integrationDealPayload(payload, client, knowledgeEntry, idempotency) {
   };
 }
 
+const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const DRIVE_UPLOAD_LIMIT = 50 * 1024 * 1024;
+
+function readRawBody(request, limit = DRIVE_UPLOAD_LIMIT) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        request.destroy();
+        reject(new AuthError(413, "Файл больше допустимого размера"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => resolve(Buffer.concat(chunks)));
+    request.on("error", reject);
+  });
+}
+
+function driveError(error) {
+  const message = String(error?.message || error || "Ошибка Google Drive");
+  const status = error?.code === 404 ? 404 : /не подключ/i.test(message) ? 503 : 502;
+  return new AuthError(status, message);
+}
+
+// ===== Диск клиента для сервиса «Анкеты» (право drive): папка подачи, файлы, пакеты, архив =====
+async function handleIntegrationDrive(request, response, url, pathname) {
+  const rest = pathname.slice("/api/integration/v1/drive/".length);
+  try {
+    if (request.method === "GET" && rest === "folder") {
+      const folderId = googleDrive.extractFolderIdFromUrl(url.searchParams.get("id") || "");
+      if (!folderId) throw new AuthError(400, "Нужен id папки или ссылка на папку Диска");
+      const items = await googleDrive.listFolder(folderId);
+      sendJson(response, 200, { folder: { id: folderId }, items });
+      return;
+    }
+    const fileMatch = rest.match(/^files\/([A-Za-z0-9_-]+)$/);
+    if (request.method === "GET" && fileMatch) {
+      const meta = await googleDrive.getFileMeta(fileMatch[1]);
+      let buffer;
+      let fileName = meta.name;
+      let contentType = meta.mimeType || "application/octet-stream";
+      if (meta.mimeType === GOOGLE_SHEET_MIME) {
+        buffer = await googleDrive.exportFileBuffer(meta.id, XLSX_MIME);
+        contentType = XLSX_MIME;
+        fileName = `${meta.name}.xlsx`;
+      } else {
+        buffer = await googleDrive.getFileBuffer(meta.id);
+      }
+      response.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": buffer.length,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+        "X-Drive-File-Name": encodeURIComponent(fileName),
+        "Cache-Control": "no-store"
+      });
+      response.end(buffer);
+      return;
+    }
+    if (request.method === "POST" && rest === "files") {
+      const folderId = googleDrive.extractFolderIdFromUrl(url.searchParams.get("folderId") || "");
+      const fileName = String(url.searchParams.get("name") || "").trim();
+      if (!folderId || !fileName) throw new AuthError(400, "Нужны folderId и name");
+      const buffer = await readRawBody(request);
+      if (!buffer.length) throw new AuthError(400, "Пустое тело запроса");
+      const file = await googleDrive.uploadBuffer({
+        fileName,
+        parentId: folderId,
+        buffer,
+        mimeType: request.headers["content-type"] || "application/octet-stream"
+      });
+      sendJson(response, 200, { file });
+      return;
+    }
+    if (request.method === "POST" && rest === "folders") {
+      const payload = await readBody(request);
+      const parentId = googleDrive.extractFolderIdFromUrl(payload.parentId || "");
+      const name = String(payload.name || "").trim();
+      if (!parentId || !name) throw new AuthError(400, "Нужны parentId и name");
+      const folder = await googleDrive.ensureFolder(name, parentId);
+      sendJson(response, 200, { folder });
+      return;
+    }
+    const moveMatch = rest.match(/^files\/([A-Za-z0-9_-]+)\/move$/);
+    if (request.method === "POST" && moveMatch) {
+      const payload = await readBody(request);
+      const folderId = googleDrive.extractFolderIdFromUrl(payload.folderId || "");
+      if (!folderId) throw new AuthError(400, "Нужен folderId");
+      const file = await googleDrive.moveFile(moveMatch[1], folderId);
+      sendJson(response, 200, { file });
+      return;
+    }
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    throw driveError(error);
+  }
+  throw new AuthError(404, "Неизвестный маршрут Диска");
+}
+
 async function handleIntegrationApi(request, response, url, pathname) {
   if (!pathname.startsWith("/api/integration/v1/")) return false;
 
@@ -699,6 +801,12 @@ async function handleIntegrationApi(request, response, url, pathname) {
       scopes: [...request.serviceScopes].sort(),
       time: new Date().toISOString()
     });
+    return true;
+  }
+
+  if (pathname.startsWith("/api/integration/v1/drive/")) {
+    requireServiceScope(request, "drive");
+    await handleIntegrationDrive(request, response, url, pathname);
     return true;
   }
 

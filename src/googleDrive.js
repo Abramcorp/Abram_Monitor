@@ -378,6 +378,60 @@ async function deleteFile(fileId) {
   }
 }
 
+// Содержимое папки: подпапки и файлы (для «папки подачи» клиента в сервисе Анкет).
+async function listFolder(folderId) {
+  const safeParent = assertValidDriveId(folderId);
+  const drive = await getDrive();
+  const items = [];
+  let pageToken;
+  do {
+    const res = await drive.files.list({
+      q: `'${safeParent}' in parents and trashed = false`,
+      fields: "nextPageToken, files(id, name, mimeType, modifiedTime, size)",
+      pageSize: 200,
+      orderBy: "folder,name",
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+    for (const file of res.data.files || []) {
+      items.push({
+        id: file.id,
+        name: file.name,
+        mimeType: file.mimeType,
+        modifiedTime: file.modifiedTime || "",
+        size: Number(file.size || 0),
+        isFolder: file.mimeType === FOLDER_MIME
+      });
+    }
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+  return items;
+}
+
+// Google-таблица/документ отдаются только экспортом (alt=media для них не работает).
+async function exportFileBuffer(fileId, mimeType) {
+  const drive = await getDrive();
+  const res = await drive.files.export({ fileId, mimeType }, { responseType: "arraybuffer" });
+  return Buffer.from(res.data);
+}
+
+// Перенос файла в другую папку (архивирование пакетов без удаления).
+async function moveFile(fileId, targetFolderId) {
+  const safeTarget = assertValidDriveId(targetFolderId);
+  const drive = await getDrive();
+  const meta = await drive.files.get({ fileId, fields: "id, parents", supportsAllDrives: true });
+  const previous = (meta.data.parents || []).join(",");
+  const res = await drive.files.update({
+    fileId,
+    addParents: safeTarget,
+    removeParents: previous,
+    fields: "id, name, parents",
+    supportsAllDrives: true
+  });
+  return res.data;
+}
+
 async function checkParentAccess(parentId) {
   // Возвращает true, если у сервиса есть права писать в эту папку.
   const drive = await getDrive();
@@ -409,5 +463,8 @@ module.exports = {
   getFileBuffer,
   getFileMeta,
   deleteFile,
-  checkParentAccess
+  checkParentAccess,
+  listFolder,
+  exportFileBuffer,
+  moveFile
 };

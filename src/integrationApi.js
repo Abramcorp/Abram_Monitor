@@ -3,7 +3,7 @@
 const crypto = require("node:crypto");
 
 const SERVICE_ROLE = "service_analytics";
-const VALID_SCOPES = new Set(["read", "write_plan", "write_status", "write_analytics"]);
+const VALID_SCOPES = new Set(["read", "write_plan", "write_status", "write_analytics", "drive"]);
 const PROGRAM_DISCOVERY_STATUSES = new Set([
   "discovered",
   "official_verified",
@@ -55,19 +55,43 @@ function serviceApiKey(env = process.env) {
   return key.length >= 32 ? key : "";
 }
 
+// Сервисные учётки: у каждой свой ключ и свои права. «Анкеты» ходят в Диск клиента через Монитор,
+// поэтому получают право drive отдельно, не расширяя доступ аналитики Jarvis.
+const SERVICE_PRINCIPALS = [
+  {
+    id: "service-jarvis-analytics",
+    login: "jarvis-analytics",
+    fullName: "Jarvis Analytics",
+    keyEnv: ["ABRAM_MONITOR_JARVIS_API_KEY", "JARVIS_ANALYTICS_API_KEY"],
+    scopesEnv: ["ABRAM_MONITOR_JARVIS_SCOPES", "JARVIS_ANALYTICS_API_SCOPES"]
+  },
+  {
+    id: "service-anketa",
+    login: "anketa",
+    fullName: "Анкеты",
+    keyEnv: ["ABRAM_MONITOR_ANKETA_API_KEY"],
+    scopesEnv: ["ABRAM_MONITOR_ANKETA_SCOPES"]
+  }
+];
+
+function firstEnv(env, names) {
+  for (const name of names) {
+    const value = cleanText(env[name]);
+    if (value) return value;
+  }
+  return "";
+}
+
 function authenticateServiceBearer(token, env = process.env) {
-  const expected = serviceApiKey(env);
-  if (!expected || !secureEqual(token, expected)) return null;
-  const scopes = parseServiceScopes(env.ABRAM_MONITOR_JARVIS_SCOPES || env.JARVIS_ANALYTICS_API_SCOPES);
-  return {
-    user: {
-      id: "service-jarvis-analytics",
-      login: "jarvis-analytics",
-      fullName: "Jarvis Analytics",
-      role: SERVICE_ROLE
-    },
-    scopes
-  };
+  for (const principal of SERVICE_PRINCIPALS) {
+    const expected = firstEnv(env, principal.keyEnv);
+    if (expected.length < 32 || !secureEqual(token, expected)) continue;
+    return {
+      user: { id: principal.id, login: principal.login, fullName: principal.fullName, role: SERVICE_ROLE },
+      scopes: parseServiceScopes(firstEnv(env, principal.scopesEnv))
+    };
+  }
+  return null;
 }
 
 function normalizeInn(value) {

@@ -29,6 +29,18 @@ test("service bearer uses a dedicated role and read-only default", () => {
   assert.equal(authenticateServiceBearer("short", { ABRAM_MONITOR_JARVIS_API_KEY: "short" }), null);
 });
 
+test("anketa service key is separate from jarvis and may carry the drive scope", () => {
+  const jarvis = "jarvis-secret-at-least-32-characters-long";
+  const anketa = "anketa-secret-at-least-32-characters-long";
+  const env = { ABRAM_MONITOR_JARVIS_API_KEY: jarvis, ABRAM_MONITOR_ANKETA_API_KEY: anketa, ABRAM_MONITOR_ANKETA_SCOPES: "read,drive" };
+  const auth = authenticateServiceBearer(anketa, env);
+  assert.equal(auth.user.login, "anketa");
+  assert.deepEqual([...auth.scopes].sort(), ["drive", "read"]);
+  assert.deepEqual([...authenticateServiceBearer(jarvis, env).scopes], ["read"]);
+  assert.equal(authenticateServiceBearer("anketa-wrong", env), null);
+  assert.equal(authenticateServiceBearer(anketa, { ABRAM_MONITOR_JARVIS_API_KEY: jarvis }), null);
+});
+
 test("service scopes ignore unknown permissions", () => {
   assert.deepEqual(
     [...parseServiceScopes("read,write_plan,admin,write_status,write_analytics")],
