@@ -1902,6 +1902,13 @@ function renderClientLinks(client) {
     const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
     links.push(["Анкеты", `/sso/authorize?service=anketa&next=${encodeURIComponent(next)}`]);
   }
+  // «Договор» открывается на этом же клиенте и сразу подхватывает его папку на
+  // Диске: оттуда берётся выписка, туда же ложится готовый договор. Без папки
+  // сервису неоткуда брать выписку, поэтому ссылка появляется только с Диском.
+  if (client.clientId && client.driveUrl) {
+    const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
+    links.push(["Договор", `/sso/authorize?service=dogovor&next=${encodeURIComponent(next)}`]);
+  }
 
   if (!links.length) {
     return "";

@@ -71,6 +71,15 @@ const SERVICE_PRINCIPALS = [
     fullName: "Анкеты",
     keyEnv: ["ABRAM_MONITOR_ANKETA_API_KEY"],
     scopesEnv: ["ABRAM_MONITOR_ANKETA_SCOPES"]
+  },
+  {
+    // «Договоры» берут выписку из папки клиента и кладут туда готовый договор:
+    // право drive, как у «Анкет», но ключ свой — отзывается отдельно.
+    id: "service-dogovor",
+    login: "dogovor",
+    fullName: "Договоры",
+    keyEnv: ["ABRAM_MONITOR_DOGOVOR_API_KEY"],
+    scopesEnv: ["ABRAM_MONITOR_DOGOVOR_SCOPES"]
   }
 ];
 

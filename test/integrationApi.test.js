@@ -41,6 +41,24 @@ test("anketa service key is separate from jarvis and may carry the drive scope",
   assert.equal(authenticateServiceBearer(anketa, { ABRAM_MONITOR_JARVIS_API_KEY: jarvis }), null);
 });
 
+test("dogovor service key is its own and may carry the drive scope", () => {
+  // «Договоры» берут выписку из папки клиента и кладут туда готовый договор,
+  // поэтому у них своё право drive и свой ключ: его можно отозвать, не трогая
+  // ни аналитику, ни анкеты.
+  const anketa = "anketa-secret-at-least-32-characters-long";
+  const dogovor = "dogovor-secret-at-least-32-characters-long";
+  const env = {
+    ABRAM_MONITOR_ANKETA_API_KEY: anketa,
+    ABRAM_MONITOR_DOGOVOR_API_KEY: dogovor,
+    ABRAM_MONITOR_DOGOVOR_SCOPES: "read,drive"
+  };
+  const auth = authenticateServiceBearer(dogovor, env);
+  assert.equal(auth.user.login, "dogovor");
+  assert.deepEqual([...auth.scopes].sort(), ["drive", "read"]);
+  assert.equal(authenticateServiceBearer(anketa, env).user.login, "anketa");
+  assert.equal(authenticateServiceBearer(dogovor, { ABRAM_MONITOR_ANKETA_API_KEY: anketa }), null);
+});
+
 test("service scopes ignore unknown permissions", () => {
   assert.deepEqual(
     [...parseServiceScopes("read,write_plan,admin,write_status,write_analytics")],
