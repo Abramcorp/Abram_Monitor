@@ -1241,9 +1241,23 @@ textarea:focus-visible {
 .task-list-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   margin-bottom: 8px;
-  gap: 12px;
+  gap: 8px 12px;
+}
+
+/* Без активных задач блок — одна строка: заголовок, кнопка, пометка */
+.task-list-wrap.is-empty {
+  padding: 6px 12px;
+}
+
+.task-list-wrap.is-empty .task-list-head {
+  margin-bottom: 0;
+}
+
+.task-list-empty {
+  font-size: 13px;
 }
 
 .task-list-head h4 {
@@ -4876,6 +4890,97 @@ details.client-application-card.is-flash > summary {
 .ws-crumb-label { color: var(--muted); }
 .ws-crumb-x { font-size: 14px; color: var(--muted); }
 .ws-crumb:hover .ws-crumb-x { color: #e5484d; }
+
+/* ===== Рабочая область клиента: кнопки разложены по смыслу ===== */
+
+/* «+ Клиент» рядом с заголовком страницы */
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Имя клиента и действия над карточкой — одной строкой, всё влево */
+.ws-client-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-width: 0;
+}
+
+.ws-client-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Удаление — отдельная иконка, отбитая от «В архив» */
+.ws-client-actions .icon-only-button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+  margin-left: 6px;
+}
+
+/* Ссылки: «Данные клиента» | «Сервисы» */
+.client-link-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 8px 0;
+  margin-bottom: 4px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.client-link-groups .client-summary-links {
+  margin-top: 0;
+  align-items: center;
+}
+
+.client-link-groups .client-summary-links.is-services {
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+
+.client-link-label {
+  margin-right: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.client-summary-links a.is-service {
+  gap: 5px;
+  border-color: rgba(18, 128, 108, 0.35);
+  background: #e8f7ec;
+  color: var(--green);
+}
+
+.client-summary-links a.is-service svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+/* Кнопки в шапках колонок заявок */
+.application-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 2px;
+}
+
+.application-group-actions .client-plan-template select {
+  max-width: 150px;
+}
 
 .ws-grid {
   display: grid;

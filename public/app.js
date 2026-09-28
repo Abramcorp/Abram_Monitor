@@ -50,6 +50,7 @@ const serviceLinks = document.querySelector("#serviceLinks");
 const refreshButton = document.querySelector("#refreshButton");
 const newManagerButton = document.querySelector("#newManagerButton");
 const newClientButton = document.querySelector("#newClientButton");
+const topbarAddClient = document.querySelector("#topbarAddClient");
 const newDealButton = document.querySelector("#newDealButton");
 const newKnowledgeButton = document.querySelector("#newKnowledgeButton");
 const dialog = document.querySelector("#dealDialog");
@@ -969,13 +970,16 @@ function renderClientTaskList(client) {
       </li>
     `;
   };
+  // Кнопка — сразу за заголовком; без активных задач блок сжимается в
+  // одну строку, чтобы пустая рамка не съедала высоту над заявками.
   return `
-    <div class="task-list-wrap">
+    <div class="task-list-wrap${active.length ? "" : " is-empty"}">
       <div class="task-list-head">
         <h4>Задачи клиента</h4>
         <button class="ghost-button small-button" data-add-task-for="${escapeHtml(client.client)}" data-task-manager="${escapeHtml(client.manager || "")}" type="button">+ Задача</button>
+        ${active.length ? "" : `<span class="muted task-list-empty">Активных задач нет</span>`}
       </div>
-      ${active.length ? `<ul class="task-list">${active.map(renderRow).join("")}</ul>` : `<p class="muted compact-empty">Активных задач нет.</p>`}
+      ${active.length ? `<ul class="task-list">${active.map(renderRow).join("")}</ul>` : ""}
       ${done.length ? `<details class="task-history"><summary>Выполненные (${done.length})</summary><ul class="task-list is-done">${done.map(renderRow).join("")}</ul></details>` : ""}
     </div>
   `;
@@ -1684,8 +1688,8 @@ function renderClientApplicationCards(applications, emptyText, type) {
   `;
 }
 
-function renderClientApplicationSections(client) {
-  const renderSection = ([title, applications, count, emptyText, type, collapsible]) => collapsible
+function renderClientApplicationSections(client, options = {}) {
+  const renderSection = ([title, applications, count, emptyText, type, collapsible, actions = ""]) => collapsible
     ? `
       <details class="application-group application-group-collapsible application-group-${escapeHtml(type)}" data-ui-state-key="${escapeHtml(uiStateKey("app-group", client.manager || "", client.client || "", type))}">
         <summary class="application-group-head">
@@ -1700,13 +1704,25 @@ function renderClientApplicationSections(client) {
           <h4>${title} (${count})</h4>
           ${type === "approved" ? `<span class="application-group-amount">${money(client.approvedAmount)}</span>` : ""}
         </div>
+        ${actions ? `<div class="application-group-actions">${actions}</div>` : ""}
         ${renderClientApplicationCards(applications, emptyText, type)}
       </section>
     `;
 
-  const plannedSection = ["План подач", client.plannedApplications || [], client.plannedCount || 0, "Плановых заявок нет.", "planned", false];
-  const leadSection = ["Лиды", client.leadApplications || [], client.leadCount || 0, "Лидов нет.", "current", false];
-  const workingSection = ["Заявки в работе", client.workingApplications || [], client.workingCount || 0, "Заявок в работе нет.", "current", false];
+  // headerActions — кнопки в шапках колонок (рабочая область клиента в
+  // каскаде). В остальных вью действия по-прежнему общим рядом над колонками.
+  const withActions = Boolean(options.headerActions);
+  // «+ Заявка» — самое частое действие, стоит первой: при переносе строки
+  // уезжает вниз шаблон, а не она.
+  const plannedActions = withActions
+    ? `${renderAddApplicationButton(client.manager || "", client.client)}${renderPlanTemplateControl(client)}`
+    : "";
+  const leadActions = withActions && (client.leadApplications || []).length ? renderDocRequestButton(client, "lead") : "";
+  const workingActions = withActions && (client.workingApplications || []).length ? renderDocRequestButton(client, "working") : "";
+
+  const plannedSection = ["План подач", client.plannedApplications || [], client.plannedCount || 0, "Плановых заявок нет.", "planned", false, plannedActions];
+  const leadSection = ["Лиды", client.leadApplications || [], client.leadCount || 0, "Лидов нет.", "current", false, leadActions];
+  const workingSection = ["Заявки в работе", client.workingApplications || [], client.workingCount || 0, "Заявок в работе нет.", "current", false, workingActions];
   const approvedSection = ["Одобрено", client.successfulApplications || [], client.successfulCount || 0, "Одобренных заявок нет.", "approved", false];
   const refusedSection = ["Отказ / непринятые", client.refusedApplications || [], client.refusedCount || 0, "Отказов и непринятых заявок нет.", "refused", true];
 
@@ -1856,22 +1872,11 @@ function renderClientActions(client, settings = {}) {
 
   const dealsForRequest = (client.activeApplications || []).filter((deal) => deal.statusGroup === "current");
   const canRequestDocs = Boolean(dealsForRequest.length);
-  const templateOptions = (state.planTemplates || [])
-    .map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`)
-    .join("");
-  const canApplyTemplate = Boolean(settings.allowAddApplication && client.clientId && templateOptions);
 
   return `
     <div class="client-actions">
       ${client.clientId ? `<button class="ghost-button small-button" data-edit-client="${escapeHtml(client.clientId)}" type="button">Редактировать</button>` : ""}
-      ${canApplyTemplate ? `
-        <div class="client-plan-template">
-          <select data-plan-template-select="${escapeHtml(client.clientId)}" aria-label="Шаблон плана подач">
-            ${templateOptions}
-          </select>
-          <button class="ghost-button small-button" data-apply-plan-template="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">Применить план</button>
-        </div>
-      ` : ""}
+      ${settings.allowAddApplication ? renderPlanTemplateControl(client) : ""}
       ${settings.allowAddApplication ? renderAddApplicationButton(client.manager || "", client.client) : ""}
       ${canRequestDocs ? `<button class="ghost-button small-button" data-add-doc-request="${escapeHtml(client.client)}" data-doc-manager="${escapeHtml(client.manager || "")}" type="button">+ Запрос документов</button>` : ""}
       ${
@@ -1888,41 +1893,78 @@ function renderClientActions(client, settings = {}) {
   `;
 }
 
-function renderClientLinks(client) {
-  const links = [
+// Данные клиента — внешние ссылки из его карточки.
+function clientResourceLinks(client) {
+  return [
     ["CRM", client.crmUrl],
     ["Диск", client.driveUrl],
     ["Инструкция", client.instructionUrl]
   ]
-    .map(([label, url]) => [label, safeExternalUrl(url)])
-    .filter(([, url]) => url);
+    .map(([label, url]) => ({ label, url: safeExternalUrl(url) }))
+    .filter((link) => link.url);
+}
+
+// Сервисы, открывающиеся сразу на этом клиенте через единый вход.
+function clientServiceLinks(client) {
+  const links = [];
+  if (!client.clientId) {
+    return links;
+  }
+  const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
   // Сервис «Анкеты» открывается сразу на этом клиенте: единый вход вернёт на /?client=<id карточки>.
   // ИНН в карточке не ведут — сервис возьмёт его из Инструкции, поэтому ссылка есть у всех, у кого задана Инструкция или Диск.
-  if (client.clientId && (client.instructionUrl || client.driveUrl)) {
-    const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
-    links.push(["Анкеты", `/sso/authorize?service=anketa&next=${encodeURIComponent(next)}`]);
+  if (client.instructionUrl || client.driveUrl) {
+    links.push({ key: "anketa", label: "Анкеты", url: `/sso/authorize?service=anketa&next=${encodeURIComponent(next)}` });
   }
   // «Договор» открывается на этом же клиенте и сразу подхватывает его папку на
   // Диске: оттуда берётся выписка, туда же ложится готовый договор. Без папки
   // сервису неоткуда брать выписку, поэтому ссылка появляется только с Диском.
-  if (client.clientId && client.driveUrl) {
-    const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
-    links.push(["Договор", `/sso/authorize?service=dogovor&next=${encodeURIComponent(next)}`]);
+  if (client.driveUrl) {
+    links.push({ key: "dogovor", label: "Договор", url: `/sso/authorize?service=dogovor&next=${encodeURIComponent(next)}` });
   }
+  return links;
+}
 
-  if (!links.length) {
+// grouped — две подписанные группы («Данные клиента» | «Сервисы») для
+// рабочей области клиента; без него — компактный ряд для карточек-списков,
+// где сервисы отличаются только цветом.
+function renderClientLinks(client, { grouped = false } = {}) {
+  const resources = clientResourceLinks(client);
+  const services = clientServiceLinks(client);
+  if (!resources.length && !services.length) {
     return "";
   }
 
+  const resourceLink = (link) =>
+    `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`;
+  const serviceLink = (link) => {
+    const icon = SERVICE_LINKS.find((service) => service.key === link.key)?.icon || "";
+    return `<a class="is-service" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${icon}${escapeHtml(link.label)}</a>`;
+  };
+
+  if (!grouped) {
+    return `
+      <div class="client-summary-links">
+        ${resources.map(resourceLink).join("")}
+        ${services.map(serviceLink).join("")}
+      </div>
+    `;
+  }
+
   return `
-    <div class="client-summary-links">
-      ${links
-        .map(
-          ([label, url]) => `
-            <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>
-          `
-        )
-        .join("")}
+    <div class="client-link-groups">
+      ${resources.length ? `
+        <div class="client-summary-links">
+          <span class="client-link-label">Данные клиента</span>
+          ${resources.map(resourceLink).join("")}
+        </div>
+      ` : ""}
+      ${services.length ? `
+        <div class="client-summary-links is-services">
+          <span class="client-link-label">Сервисы</span>
+          ${services.map(serviceLink).join("")}
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -2420,10 +2462,13 @@ function renderWsClientGrid(manager) {
 function renderManagerClientView() {
   const managers = groupDealsByManagerAndClient(state.dashboard.deals, state.clients, state.managers);
 
+  // «+ Клиент» живёт в шапке страницы рядом с заголовком (updatePageHeader).
+  // Общая «+ Задача» нужна, только пока клиент не выбран: в карточке клиента
+  // своя кнопка в блоке «Задачи клиента». Надпись «Клиенты в работе» над
+  // заголовком панели убрана — она повторяла заголовок страницы.
   const docsOnly = isDocumentsOfficer();
   const actions = !docsOnly ? `
     <div class="panel-head-actions">
-      <button class="primary-button" data-add-client type="button">+ Клиент</button>
       <button class="ghost-button" data-add-task type="button">+ Задача</button>
     </div>
   ` : "";
@@ -2433,7 +2478,6 @@ function renderManagerClientView() {
       <section class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Клиенты в работе</p>
             <h2>Выберите аналитика</h2>
           </div>
           ${actions}
@@ -2456,24 +2500,31 @@ function renderManagerClientView() {
     </div>
   ` : "";
 
-  let heading;
+  let head;
   let body;
   if (!selectedManager) {
-    heading = "Выберите аналитика";
+    head = `<div><h2>Выберите аналитика</h2></div>${actions}`;
     body = renderWsManagerGrid(managers);
   } else if (!selectedClient) {
-    heading = "Выберите клиента";
+    head = `<div><h2>Выберите клиента</h2></div>${actions}`;
     body = renderWsClientGrid(selectedManager);
   } else {
-    heading = selectedClient.client;
-    // Детализация стадий живёт в карточках ВЫБОРА клиента (шаг 2) —
-    // здесь только рабочая область с заявками (правка по скринам 11.08)
+    // Действия разложены по смыслу (правка по скрину 28.09): всё про
+    // карточку клиента — в строке с именем, план и новые заявки — в шапке
+    // «План подач», запрос документов — в шапках «Лиды» и «Заявки в работе»,
+    // задача — в блоке задач. Детализация стадий живёт в карточках ВЫБОРА
+    // клиента (шаг 2), здесь только рабочая область.
+    head = `
+      <div class="ws-client-title">
+        <h2>${escapeHtml(selectedClient.client)}</h2>
+        ${renderClientHeadActions(selectedClient)}
+      </div>
+    `;
     body = `
       <div class="client-drilldown ws-client-workspace">
-        ${renderClientLinks(selectedClient)}
-        ${renderClientActions(selectedClient, { allowAddApplication: true, allowArchive: true })}
+        ${renderClientLinks(selectedClient, { grouped: true })}
         ${renderClientTaskList(selectedClient)}
-        ${renderClientApplicationSections(selectedClient)}
+        ${renderClientApplicationSections(selectedClient, { headerActions: true })}
       </div>
     `;
   }
@@ -2481,16 +2532,57 @@ function renderManagerClientView() {
   return `
     <section class="panel">
       <div class="panel-head">
-        <div>
-          <p class="eyebrow">Клиенты в работе</p>
-          <h2>${escapeHtml(heading)}</h2>
-        </div>
-        ${actions}
+        ${head}
       </div>
       ${crumbs}
       ${body}
     </section>
   `;
+}
+
+// Действия над самой карточкой клиента — рядом с его именем. Удаление —
+// только иконкой и отдельно от «В архив»: самое дорогое действие на экране
+// не должно стоять в одном ряду с рабочими кнопками.
+function renderClientHeadActions(client) {
+  if (!client.clientId) {
+    return "";
+  }
+  const id = escapeHtml(client.clientId);
+  const name = escapeHtml(client.client);
+  return `
+    <div class="ws-client-actions">
+      <button class="ghost-button small-button" data-edit-client="${id}" type="button">Редактировать</button>
+      <button class="ghost-button small-button" data-archive-client="${id}" data-client-name="${name}" type="button">В архив</button>
+      <button class="ghost-button small-button danger-button icon-only-button" data-delete-client="${id}" data-client-name="${name}" type="button" title="Удалить клиента" aria-label="Удалить клиента">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 2a1 1 0 0 0-1 1v1H4a1 1 0 0 0 0 2h.1l.8 10.1A2 2 0 0 0 6.9 18h6.2a2 2 0 0 0 2-1.9L15.9 6h.1a1 1 0 1 0 0-2h-3V3a1 1 0 0 0-1-1H8Zm1 2V4h2v0H9Zm-1.9 2h5.8l-.8 10H6.9L7.1 6Zm1.4 2a.75.75 0 0 0-.75.75v5.5a.75.75 0 0 0 1.5 0v-5.5A.75.75 0 0 0 8.5 8Zm3 0a.75.75 0 0 0-.75.75v5.5a.75.75 0 0 0 1.5 0v-5.5A.75.75 0 0 0 11.5 8Z"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+// Шаблон плана подач: выбор шаблона + «Применить». Живёт в шапке колонки
+// «План подач» — шаблон создаёт именно плановые заявки.
+function renderPlanTemplateControl(client) {
+  const templateOptions = (state.planTemplates || [])
+    .map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name)}</option>`)
+    .join("");
+  if (!client.clientId || !templateOptions) {
+    return "";
+  }
+  return `
+    <div class="client-plan-template">
+      <select data-plan-template-select="${escapeHtml(client.clientId)}" aria-label="Шаблон плана подач">
+        ${templateOptions}
+      </select>
+      <button class="ghost-button small-button" data-apply-plan-template="${escapeHtml(client.clientId)}" data-client-name="${escapeHtml(client.client)}" type="button">Применить план</button>
+    </div>
+  `;
+}
+
+// «+ Запрос документов» в шапке колонки: диалог сразу покажет заявки
+// только этой колонки (лиды или заявки в работе).
+function renderDocRequestButton(client, stageGroup) {
+  return `<button class="ghost-button small-button" data-add-doc-request="${escapeHtml(client.client)}" data-doc-manager="${escapeHtml(client.manager || "")}" data-doc-stage-group="${escapeHtml(stageGroup)}" type="button">+ Запрос документов</button>`;
 }
 
 function filteredKnowledge() {
@@ -5407,6 +5499,9 @@ function updatePageHeader() {
   if (heading) {
     heading.textContent = label;
   }
+  if (topbarAddClient) {
+    topbarAddClient.hidden = !(state.view === "funnels" && !isDocumentsOfficer());
+  }
   document.title = `${label} · Deal Monitor`;
 }
 
@@ -6177,7 +6272,8 @@ function initDynamicControls() {
       event.stopPropagation();
       openDocumentRequestDialog({
         clientName: addDocRequestBtn.dataset.addDocRequest || "",
-        manager: addDocRequestBtn.dataset.docManager || ""
+        manager: addDocRequestBtn.dataset.docManager || "",
+        stageGroup: addDocRequestBtn.dataset.docStageGroup || ""
       });
       return;
     }
@@ -6828,6 +6924,10 @@ if (newDealButton) {
 }
 
 newClientButton.addEventListener("click", () => {
+  openClientDialog(null);
+});
+
+topbarAddClient?.addEventListener("click", () => {
   openClientDialog(null);
 });
 
@@ -7502,7 +7602,7 @@ if (userForm) {
 
 // ===== Document request dialog & handlers =====
 
-function openDocumentRequestDialog({ clientName, manager }) {
+function openDocumentRequestDialog({ clientName, manager, stageGroup = "" }) {
   if (!documentRequestDialog || !documentRequestForm) {
     return;
   }
@@ -7513,10 +7613,16 @@ function openDocumentRequestDialog({ clientName, manager }) {
   }
   const targetManager = compareKey(manager);
   const targetClient = compareKey(clientName);
+  // Кнопка из шапки колонки показывает заявки только этой колонки.
+  const matchesStageGroup = (deal) => {
+    if (stageGroup === "lead") return LEAD_BUCKET_STAGES.has(deal.stage);
+    if (stageGroup === "working") return deal.stage === "submitted";
+    return deal.stage === "planned" || deal.statusGroup === "current";
+  };
   const deals = (state.dashboard?.deals || []).filter((deal) =>
     compareKey(deal.manager) === targetManager &&
     compareKey(deal.client) === targetClient &&
-    (deal.stage === "planned" || deal.statusGroup === "current")
+    matchesStageGroup(deal)
   );
   if (!documentRequestDealSelect) return;
   if (!deals.length) {

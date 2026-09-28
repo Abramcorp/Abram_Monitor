@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260923-anketa2">
+    <link rel="stylesheet" href="/styles.css?v=20260928-client-layout2">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -58,7 +58,12 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">Deal Monitor</p>
-            <h1 id="viewTitle">Мониторинг состояния заявок</h1>
+            <div class="topbar-title-row">
+              <h1 id="viewTitle">Мониторинг состояния заявок</h1>
+              <!-- «+ Клиент» — действие раздела «Клиенты в работе», а не
+                   открытого клиента; показывается только в этом разделе -->
+              <button class="primary-button small-button" id="topbarAddClient" type="button" hidden>+ Клиент</button>
+            </div>
           </div>
           <div class="topbar-actions">
             <button class="topbar-user" id="topbarUser" type="button" hidden title="Профиль">
@@ -580,6 +585,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260923-anketa2" defer></script>
+    <script src="/app.js?v=20260928-client-layout2" defer></script>
   </body>
 </html>
