@@ -3841,6 +3841,99 @@ details.client-application-card.is-flash > summary {
   color: #7c3aed;
 }
 
+.parameter-fieldset {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.parameter-fieldset legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.parameter-fields:empty::before {
+  content: "Параметры не настроены";
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.parameter-checkbox {
+  min-height: 42px;
+  align-self: end;
+}
+
+.application-parameter-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.badge-parameter {
+  background: rgba(0, 122, 255, 0.09);
+  color: #075da8;
+}
+
+.parameter-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.filter-checkbox,
+.filter-parameter-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.filter-parameter-select {
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 220px;
+}
+
+.filter-parameter-select span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.filter-parameter-select input {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.application-parameter-add {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 150px minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.application-parameter-add input,
+.application-parameter-add select {
+  min-height: 34px;
+}
+
+.parameter-options-preview {
+  flex: 1 1 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5203,3 +5296,13 @@ button.donut-legend-row.is-clickable:hover {
 
 /* Длительность текущего статуса в карточке заявки сводного отчёта */
 .deal-card-stage-age { opacity: 0.75; font-weight: 500; }
+@media (max-width: 900px) {
+  .application-parameter-add {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .application-parameter-admin-head {
+    align-items: stretch;
+  }
+}

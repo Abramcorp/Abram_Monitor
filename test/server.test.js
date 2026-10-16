@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { acceptsGzip, buildSessionCookie, clearSessionCookie, computeEtag, parseCookies, sendCompressed, sendJson, staticCacheControl } = require("../server");
+const { acceptsGzip, buildSessionCookie, clearSessionCookie, computeEtag, parseCookies, sendCompressed, sendJson, staticCacheControl, userOwnsManager } = require("../server");
 
 function makeResponse() {
   return {
@@ -204,4 +204,19 @@ test("clearSessionCookie sets empty value with Max-Age 0", () => {
   const cookie = clearSessionCookie({ secure: false });
   assert.match(cookie, /^am_session=;/);
   assert.match(cookie, /Max-Age=0/);
+});
+
+test("userOwnsManager uses the explicit manager-to-user link", () => {
+  const managers = [
+    { name: "Граф", userId: "user-graf" },
+    { name: "Артем", userId: "user-artem" }
+  ];
+
+  assert.equal(userOwnsManager({ id: "user-artem", fullName: "Граф" }, "Артем", managers), true);
+  assert.equal(userOwnsManager({ id: "user-artem", fullName: "Граф" }, "Граф", managers), false);
+});
+
+test("userOwnsManager keeps the legacy full-name fallback for unlinked managers", () => {
+  assert.equal(userOwnsManager({ id: "user-1", fullName: "Артем" }, "Артем", [{ name: "Артем", userId: "" }]), true);
+  assert.equal(userOwnsManager({ id: "user-1", fullName: "Артем" }, "Граф", [{ name: "Граф", userId: "" }]), false);
 });

@@ -8,6 +8,7 @@ const {
   buildStatusChangeAction,
   initStore,
   mergePlanTemplates,
+  normalizeApplicationParameter,
   normalizeClient,
   normalizeDocumentRequest,
   normalizeKnowledgeProgram,
@@ -470,4 +471,49 @@ test("submissionNumber нумеруется отдельно для каждог
     deals
   );
   assert.equal(d.submissionNumber, undefined);
+});
+
+test("client and knowledge program preserve shared application parameters", () => {
+  const parameters = {
+    guarantee: true,
+    realBusiness: false,
+    region: "Москва"
+  };
+
+  const client = normalizeClient({
+    id: "client-parameters",
+    name: "ООО Параметры",
+    manager: "Аналитик",
+    parameters
+  });
+  const program = normalizeKnowledgeProgram({
+    id: "program-parameters",
+    program: "Параметрическая программа",
+    parameters
+  });
+
+  assert.deepEqual(client.parameters, parameters);
+  assert.deepEqual(program.parameters, parameters);
+});
+
+test("application parameter supports checkbox and select-with-input definitions", () => {
+  const checkbox = normalizeApplicationParameter({
+    id: "parameter-guarantee",
+    key: "guarantee",
+    name: "Поручительство",
+    type: "checkbox",
+    options: ["лишнее"]
+  });
+  const select = normalizeApplicationParameter({
+    id: "parameter-region",
+    key: "region",
+    name: "Регион",
+    type: "select",
+    options: ["Москва, Московская область", "Москва"]
+  });
+
+  assert.equal(checkbox.type, "checkbox");
+  assert.deepEqual(checkbox.options, []);
+  assert.equal(select.type, "select");
+  assert.deepEqual(select.options, ["Москва", "Московская область"]);
 });

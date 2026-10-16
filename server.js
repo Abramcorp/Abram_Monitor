@@ -26,6 +26,7 @@ const {
   purgeClientData,
   deleteDeal,
   deleteDocumentRequest,
+  deleteKnowledgeProgram,
   deleteManager,
   deleteTask,
   fulfillDocumentRequest,
@@ -80,6 +81,10 @@ const {
   validateIntegrationDecision
 } = require("./src/integrationApi");
 const {
+  getApplicationParameters,
+  createApplicationParameter,
+  updateApplicationParameter,
+  deleteApplicationParameter,
   setClientTelegramTopicId,
   setClientTelegramBossTopicId,
   setDocumentRequestOpenMessageId,
@@ -1205,6 +1210,30 @@ function ensurePartnerOwnsManager(request, managerName) {
   }
 }
 
+function userOwnsManager(user, managerName, managers = []) {
+  const ownerKey = String(managerName || "").trim().toLowerCase();
+  if (!user || !ownerKey) {
+    return false;
+  }
+  const userId = String(user.id || "").trim();
+  const linked = userId
+    ? managers.filter((manager) => String(manager.userId || "").trim() === userId)
+    : [];
+  if (linked.length) {
+    return linked.some((manager) => String(manager.name || "").trim().toLowerCase() === ownerKey);
+  }
+  return String(user.fullName || "").trim().toLowerCase() === ownerKey;
+}
+
+async function ensureAnalystOwnsManager(request, managerName) {
+  if (request.user?.role !== "analyst_abram") {
+    return;
+  }
+  if (!userOwnsManager(request.user, managerName, await getManagers())) {
+    throw new AuthError(403, "Можно подтверждать только свои запросы");
+  }
+}
+
 function filterByManager(items, scope, getter) {
   if (!scope) {
     return items;
@@ -2118,6 +2147,17 @@ async function handleApi(request, response) {
     return;
   }
 
+  if (request.method === "DELETE" && knowledgeProgramMatch) {
+    requireRole(request, ["admin", "analyst_abram"]);
+    const entry = await deleteKnowledgeProgram(decodeURIComponent(knowledgeProgramMatch[1]));
+    if (!entry) {
+      sendJson(response, 404, { error: "Knowledge program not found" });
+      return;
+    }
+    sendJson(response, 200, { entry });
+    return;
+  }
+
   if (request.method === "GET" && pathname === "/api/users") {
     requireRole(request, ["admin"]);
     const items = await users.listUsers();
@@ -2688,13 +2728,8 @@ async function handleApi(request, response) {
     }
     if (scope) {
       ensurePartnerOwnsManager(request, existing.manager);
-    } else if (request.user.role === "analyst_abram") {
-      // analyst_abram может подтверждать только свои
-      const ownerScope = String(existing.manager || "").trim().toLowerCase();
-      const me = String(request.user.fullName || "").trim().toLowerCase();
-      if (ownerScope && me && ownerScope !== me) {
-        throw new AuthError(403, "Можно подтверждать только свои запросы");
-      }
+    } else {
+      await ensureAnalystOwnsManager(request, existing.manager);
     }
     const updated = await confirmDocumentRequest(reqId, { actor: request.user });
     if (!updated) {
@@ -2737,6 +2772,44 @@ async function handleApi(request, response) {
   // ===== Program types & categories taxonomy =====
   // GET доступны всем авторизованным (нужны диалогу программы БЗ).
   // CUD — admin only.
+
+  if (request.method === "GET" && pathname === "/api/application-parameters") {
+    sendJson(response, 200, { items: await getApplicationParameters() });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/api/application-parameters") {
+    requireRole(request, ["admin"]);
+    const payload = await readBody(request);
+    try {
+      const item = await createApplicationParameter(payload);
+      sendJson(response, 201, { item });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+  const applicationParameterMatch = pathname.match(/^\/api\/application-parameters\/([^/]+)$/);
+  if (request.method === "PATCH" && applicationParameterMatch) {
+    requireRole(request, ["admin"]);
+    const id = decodeURIComponent(applicationParameterMatch[1]);
+    const payload = await readBody(request);
+    try {
+      const item = await updateApplicationParameter(id, payload);
+      if (!item) { sendJson(response, 404, { error: "Не найдено" }); return; }
+      sendJson(response, 200, { item });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+    }
+    return;
+  }
+  if (request.method === "DELETE" && applicationParameterMatch) {
+    requireRole(request, ["admin"]);
+    const id = decodeURIComponent(applicationParameterMatch[1]);
+    const item = await deleteApplicationParameter(id);
+    if (!item) { sendJson(response, 404, { error: "Не найдено" }); return; }
+    sendJson(response, 200, { item });
+    return;
+  }
 
   if (request.method === "GET" && pathname === "/api/program-types") {
     sendJson(response, 200, { items: await getProgramTypes() });
@@ -3359,5 +3432,6 @@ module.exports = {
   sendJson,
   server,
   staticCacheControl,
+  userOwnsManager,
   start
 };

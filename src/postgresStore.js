@@ -49,6 +49,10 @@ const COLLECTIONS = {
     file: path.join(DATA_DIR, "program_categories.json"),
     table: "app_program_categories"
   },
+  application_parameters: {
+    file: path.join(DATA_DIR, "application_parameters.json"),
+    table: "app_application_parameters"
+  },
   plan_templates: {
     file: path.join(DATA_DIR, "plan_templates.json"),
     table: "app_plan_templates"
@@ -265,6 +269,16 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
 
         CREATE UNIQUE INDEX IF NOT EXISTS app_program_categories_name_idx
           ON app_program_categories (lower(data->>'name'));
+
+        CREATE TABLE IF NOT EXISTS app_application_parameters (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS app_application_parameters_key_idx
+          ON app_application_parameters (data->>'key');
 
         CREATE TABLE IF NOT EXISTS app_plan_templates (
           id text PRIMARY KEY,
@@ -654,6 +668,16 @@ async function updateKnowledgeProgram(programId, buildNext) {
   }
 }
 
+async function deleteKnowledgeProgram(programId) {
+  const result = await getPool().query(
+    `DELETE FROM ${KNOWLEDGE_TABLE} WHERE id = $1 RETURNING bank, data`,
+    [String(programId || "")]
+  );
+  if (result.rowCount === 0) {
+    return null;
+  }
+  return { bank: result.rows[0].bank, program: result.rows[0].data };
+}
 async function listProgramDiscoveries({ status = "", limit = 200 } = {}) {
   const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
   const params = [];
@@ -864,6 +888,7 @@ module.exports = {
   ensureReady,
   getDatabaseUrl,
   isPersistentStoreRequired,
+  deleteKnowledgeProgram,
   insertKnowledgeProgram,
   insertRow,
   isEnabled,

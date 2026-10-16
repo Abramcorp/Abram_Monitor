@@ -125,6 +125,11 @@
         </label>
 
         <label>
+          Поиск программы
+          <input id="applicationProgramSearch" type="search" autocomplete="off" placeholder="Банк, программа, тип или условие">
+        </label>
+
+        <label>
           Программа
           <select name="knowledgeProgramId" required></select>
         </label>
@@ -214,6 +219,11 @@
           ИНН
           <input name="inn" inputmode="numeric" pattern="\d{10}|\d{12}" placeholder="10 или 12 цифр" autocomplete="off">
         </label>
+
+        <fieldset class="parameter-fieldset">
+          <legend>Параметры заявки</legend>
+          <div class="form-grid parameter-fields" id="clientParameterFields"></div>
+        </fieldset>
 
         <div class="form-grid">
           <label>
@@ -520,6 +530,11 @@
           </label>
         </div>
 
+        <fieldset class="parameter-fieldset">
+          <legend>Параметры заявки</legend>
+          <div class="form-grid parameter-fields" id="knowledgeParameterFields"></div>
+        </fieldset>
+
         <div class="form-grid">
           <label>
             Регион ведения бизнеса
@@ -585,6 +600,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20260928-client-layout2" defer></script>
+    <script src="/app.js?v=20261016-application-parameters" defer></script>
   </body>
 </html>

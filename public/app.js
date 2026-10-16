@@ -16,6 +16,7 @@ const state = {
   wsClient: "",
   programTypes: [],
   programCategories: [],
+  applicationParameters: null,
   lastSeenFulfilledRequestIds: new Set(),
   user: null,
   filters: {
@@ -24,7 +25,8 @@ const state = {
     bank: "all",
     programType: "all",
     category: "all",
-    stage: "all"
+    stage: "all",
+    applicationParameters: {}
   },
   board: {
     status: "current",
@@ -65,6 +67,8 @@ const dealActionForm = document.querySelector("#dealActionForm");
 const knowledgeDialog = document.querySelector("#knowledgeDialog");
 const knowledgeForm = document.querySelector("#knowledgeForm");
 const knowledgeDialogTitle = document.querySelector("#knowledgeDialogTitle");
+const clientParameterFields = document.querySelector("#clientParameterFields");
+const knowledgeParameterFields = document.querySelector("#knowledgeParameterFields");
 const userDialog = document.querySelector("#userDialog");
 const userForm = document.querySelector("#userForm");
 const userDialogTitle = document.querySelector("#userDialogTitle");
@@ -77,6 +81,7 @@ const documentRequestDealSelect = document.querySelector("#docRequestDeal");
 const documentRequestError = document.querySelector("#docRequestError");
 const toastHost = document.querySelector("#toastHost");
 const applicationProgramPreview = document.querySelector("#applicationProgramPreview");
+const applicationProgramSearch = document.querySelector("#applicationProgramSearch");
 const planTemplateDialog = document.querySelector("#planTemplateDialog");
 const planTemplateForm = document.querySelector("#planTemplateForm");
 const planTemplateRows = document.querySelector("#planTemplateRows");
@@ -286,6 +291,90 @@ const DEFAULT_PROGRAM_CATEGORIES = [
   "ФИЗАВТО",
   "ТЕСТОВЫЕ БАНКИ"
 ];
+const DEFAULT_APPLICATION_PARAMETERS = [
+  { id: "application-parameter-guarantee", key: "guarantee", name: "Поручительство", type: "checkbox", options: [], sortOrder: 10 },
+  { id: "application-parameter-real-business", key: "realBusiness", name: "Реальный бизнес", type: "checkbox", options: [], sortOrder: 20 },
+  { id: "application-parameter-region", key: "region", name: "Регион", type: "select", options: ["Москва", "Московская область", "Санкт-Петербург"], sortOrder: 30 }
+];
+
+function APPLICATION_PARAMETERS_LIST() {
+  return Array.isArray(state.applicationParameters) ? state.applicationParameters : DEFAULT_APPLICATION_PARAMETERS;
+}
+
+function applicationParameterDomId(scope, parameter) {
+  return (scope + "-" + String(parameter.id || parameter.key || "parameter")).replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function renderApplicationParameterFields(container, values = {}, scope = "parameter") {
+  if (!container) return;
+  container.innerHTML = APPLICATION_PARAMETERS_LIST().map((parameter) => {
+    const value = values?.[parameter.key];
+    if (parameter.type === "checkbox") {
+      return `
+        <label class="checkbox-label parameter-checkbox">
+          <input type="checkbox" data-application-parameter="${escapeHtml(parameter.key)}" ${value === true ? "checked" : ""}>
+          ${escapeHtml(parameter.name)}
+        </label>
+      `;
+    }
+    const listId = applicationParameterDomId(scope, parameter);
+    const options = (parameter.options || [])
+      .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+      .join("");
+    return `
+      <label>
+        ${escapeHtml(parameter.name)}
+        <input type="text" data-application-parameter="${escapeHtml(parameter.key)}" value="${escapeHtml(value || "")}" list="${escapeHtml(listId)}" autocomplete="off" placeholder="Начните вводить">
+        <datalist id="${escapeHtml(listId)}">${options}</datalist>
+      </label>
+    `;
+  }).join("");
+}
+
+function collectApplicationParameterValues(targetForm) {
+  const controls = new Map(
+    [...targetForm.querySelectorAll("[data-application-parameter]")]
+      .map((control) => [control.dataset.applicationParameter, control])
+  );
+  return Object.fromEntries(APPLICATION_PARAMETERS_LIST().map((parameter) => {
+    const control = controls.get(parameter.key);
+    if (parameter.type === "checkbox") {
+      return [parameter.key, control?.checked === true];
+    }
+    return [parameter.key, String(control?.value || "").trim()];
+  }));
+}
+
+function applicationParameterBadgeItems(values = {}) {
+  return APPLICATION_PARAMETERS_LIST().flatMap((parameter) => {
+    const value = values?.[parameter.key];
+    if (parameter.type === "checkbox") {
+      return value === true ? [`<span class="badge badge-parameter">${escapeHtml(parameter.name)}</span>`] : [];
+    }
+    return String(value || "").trim()
+      ? [`<span class="badge badge-parameter">${escapeHtml(parameter.name)}: ${escapeHtml(value)}</span>`]
+      : [];
+  });
+}
+
+function renderApplicationParameterBadges(values = {}, options = {}) {
+  const items = applicationParameterBadgeItems(values);
+  if (!items.length) return "";
+  return options.wrap === false
+    ? items.join("")
+    : `<div class="application-parameter-badges">${items.join("")}</div>`;
+}
+
+function applicationParameterSearchText(values = {}) {
+  return APPLICATION_PARAMETERS_LIST()
+    .flatMap((parameter) => {
+      const value = values?.[parameter.key];
+      if (parameter.type === "checkbox") return value === true ? [parameter.name] : [];
+      return String(value || "").trim() ? [parameter.name, value] : [];
+    })
+    .join(" ");
+}
+
 function PROGRAM_TYPES_LIST() {
   return (state.programTypes && state.programTypes.length)
     ? state.programTypes.map((it) => it.name)
@@ -794,6 +883,7 @@ const LOAD_DATA_TARGETS = {
   planTemplates: { url: "/api/plan-templates", apply: (payload) => { state.planTemplates = payload.planTemplates || []; }, notForRoles: ["documents_officer"] },
   programTypes: { url: "/api/program-types", apply: (payload) => { state.programTypes = payload.items || []; }, notForRoles: ["documents_officer"] },
   programCategories: { url: "/api/program-categories", apply: (payload) => { state.programCategories = payload.items || []; }, notForRoles: ["documents_officer"] },
+  applicationParameters: { url: "/api/application-parameters", apply: (payload) => { state.applicationParameters = payload.items || []; }, notForRoles: ["documents_officer"] },
   documentRequests: {
     url: "/api/document-requests",
     apply: (payload) => { applyDocumentRequests(payload.documentRequests || []); }
@@ -1083,7 +1173,7 @@ function setDealDialogLoading(isLoading) {
 
 function resetFilters() {
   const preservedQuery = state.filters?.query || "";
-  state.filters = { query: preservedQuery, manager: "all", bank: "all", programType: "all", category: "all", stage: "all" };
+  state.filters = { query: preservedQuery, manager: "all", bank: "all", programType: "all", category: "all", stage: "all", applicationParameters: {} };
 }
 
 function renderViewTabs() {
@@ -1440,6 +1530,7 @@ function groupDealsByManagerAndClient(deals, clients = [], managerRecords = []) 
             instructionUrl: meta.instructionUrl || "",
             inn: meta.inn || "",
             comment: meta.comment || "",
+            parameters: meta.parameters || {},
             archivedAt: meta.archivedAt || "",
             isArchived,
             createdAt: addedAt,
@@ -2448,6 +2539,7 @@ function renderWsClientGrid(manager) {
     <div class="ws-card ws-card-client${actions ? " has-actions" : ""}" data-ws-client="${escapeHtml(c.client)}" role="button" tabindex="0">
       <div class="ws-card-body">
         <strong>${escapeHtml(c.client)}</strong>
+        ${renderApplicationParameterBadges(c.parameters)}
         ${renderClientStageBreakdown(c)}
         <span class="muted">${renderClientKiBadge(c)}</span>
         ${renderClientLinks(c)}
@@ -2516,7 +2608,10 @@ function renderManagerClientView() {
     // клиента (шаг 2), здесь только рабочая область.
     head = `
       <div class="ws-client-title">
-        <h2>${escapeHtml(selectedClient.client)}</h2>
+        <div>
+          <h2>${escapeHtml(selectedClient.client)}</h2>
+          ${renderApplicationParameterBadges(selectedClient.parameters)}
+        </div>
         ${renderClientHeadActions(selectedClient)}
       </div>
     `;
@@ -2589,12 +2684,30 @@ function filteredKnowledge() {
   const query = state.filters.query.toLowerCase();
   const programTypeFilter = state.filters.programType;
   const programTypeActive = programTypeFilter && programTypeFilter !== "all";
+  const parameterFilters = state.filters.applicationParameters || {};
+  const parameterFilterActive = APPLICATION_PARAMETERS_LIST().some((parameter) =>
+    parameter.type === "checkbox"
+      ? parameterFilters[parameter.key] === true
+      : Boolean(String(parameterFilters[parameter.key] || "").trim())
+  );
   return state.knowledge
     .filter((bank) => state.filters.bank === "all" || bank.bank === state.filters.bank)
     .map((bank) => ({
       ...bank,
       programs: (bank.programs || []).filter((program) => {
         if (programTypeActive && (program.programType || "Стандарт") !== programTypeFilter) {
+          return false;
+        }
+        const matchesParameters = APPLICATION_PARAMETERS_LIST().every((parameter) => {
+          const filterValue = parameterFilters[parameter.key];
+          if (parameter.type === "checkbox") {
+            return filterValue !== true || program.parameters?.[parameter.key] === true;
+          }
+          const normalizedFilter = String(filterValue || "").trim().toLowerCase();
+          if (!normalizedFilter) return true;
+          return String(program.parameters?.[parameter.key] || "").toLowerCase().includes(normalizedFilter);
+        });
+        if (!matchesParameters) {
           return false;
         }
         if (!query) {
@@ -2613,7 +2726,8 @@ function filteredKnowledge() {
           program.reviewTermDeclared,
           program.notes,
           program.changeHistory,
-          requirementText
+          requirementText,
+          applicationParameterSearchText(program.parameters)
         ]
           .join(" ")
           .toLowerCase()
@@ -2621,7 +2735,7 @@ function filteredKnowledge() {
       })
     }))
     .filter((bank) => {
-      if (!query && !programTypeActive) {
+      if (!query && !programTypeActive && !parameterFilterActive) {
         return true;
       }
       return bank.programs.length > 0;
@@ -2793,43 +2907,87 @@ function renderApplicationProgramTitle(deal) {
   return `<a class="application-program-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`;
 }
 
-function renderApplicationProgramOptions() {
-  const entries = flattenKnowledgePrograms();
-  if (!entries.length) {
+function applicationProgramSearchText(entry) {
+  return [
+    entry.bank.bank,
+    entry.program.program,
+    entry.program.programType,
+    entry.program.amountRange,
+    entry.program.termRange,
+    entry.program.reviewTermDeclared,
+    entry.program.notes,
+    applicationParameterSearchText(entry.program.parameters),
+    ...Object.values(entry.program.requirements || {})
+  ].join(" ").toLowerCase();
+}
+
+function renderApplicationProgramOptions(query = "", selectedId = "") {
+  const allEntries = flattenKnowledgePrograms();
+  if (!allEntries.length) {
     return `<option value="">Сначала добавьте программу в Базе знаний</option>`;
   }
 
-  const grouped = new Map(PROGRAM_TYPES.map((type) => [type, []]));
-  entries.forEach((entry) => {
-    const type = PROGRAM_TYPES.includes(entry.program.programType) ? entry.program.programType : "Стандарт";
-    grouped.get(type).push(entry);
-  });
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const entries = normalizedQuery
+    ? allEntries.filter((entry) => applicationProgramSearchText(entry).includes(normalizedQuery))
+    : [...allEntries];
+  const selected = selectedId ? allEntries.find((entry) => entry.program.id === selectedId) : null;
+  if (selected && !entries.some((entry) => entry.program.id === selectedId)) {
+    entries.unshift(selected);
+  }
+  if (!entries.length) {
+    return `<option value="">По вашему запросу программы не найдены</option>`;
+  }
 
-  // Программы с опытом одобрения заливаем светло-зелёным — видно сразу,
-  // где банк уже одобрял. Ключи считаем один раз на весь селектор.
+  const grouped = new Map();
+  entries
+    .sort((left, right) =>
+      left.bank.bank.localeCompare(right.bank.bank, "ru") ||
+      left.program.program.localeCompare(right.program.program, "ru")
+    )
+    .forEach((entry) => {
+      const bankName = entry.bank.bank || "Банк не указан";
+      if (!grouped.has(bankName)) grouped.set(bankName, []);
+      grouped.get(bankName).push(entry);
+    });
+
   const approvedKeys = approvedProgramKeys();
-
-  return [...grouped.entries()]
-    .filter(([, items]) => items.length)
+  return `<option value="">Выберите программу</option>${[...grouped.entries()]
     .map(
-      ([type, items]) => `
-        <optgroup label="${escapeHtml(type)}">
+      ([bankName, items]) => `
+        <optgroup label="${escapeHtml(bankName)}">
           ${items
-            .sort((left, right) => left.label.localeCompare(right.label, "ru"))
             .map((entry) => {
               const approved = programHasApproval(entry.program, entry.bank, approvedKeys);
-              // Заливка option в выпадающем списке выглядит блёкло, поэтому
-              // ещё и галочка перед названием — её видно в любом браузере.
-              const label = `${approved ? "✅ " : ""}${entry.label}`;
+              const details = [
+                entry.program.programType || "Стандарт",
+                entry.program.program,
+                programAmountTermText(entry.program.amountRange, entry.program.termRange)
+              ].filter(Boolean).join(" — ");
+              const label = `${approved ? "✅ " : ""}${details}`;
               return `<option value="${escapeHtml(entry.program.id)}"${approved ? ` class="has-approval"` : ""}>${escapeHtml(label)}</option>`;
             })
             .join("")}
         </optgroup>
       `
     )
-    .join("");
+    .join("")}`;
 }
 
+function refreshApplicationProgramOptions() {
+  const select = form?.elements?.knowledgeProgramId;
+  if (!select) return;
+  const selectedId = select.value;
+  select.innerHTML = renderApplicationProgramOptions(applicationProgramSearch?.value || "", selectedId);
+  if (selectedId && [...select.options].some((option) => option.value === selectedId)) {
+    select.value = selectedId;
+  }
+}
+
+function resetApplicationProgramSearch() {
+  if (applicationProgramSearch) applicationProgramSearch.value = "";
+  refreshApplicationProgramOptions();
+}
 function renderApplicationProgramPreview(entry) {
   if (!applicationProgramPreview) {
     return;
@@ -2872,6 +3030,26 @@ function renderKnowledgeFilters() {
   const programTypeOptions = PROGRAM_TYPES
     .map((type) => `<option value="${escapeHtml(type)}" ${programTypeFilter === type ? "selected" : ""}>${escapeHtml(type)}</option>`)
     .join("");
+  const parameterFilters = state.filters.applicationParameters || {};
+  const parameterControls = APPLICATION_PARAMETERS_LIST().map((parameter) => {
+    if (parameter.type === "checkbox") {
+      return `
+        <label class="filter-checkbox">
+          <input type="checkbox" data-application-parameter-filter="${escapeHtml(parameter.key)}" ${parameterFilters[parameter.key] === true ? "checked" : ""}>
+          ${escapeHtml(parameter.name)}
+        </label>
+      `;
+    }
+    const listId = applicationParameterDomId("knowledge-filter", parameter);
+    const options = (parameter.options || []).map((option) => `<option value="${escapeHtml(option)}"></option>`).join("");
+    return `
+      <label class="filter-parameter-select">
+        <span>${escapeHtml(parameter.name)}</span>
+        <input type="text" data-application-parameter-filter="${escapeHtml(parameter.key)}" value="${escapeHtml(parameterFilters[parameter.key] || "")}" list="${escapeHtml(listId)}" autocomplete="off" placeholder="Начните вводить">
+        <datalist id="${escapeHtml(listId)}">${options}</datalist>
+      </label>
+    `;
+  }).join("");
   return `
     <div class="filters">
       <input id="queryFilter" value="${escapeHtml(state.filters.query)}" placeholder="Банк, программа, требование">
@@ -2884,6 +3062,7 @@ function renderKnowledgeFilters() {
         ${programTypeOptions}
       </select>
     </div>
+    <div class="parameter-filter-row">${parameterControls}</div>
   `;
 }
 
@@ -2959,6 +3138,7 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
           </h4>
           <div class="knowledge-card-badges">
             <span class="badge badge-type">${escapeHtml(program.programType || "Стандарт")}</span>
+            ${renderApplicationParameterBadges(program.parameters, { wrap: false })}
             ${approvedClass ? `<span class="badge badge-approval">✅ Есть опыт одобрения</span>` : ""}
           </div>
         </div>
@@ -2966,7 +3146,7 @@ function renderKnowledgeProgramCard(program, bank, showBank = false) {
       <div class="knowledge-card-body">
         <div class="knowledge-card-actions">
           <time>${formatDate(program.updatedAt || bank.updatedAt)}</time>
-          ${canEditKnowledge() ? `<button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button>` : ""}
+          ${canEditKnowledge() ? `<button class="ghost-button small-button" data-edit-knowledge="${escapeHtml(program.id)}" type="button">Редактировать</button><button class="ghost-button small-button danger-button" data-delete-knowledge="${escapeHtml(program.id)}" data-program-name="${escapeHtml(program.program)}" data-bank-name="${escapeHtml(bank.bank)}" type="button">Удалить</button>` : ""}
         </div>
         ${renderRequirementGrid(program.requirements)}
         <div class="knowledge-review-terms">
@@ -3240,9 +3420,7 @@ function documentRequestForDeal(dealId) {
 function canConfirmRequest(req) {
   if (!req || req.status !== "fulfilled") return false;
   if (isAdmin()) return true;
-  const me = String(state.user?.fullName || "").trim().toLowerCase();
-  const owner = String(req.manager || "").trim().toLowerCase();
-  return me && owner && me === owner;
+  return currentUserManagerKeys().has(compareKey(req.manager));
 }
 
 function renderDealDocumentBadge(deal) {
@@ -3553,6 +3731,7 @@ function renderAdminPanelView() {
       ${renderManagersAdminList()}
     </section>
     ${renderTaxonomyView("Типы программ", "program-type", state.programTypes || [])}
+    ${renderApplicationParametersAdmin()}
     ${renderUsersView()}
     ${renderClientsAdminSection()}
     ${renderIntegrationsView()}
@@ -3701,6 +3880,52 @@ function renderTaxonomyView(title, kind, items) {
         <div class="panel-head-actions">
           <form class="taxonomy-add" data-taxonomy-add="${escapeHtml(kind)}">
             <input type="text" name="name" placeholder="Новое значение" required maxlength="120">
+            <button class="primary-button small-button" type="submit">+ Добавить</button>
+          </form>
+        </div>
+      </div>
+      <ul class="taxonomy-list">${rows}</ul>
+    </section>
+  `;
+}
+
+function renderApplicationParametersAdmin() {
+  const parameters = APPLICATION_PARAMETERS_LIST();
+  const typeLabel = (type) => type === "select" ? "Список с вводом" : "Галочка";
+  const rows = parameters.length
+    ? parameters.map((parameter) => {
+        const optionsText = parameter.type === "select" && parameter.options?.length
+          ? `<span class="muted parameter-options-preview">${escapeHtml(parameter.options.join(", "))}</span>`
+          : "";
+        return `
+          <li class="taxonomy-row" data-application-parameter-id="${escapeHtml(parameter.id)}">
+            <span class="taxonomy-name" data-application-parameter-name>${escapeHtml(parameter.name)}</span>
+            <span class="badge badge-type">${escapeHtml(typeLabel(parameter.type))}</span>
+            ${optionsText}
+            <span class="taxonomy-actions">
+              <button class="ghost-button small-button" data-edit-application-parameter="${escapeHtml(parameter.id)}" type="button">Изменить</button>
+              <button class="ghost-button small-button danger-button" data-delete-application-parameter="${escapeHtml(parameter.id)}" data-name="${escapeHtml(parameter.name)}" type="button">Удалить</button>
+            </span>
+          </li>
+        `;
+      }).join("")
+    : `<li class="taxonomy-empty">Параметров пока нет.</li>`;
+  return `
+    <section class="panel admin-panel-section">
+      <div class="panel-head application-parameter-admin-head">
+        <div>
+          <p class="eyebrow">Заявки</p>
+          <h2>Параметры клиентов и программ</h2>
+          <p class="muted">Один параметр автоматически появляется у клиента, в программе и в фильтрах. Доступны два типа: галочка и список с вводом.</p>
+        </div>
+        <div class="panel-head-actions">
+          <form class="application-parameter-add" data-application-parameter-add>
+            <input type="text" name="name" placeholder="Название параметра" required maxlength="120">
+            <select name="type" aria-label="Тип параметра">
+              <option value="checkbox">Галочка</option>
+              <option value="select">Список с вводом</option>
+            </select>
+            <input type="text" name="options" placeholder="Варианты через запятую">
             <button class="primary-button small-button" type="submit">+ Добавить</button>
           </form>
         </div>
@@ -5904,6 +6129,24 @@ async function handleDeleteClient(button) {
   }
 }
 
+async function handleDeleteKnowledgeProgram(button) {
+  const programId = button.dataset.deleteKnowledge;
+  if (!programId) return;
+  const programName = button.dataset.programName || "программу";
+  const bankName = button.dataset.bankName || "банк не указан";
+  const confirmed = window.confirm(
+    `Удалить программу «${programName}» банка «${bankName}» из базы знаний?\nСуществующие заявки сохранят записанные банк и программу.`
+  );
+  if (!confirmed) return;
+  try {
+    await requestJson(`/api/knowledge/programs/${encodeURIComponent(programId)}`, { method: "DELETE" });
+    await loadData({ targets: ["knowledge"] });
+    showToast("Программа удалена", { type: "success" });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
 async function handleDeleteDeal(button) {
   if (!button.dataset.deleteDeal) {
     return;
@@ -6031,6 +6274,20 @@ function initDynamicControls() {
     await uploadFilesToDocRequest(reqId, [...files]);
   });
 
+  // Добавление расширяемого параметра клиента/программы.
+  app.addEventListener("submit", async (event) => {
+    const parameterForm = event.target?.closest?.("[data-application-parameter-add]");
+    if (!parameterForm) return;
+    event.preventDefault();
+    const formData = new FormData(parameterForm);
+    await handleAddApplicationParameter({
+      name: String(formData.get("name") || "").trim(),
+      type: String(formData.get("type") || "checkbox"),
+      options: String(formData.get("options") || "")
+    });
+    parameterForm.reset();
+  });
+
   // Submit формы добавления нового значения в taxonomy (в Панели управления).
   app.addEventListener("submit", async (event) => {
     const form = event.target?.closest?.("[data-taxonomy-add]");
@@ -6069,6 +6326,12 @@ function initDynamicControls() {
       } catch (error) {
         window.alert(error.message);
       }
+      return;
+    }
+    if (target.dataset?.applicationParameterFilter !== undefined) {
+      const key = target.dataset.applicationParameterFilter;
+      state.filters.applicationParameters[key] = target.type === "checkbox" ? target.checked : target.value;
+      render();
       return;
     }
     if (!target.id) {
@@ -6362,6 +6625,21 @@ function initDynamicControls() {
       return;
     }
 
+    const editApplicationParameterBtn = target.closest("[data-edit-application-parameter]");
+    if (editApplicationParameterBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleEditApplicationParameter(editApplicationParameterBtn);
+      return;
+    }
+    const deleteApplicationParameterBtn = target.closest("[data-delete-application-parameter]");
+    if (deleteApplicationParameterBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteApplicationParameter(deleteApplicationParameterBtn);
+      return;
+    }
+
     const editTaxonomyBtn = target.closest("[data-edit-taxonomy]");
     if (editTaxonomyBtn) {
       event.preventDefault();
@@ -6398,7 +6676,7 @@ function initDynamicControls() {
             body: JSON.stringify({ name: next.trim() })
           });
           const r = res.renamed;
-          const cascade = r ? ` (обновлено: сделок ${r.deals}, клиентов ${r.clients}, задач ${r.tasks})` : "";
+          const cascade = r ? ` (обновлено: сделок ${r.deals}, клиентов ${r.clients}, задач ${r.tasks}, запросов документов ${r.documentRequests || 0})` : "";
           showToast(`Аналитик переименован${cascade}`, { type: "success" });
           await loadData();
         } catch (error) {
@@ -6503,6 +6781,14 @@ function initDynamicControls() {
       } else if (deal) {
         window.alert("Редактирование доступно только для заявок на этапе «Плановая».");
       }
+      return;
+    }
+
+    const deleteKnowledge = target.closest("[data-delete-knowledge]");
+    if (deleteKnowledge) {
+      event.preventDefault();
+      event.stopPropagation();
+      await handleDeleteKnowledgeProgram(deleteKnowledge);
       return;
     }
 
@@ -6646,7 +6932,7 @@ function fillDealFormOptions() {
   });
   clientOptions.innerHTML = clientNames.map((client) => `<option value="${escapeHtml(client)}"></option>`).join("");
   bankOptions.innerHTML = bankNames.map((bank) => `<option value="${escapeHtml(bank)}"></option>`).join("");
-  programSelect.innerHTML = renderApplicationProgramOptions();
+  programSelect.innerHTML = renderApplicationProgramOptions(applicationProgramSearch?.value || "", programSelect.value);
   stageSelect.value = "planned";
   syncApplicationProgramFields();
   updateApplicationDateRequirements();
@@ -6686,6 +6972,7 @@ function openClientDialog(client = null) {
   clientForm.elements.driveUrl.value = client?.driveUrl || "";
   clientForm.elements.instructionUrl.value = client?.instructionUrl || "";
   clientForm.elements.comment.value = client?.comment || "";
+  renderApplicationParameterFields(clientParameterFields, client?.parameters || {}, "client");
   clientForm.elements.manager.disabled = isPartner();
   clientDialog.showModal();
 }
@@ -6727,6 +7014,7 @@ function openKnowledgeDialog(entry = null) {
     knowledgeForm.elements[key].value = requirements[key] || "";
   });
   knowledgeForm.elements.notes.value = entry?.program?.notes || "";
+  renderApplicationParameterFields(knowledgeParameterFields, entry?.program?.parameters || {}, "knowledge");
   knowledgeForm.elements.changeHistory.value = entry?.program?.changeHistory || "";
   if (knowledgeForm.elements.changeNote) {
     knowledgeForm.elements.changeNote.value = "";
@@ -6827,6 +7115,7 @@ function collectPlanTemplateItems() {
 function openApplicationDialog(manager, client, deal = null) {
   fillDealFormOptions();
   form.reset();
+  resetApplicationProgramSearch();
   setDealDialogLoading(false);
   const lockedManager = isPartner() ? partnerManagerName() : (deal?.manager || manager || "");
   form.elements.manager.value = lockedManager;
@@ -6900,11 +7189,13 @@ newManagerButton.addEventListener("click", () => {
 
 form.elements.stage.addEventListener("change", updateApplicationDateRequirements);
 form.elements.knowledgeProgramId.addEventListener("change", syncApplicationProgramFields);
+applicationProgramSearch?.addEventListener("input", refreshApplicationProgramOptions);
 
 if (newDealButton) {
   newDealButton.addEventListener("click", () => {
     fillDealFormOptions();
     form.reset();
+    resetApplicationProgramSearch();
     setDealDialogLoading(false);
     if (isPartner()) {
       const name = partnerManagerName();
@@ -7152,6 +7443,7 @@ clientForm.addEventListener("submit", async (event) => {
     formData.set("manager", clientForm.elements.manager.value);
   }
   const payload = Object.fromEntries(formData.entries());
+  payload.parameters = collectApplicationParameterValues(clientForm);
   const clientId = payload.clientId || "";
   delete payload.clientId;
   if (isPartner()) {
@@ -7210,6 +7502,7 @@ knowledgeForm.addEventListener("submit", async (event) => {
   // Снятый чекбокс в FormData не приходит вовсе — шлём явный boolean,
   // иначе снять отметку «есть опыт одобрения» было бы нельзя.
   payload.hasApprovalExperience = knowledgeForm.elements.hasApprovalExperience?.checked === true;
+  payload.parameters = collectApplicationParameterValues(knowledgeForm);
   await requestJson(programId ? `/api/knowledge/programs/${encodeURIComponent(programId)}` : "/api/knowledge", {
     method: programId ? "PATCH" : "POST",
     body: JSON.stringify(payload)
@@ -7313,6 +7606,74 @@ async function handleDeleteUser(button) {
   try {
     await requestJson(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
     await loadData({ targets: ["users"] });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+// ==== Расширяемые параметры клиентов и программ ====
+
+function parseApplicationParameterOptions(value) {
+  return String(value || "")
+    .split(/[\r\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function handleAddApplicationParameter(payload) {
+  if (!payload.name) return;
+  try {
+    await requestJson("/api/application-parameters", {
+      method: "POST",
+      body: JSON.stringify({
+        name: payload.name,
+        type: payload.type,
+        options: payload.type === "select" ? parseApplicationParameterOptions(payload.options) : []
+      })
+    });
+    await loadData({ targets: ["applicationParameters"] });
+    showToast("Параметр добавлен", { type: "success" });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleEditApplicationParameter(button) {
+  const id = button.dataset.editApplicationParameter;
+  const current = (state.applicationParameters || []).find((item) => item.id === id);
+  if (!current) return;
+  const name = window.prompt("Название параметра:", current.name);
+  if (name === null) return;
+  const cleanName = String(name).trim();
+  if (!cleanName) return;
+  const cleanType = current.type;
+  let options = [];
+  if (cleanType === "select") {
+    const rawOptions = window.prompt("Варианты списка через запятую или с новой строки:", (current.options || []).join(", "));
+    if (rawOptions === null) return;
+    options = parseApplicationParameterOptions(rawOptions);
+  }
+  try {
+    await requestJson("/api/application-parameters/" + encodeURIComponent(id), {
+      method: "PATCH",
+      body: JSON.stringify({ name: cleanName, type: cleanType, options })
+    });
+    await loadData({ targets: ["applicationParameters"] });
+    showToast("Параметр изменён", { type: "success" });
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function handleDeleteApplicationParameter(button) {
+  const id = button.dataset.deleteApplicationParameter;
+  const name = button.dataset.name || "параметр";
+  if (!window.confirm(`Удалить «${name}»? Поле исчезнет из форм и фильтров. Уже сохранённые значения останутся в данных.`)) return;
+  try {
+    await requestJson("/api/application-parameters/" + encodeURIComponent(id), { method: "DELETE" });
+    delete state.filters.applicationParameters[(state.applicationParameters || []).find((item) => item.id === id)?.key];
+    await loadData({ targets: ["applicationParameters"] });
+    showToast("Параметр удалён", { type: "info" });
   } catch (error) {
     window.alert(error.message);
   }

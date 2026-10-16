@@ -189,3 +189,50 @@ test("карточка заявки в сводке показывает вре�
   assert.match(appSource, /stageDurationLabel/);
   assert.match(appSource, /deal-card-stage-age/);
 });
+
+test("application program selector supports text search and bank grouping", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+
+  assert.match(indexSource, /id="applicationProgramSearch"/);
+  assert.match(appSource, /function applicationProgramSearchText/);
+  assert.match(appSource, /applicationProgramSearch\?\.addEventListener\("input", refreshApplicationProgramOptions\)/);
+  assert.match(appSource, /const bankName = entry\.bank\.bank \|\| "Банк не указан"/);
+  assert.match(appSource, /<optgroup label="\$\{escapeHtml\(bankName\)\}">/);
+});
+
+test("document confirmation follows manager userId and client transfers cascade requests", () => {
+  const storeSource = fs.readFileSync(path.join(__dirname, "..", "src", "store.js"), "utf8");
+
+  assert.match(appSource, /currentUserManagerKeys\(\)\.has\(compareKey\(req\.manager\)\)/);
+  assert.match(storeSource, /cleanText\(req\.clientId\).*cleanText\(previousClient\.id\)/);
+  assert.match(storeSource, /\["document_requests", "documentRequests"\]/);
+});
+
+test("knowledge programs can be deleted through the protected API", () => {
+  const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+  assert.match(appSource, /data-delete-knowledge/);
+  assert.match(appSource, /\/api\/knowledge\/programs\/\$\{encodeURIComponent\(programId\)\}/);
+  assert.match(serverSource, /request\.method === "DELETE" && knowledgeProgramMatch/);
+  assert.match(serverSource, /requireRole\(request, \["admin", "analyst_abram"\]\)/);
+});
+
+test("clients and programs share extensible checkbox and select-with-input parameters", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+  assert.match(indexSource, /id="clientParameterFields"/);
+  assert.match(indexSource, /id="knowledgeParameterFields"/);
+  assert.match(appSource, /function renderApplicationParameterFields/);
+  assert.match(appSource, /function collectApplicationParameterValues/);
+  assert.match(appSource, /data-application-parameter-filter/);
+  assert.match(appSource, /stage: "all", applicationParameters: \{\}/);
+  assert.match(appSource, /Поручительство/);
+  assert.match(appSource, /Реальный бизнес/);
+  assert.match(appSource, /Регион/);
+  assert.match(appSource, /type === "checkbox"/);
+  assert.match(appSource, /type === "select"/);
+  assert.match(appSource, /renderApplicationParametersAdmin/);
+  assert.match(serverSource, /pathname === "\/api\/application-parameters"/);
+  assert.match(serverSource, /requireRole\(request, \["admin"\]\)/);
+});

@@ -18,6 +18,7 @@ const TASKS_FILE = path.join(DATA_DIR, "tasks.json");
 const DOCUMENT_REQUESTS_FILE = path.join(DATA_DIR, "document_requests.json");
 const INTEGRATION_AUDIT_FILE = path.join(DATA_DIR, "integration_audit.json");
 const PLAN_TEMPLATES_FILE = path.join(DATA_DIR, "plan_templates.json");
+const APPLICATION_PARAMETERS_FILE = path.join(DATA_DIR, "application_parameters.json");
 // Дефолтные списки. Используются:
 //   а) для bootstrap (засев пустых коллекций при первом запуске);
 //   б) как fallback при чтении, если коллекции ещё не инициализированы.
@@ -37,6 +38,57 @@ const DEFAULT_PLAN_TEMPLATE_DEFS = [
   { id: "plan-template-express", name: "Экспресс", types: ["Экспресс"], limit: 8 },
   { id: "plan-template-medium", name: "Средний", types: ["Стандарт", "Экспресс"], limit: 10 },
   { id: "plan-template-long", name: "Длинный", types: ["Стандарт", "Добивка", "Физическое лицо", "Экспресс"], limit: 14 }
+];
+const RUSSIAN_REGIONS = [
+  "Республика Адыгея", "Республика Алтай", "Республика Башкортостан", "Республика Бурятия",
+  "Республика Дагестан", "Республика Ингушетия", "Кабардино-Балкарская Республика",
+  "Республика Калмыкия", "Карачаево-Черкесская Республика", "Республика Карелия",
+  "Республика Коми", "Республика Крым", "Республика Марий Эл", "Республика Мордовия",
+  "Республика Саха (Якутия)", "Республика Северная Осетия — Алания", "Республика Татарстан",
+  "Республика Тыва", "Удмуртская Республика", "Республика Хакасия", "Чеченская Республика",
+  "Чувашская Республика", "Алтайский край", "Забайкальский край", "Камчатский край",
+  "Краснодарский край", "Красноярский край", "Пермский край", "Приморский край",
+  "Ставропольский край", "Хабаровский край", "Амурская область", "Архангельская область",
+  "Астраханская область", "Белгородская область", "Брянская область", "Владимирская область",
+  "Волгоградская область", "Вологодская область", "Воронежская область", "Ивановская область",
+  "Иркутская область", "Калининградская область", "Калужская область", "Кемеровская область — Кузбасс",
+  "Кировская область", "Костромская область", "Курганская область", "Курская область",
+  "Ленинградская область", "Липецкая область", "Магаданская область", "Московская область",
+  "Мурманская область", "Нижегородская область", "Новгородская область", "Новосибирская область",
+  "Омская область", "Оренбургская область", "Орловская область", "Пензенская область",
+  "Псковская область", "Ростовская область", "Рязанская область", "Самарская область",
+  "Саратовская область", "Сахалинская область", "Свердловская область", "Смоленская область",
+  "Тамбовская область", "Тверская область", "Томская область", "Тульская область",
+  "Тюменская область", "Ульяновская область", "Челябинская область", "Ярославская область",
+  "Москва", "Санкт-Петербург", "Севастополь", "Еврейская автономная область",
+  "Ненецкий автономный округ", "Ханты-Мансийский автономный округ — Югра",
+  "Чукотский автономный округ", "Ямало-Ненецкий автономный округ"
+];
+const DEFAULT_APPLICATION_PARAMETERS = [
+  {
+    id: "application-parameter-guarantee",
+    key: "guarantee",
+    name: "Поручительство",
+    type: "checkbox",
+    options: [],
+    sortOrder: 10
+  },
+  {
+    id: "application-parameter-real-business",
+    key: "realBusiness",
+    name: "Реальный бизнес",
+    type: "checkbox",
+    options: [],
+    sortOrder: 20
+  },
+  {
+    id: "application-parameter-region",
+    key: "region",
+    name: "Регион",
+    type: "select",
+    options: RUSSIAN_REGIONS,
+    sortOrder: 30
+  }
 ];
 
 // Совместимость с легаси-кодом (нормализация программ): pre-merge сохраняем
@@ -88,6 +140,21 @@ function toBool(value) {
   if (typeof value === "boolean") return value;
   const text = cleanText(value).toLowerCase();
   return text === "true" || text === "on" || text === "1" || text === "yes";
+}
+
+function normalizeApplicationParameterValues(raw = {}) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return Object.fromEntries(
+    Object.entries(source)
+      .map(([key, value]) => {
+        const cleanKey = cleanText(key);
+        if (!cleanKey) return null;
+        if (typeof value === "boolean") return [cleanKey, value];
+        if (typeof value === "number" && Number.isFinite(value)) return [cleanKey, value];
+        return [cleanKey, cleanText(value)];
+      })
+      .filter(Boolean)
+  );
 }
 
 function amountFromRange(value) {
@@ -486,7 +553,7 @@ async function updateManager(id, patch) {
 async function renameManagerReferences(oldName, newName) {
   const from = cleanText(oldName);
   const to = cleanText(newName);
-  const counts = { deals: 0, clients: 0, tasks: 0 };
+  const counts = { deals: 0, clients: 0, tasks: 0, documentRequests: 0 };
   if (!from || !to || from === to) {
     return counts;
   }
@@ -494,7 +561,7 @@ async function renameManagerReferences(oldName, newName) {
 
   if (postgresStore.isEnabled()) {
     await initStore();
-    for (const [table, key] of [["deals", "deals"], ["clients", "clients"], ["tasks", "tasks"]]) {
+    for (const [table, key] of [["deals", "deals"], ["clients", "clients"], ["tasks", "tasks"], ["document_requests", "documentRequests"]]) {
       const rows = await postgresStore.listRows(table);
       for (const row of rows) {
         if (matches(row.manager)) {
@@ -536,6 +603,16 @@ async function renameManagerReferences(oldName, newName) {
     }
   });
   if (counts.tasks) writeJson(TASKS_FILE, tasks);
+
+  const documentRequests = readJson(DOCUMENT_REQUESTS_FILE, []);
+  documentRequests.forEach((request) => {
+    if (matches(request.manager)) {
+      request.manager = to;
+      request.updatedAt = new Date().toISOString();
+      counts.documentRequests += 1;
+    }
+  });
+  if (counts.documentRequests) writeJson(DOCUMENT_REQUESTS_FILE, documentRequests);
 
   return counts;
 }
@@ -600,6 +677,7 @@ function normalizeClient(raw = {}) {
     driveUrl: cleanText(raw.driveUrl || raw.diskUrl || raw.driveLink),
     instructionUrl: cleanText(raw.instructionUrl || raw.instructionLink),
     comment: cleanText(raw.comment),
+    parameters: normalizeApplicationParameterValues(raw.parameters),
     integrationSource: cleanText(raw.integrationSource),
     lastIntegrationMutationKeyHash: cleanText(raw.lastIntegrationMutationKeyHash),
     lastIntegrationMutationRequestHash: cleanText(raw.lastIntegrationMutationRequestHash),
@@ -809,8 +887,9 @@ async function updateClientRelatedRecords(previousClient, nextClient) {
     }
 
     for (const rawRequest of documentRequests.map(normalizeDocumentRequest).filter((req) =>
-      cleanText(req.clientName).toLowerCase() === previousName &&
-      cleanText(req.manager).toLowerCase() === previousManager
+      (cleanText(req.clientId) && cleanText(req.clientId) === cleanText(previousClient.id)) ||
+      (cleanText(req.clientName).toLowerCase() === previousName &&
+        cleanText(req.manager).toLowerCase() === previousManager)
     )) {
       await postgresStore.updateRow("document_requests", rawRequest.id, (current) => normalizeDocumentRequest({
         ...current,
@@ -865,10 +944,12 @@ async function updateClientRelatedRecords(previousClient, nextClient) {
   const documentRequests = getDocumentRequests();
   let requestsChanged = false;
   for (let index = 0; index < documentRequests.length; index += 1) {
-    if (
-      cleanText(documentRequests[index].clientName).toLowerCase() !== previousName ||
-      cleanText(documentRequests[index].manager).toLowerCase() !== previousManager
-    ) {
+    const requestClientId = cleanText(documentRequests[index].clientId);
+    const matchesById = requestClientId && requestClientId === cleanText(previousClient.id);
+    const matchesLegacyIdentity =
+      cleanText(documentRequests[index].clientName).toLowerCase() === previousName &&
+      cleanText(documentRequests[index].manager).toLowerCase() === previousManager;
+    if (!matchesById && !matchesLegacyIdentity) {
       continue;
     }
     documentRequests[index] = normalizeDocumentRequest({
@@ -2087,6 +2168,7 @@ function createKnowledgeEntry(payload) {
     termRange: payload.termRange,
     reviewTermDeclared: payload.reviewTermDeclared,
     hasApprovalExperience: payload.hasApprovalExperience,
+    parameters: payload.parameters,
     requirements: payload.requirements || payload,
     notes: payload.notes,
     changeHistory: payload.changeHistory,
@@ -2147,6 +2229,10 @@ function updateKnowledgeProgram(programId, payload) {
     ...sourceProgram,
     ...payload,
     id: sourceProgram.id,
+    parameters: {
+      ...(sourceProgram.parameters || {}),
+      ...normalizeApplicationParameterValues(payload.parameters)
+    },
     requirements: {
       ...(sourceProgram.requirements || {}),
       ...(payload.requirements || payload)
@@ -2181,6 +2267,30 @@ function updateKnowledgeProgram(programId, payload) {
   return { bank: targetBank.bank, program: updatedProgram };
 }
 
+function deleteKnowledgeProgram(programId) {
+  if (postgresStore.isEnabled()) {
+    return initStore().then(() => postgresStore.deleteKnowledgeProgram(programId));
+  }
+
+  const banks = getKnowledge();
+  for (let bankIndex = 0; bankIndex < banks.length; bankIndex += 1) {
+    const bank = banks[bankIndex];
+    const programIndex = bank.programs.findIndex((program) => program.id === programId);
+    if (programIndex === -1) {
+      continue;
+    }
+    const [program] = bank.programs.splice(programIndex, 1);
+    if (!bank.programs.length) {
+      banks.splice(bankIndex, 1);
+    } else {
+      bank.updatedAt = new Date().toISOString();
+    }
+    writeJson(KNOWLEDGE_FILE, banks);
+    return { bank: bank.bank, program };
+  }
+  return null;
+}
+
 async function updateKnowledgeProgramPostgres(programId, payload) {
   await initStore();
   return postgresStore.updateKnowledgeProgram(programId, ({ bank, program }) => {
@@ -2190,6 +2300,10 @@ async function updateKnowledgeProgramPostgres(programId, payload) {
       ...program,
       ...payload,
       id: program.id,
+      parameters: {
+        ...(program.parameters || {}),
+        ...normalizeApplicationParameterValues(payload.parameters)
+      },
       requirements: {
         ...(program.requirements || {}),
         ...(payload.requirements || payload)
@@ -2276,6 +2390,7 @@ function normalizeKnowledgeProgram(raw = {}) {
     // одобрение было вне Монитора. Автоматическая подсветка по одобренным
     // заявкам работает независимо от этого флага.
     hasApprovalExperience: toBool(raw.hasApprovalExperience ?? raw.approvalExperience),
+    parameters: normalizeApplicationParameterValues(raw.parameters),
     requirements: normalizeRequirements({
       ...requirements,
       documentation: requirements.documentation || legacyDocuments,
@@ -2321,6 +2436,125 @@ function normalizeKnowledgeEntries(entries) {
   }
 
   return Array.from(bankMap.values()).sort((left, right) => left.bank.localeCompare(right.bank, "ru"));
+}
+
+// ===== Application parameters (shared by clients and programs) =====
+
+function normalizeApplicationParameter(raw = {}) {
+  const now = new Date().toISOString();
+  const id = cleanText(raw.id) || "application-parameter-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+  const type = cleanText(raw.type).toLowerCase() === "select" ? "select" : "checkbox";
+  const options = type === "select"
+    ? normalizeList(raw.options).flatMap((item) => item.split(",")).map((item) => item.trim()).filter(Boolean)
+    : [];
+  return {
+    id,
+    key: cleanText(raw.key).replace(/[^a-zA-Z0-9_-]/g, "") || id,
+    name: cleanText(raw.name),
+    type,
+    options: [...new Set(options)],
+    sortOrder: Number(raw.sortOrder) || 0,
+    createdAt: toIsoDate(raw.createdAt) || now,
+    updatedAt: toIsoDate(raw.updatedAt) || now
+  };
+}
+
+function applicationParameterSort(left, right) {
+  const order = (left.sortOrder || 0) - (right.sortOrder || 0);
+  return order || String(left.name || "").localeCompare(String(right.name || ""), "ru");
+}
+
+async function getApplicationParameters() {
+  let rows;
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    rows = await postgresStore.listRows("application_parameters");
+  } else {
+    rows = fs.existsSync(APPLICATION_PARAMETERS_FILE)
+      ? readJson(APPLICATION_PARAMETERS_FILE, [])
+      : DEFAULT_APPLICATION_PARAMETERS;
+  }
+  return rows
+    .map(normalizeApplicationParameter)
+    .filter((item) => item.name)
+    .sort(applicationParameterSort);
+}
+
+async function createApplicationParameter(payload = {}) {
+  const existing = await getApplicationParameters();
+  const item = normalizeApplicationParameter({
+    ...payload,
+    sortOrder: payload.sortOrder ?? ((existing.at(-1)?.sortOrder || 0) + 10),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  if (!item.name) throw new Error("Название обязательно");
+  if (existing.some((entry) => entry.name.toLowerCase() === item.name.toLowerCase())) {
+    throw new Error("Параметр с таким названием уже есть");
+  }
+  if (existing.some((entry) => entry.key === item.key)) {
+    item.key = "custom_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+  }
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    await postgresStore.insertRow("application_parameters", item);
+  } else {
+    writeJson(APPLICATION_PARAMETERS_FILE, [...existing, item]);
+  }
+  return item;
+}
+
+async function updateApplicationParameter(id, patch = {}) {
+  const existing = await getApplicationParameters();
+  const current = existing.find((item) => item.id === id);
+  if (!current) return null;
+  const next = normalizeApplicationParameter({
+    ...current,
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.options !== undefined ? { options: patch.options } : {}),
+    ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+    id: current.id,
+    key: current.key,
+    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString()
+  });
+  if (!next.name) throw new Error("Название обязательно");
+  if (existing.some((item) => item.id !== id && item.name.toLowerCase() === next.name.toLowerCase())) {
+    throw new Error("Параметр с таким названием уже есть");
+  }
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("application_parameters", id, () => next);
+    return updated ? normalizeApplicationParameter(updated) : null;
+  }
+  const index = existing.findIndex((item) => item.id === id);
+  existing[index] = next;
+  writeJson(APPLICATION_PARAMETERS_FILE, existing);
+  return next;
+}
+
+async function deleteApplicationParameter(id) {
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const removed = await postgresStore.deleteRow("application_parameters", id);
+    return removed ? normalizeApplicationParameter(removed) : null;
+  }
+  const existing = await getApplicationParameters();
+  const index = existing.findIndex((item) => item.id === id);
+  if (index === -1) return null;
+  const [removed] = existing.splice(index, 1);
+  writeJson(APPLICATION_PARAMETERS_FILE, existing);
+  return removed;
+}
+
+async function seedApplicationParametersIfEmpty() {
+  const existing = await getApplicationParameters();
+  if (existing.length) return;
+  for (const item of DEFAULT_APPLICATION_PARAMETERS) {
+    try {
+      await createApplicationParameter(item);
+    } catch { /* ignore duplicate bootstrap values */ }
+  }
 }
 
 // ===== Program types & categories (admin taxonomy) =====
@@ -2453,6 +2687,7 @@ async function seedTaxonomyIfEmpty() {
       } catch { /* ignore */ }
     }
   }
+  await seedApplicationParametersIfEmpty();
 }
 
 async function reloadTaxonomyCache() {
@@ -2481,6 +2716,7 @@ module.exports = {
   bulkBlockClientDeals,
   buildInitialCommentAction,
   buildStatusChangeAction,
+  createApplicationParameter,
   createBank,
   createClient,
   createDeal,
@@ -2491,13 +2727,16 @@ module.exports = {
   createKnowledgeEntry,
   createManager,
   createTask,
+  deleteApplicationParameter,
   deleteClient,
   purgeClientData,
   deleteDeal,
   deleteDocumentRequest,
+  deleteKnowledgeProgram,
   deleteManager,
   deleteTask,
   fulfillDocumentRequest,
+  getApplicationParameters,
   getBanks,
   getClients,
   getDeals,
@@ -2508,6 +2747,8 @@ module.exports = {
   getTasks,
   initStore,
   appendIntegrationAudit,
+  normalizeApplicationParameter,
+  normalizeApplicationParameterValues,
   normalizeClient,
   upsertIntegrationClient,
   normalizeDocumentRequest,
@@ -2528,6 +2769,7 @@ module.exports = {
   validateDealDates,
   validateDocumentRequest,
   validateTask,
+  updateApplicationParameter,
   updateDeal,
   updateClient,
   markDealChecked,
