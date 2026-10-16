@@ -278,7 +278,7 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS app_application_parameters_key_idx
-          ON app_application_parameters (data->>'key');
+          ON app_application_parameters ((data->>'key'));
 
         CREATE TABLE IF NOT EXISTS app_plan_templates (
           id text PRIMARY KEY,

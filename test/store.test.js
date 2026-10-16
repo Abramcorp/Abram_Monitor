@@ -517,3 +517,10 @@ test("application parameter supports checkbox and select-with-input definitions"
   assert.equal(select.type, "select");
   assert.deepEqual(select.options, ["Москва", "Московская область"]);
 });
+test("PostgreSQL JSONB parameter index wraps the operator expression", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "postgresStore.js"), "utf8");
+
+  assert.match(source, /ON app_application_parameters \(\(data->>'key'\)\);/);
+});
