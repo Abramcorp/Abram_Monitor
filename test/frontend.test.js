@@ -6,6 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const appSource = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+const stylesSource = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
 
 test("application save refreshes dashboard while preserving the current client card", () => {
   assert.match(appSource, /async function refreshDashboard/);
@@ -206,6 +207,33 @@ test("document confirmation follows manager userId and client transfers cascade 
   assert.match(appSource, /currentUserManagerKeys\(\)\.has\(compareKey\(req\.manager\)\)/);
   assert.match(storeSource, /cleanText\(req\.clientId\).*cleanText\(previousClient\.id\)/);
   assert.match(storeSource, /\["document_requests", "documentRequests"\]/);
+});
+
+test("application card renders every document request as a separate status row", () => {
+  assert.match(appSource, /function documentRequestsForDeal/);
+  assert.match(appSource, /function renderDealDocumentRequestRow/);
+  assert.match(appSource, /function renderDealDocumentRequests/);
+  assert.match(appSource, /documentRequestsForDeal\(deal\.id\)/);
+  assert.match(appSource, /data-confirm-doc-request/);
+  assert.match(appSource, /deal-document-request-list/);
+  assert.match(appSource, /deal-document-request-row/);
+  assert.match(appSource, /label: "Документы запрошены"/);
+  assert.match(appSource, /label: "Документы загружены"/);
+  assert.match(appSource, /label: "Документы получены"/);
+  assert.match(appSource, />Я забрал<\/button>/);
+  assert.match(stylesSource, /\.deal-document-request-list/);
+  assert.match(stylesSource, /\.deal-document-request-row/);
+  assert.doesNotMatch(appSource, /function documentRequestForDeal/);
+});
+
+test("document request delete action is shown only to its creator or an admin", () => {
+  const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+  assert.match(appSource, /function canDeleteDocumentRequest/);
+  assert.match(appSource, /req\.createdByLogin/);
+  assert.match(appSource, /data-delete-doc-request/);
+  assert.match(serverSource, /canDeleteDocumentRequest\(request\.user, existing/);
+  assert.match(serverSource, /Менеджер может удалять только созданные им запросы/);
 });
 
 test("knowledge programs can be deleted through the protected API", () => {

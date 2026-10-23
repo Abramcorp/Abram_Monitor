@@ -3,7 +3,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
-const { acceptsGzip, buildSessionCookie, clearSessionCookie, computeEtag, parseCookies, sendCompressed, sendJson, staticCacheControl, userOwnsManager } = require("../server");
+const {
+  acceptsGzip,
+  buildSessionCookie,
+  canDeleteDocumentRequest,
+  clearSessionCookie,
+  computeEtag,
+  parseCookies,
+  sendCompressed,
+  sendJson,
+  staticCacheControl,
+  userOwnsManager
+} = require("../server");
 
 function makeResponse() {
   return {
@@ -219,4 +230,33 @@ test("userOwnsManager uses the explicit manager-to-user link", () => {
 test("userOwnsManager keeps the legacy full-name fallback for unlinked managers", () => {
   assert.equal(userOwnsManager({ id: "user-1", fullName: "Артем" }, "Артем", [{ name: "Артем", userId: "" }]), true);
   assert.equal(userOwnsManager({ id: "user-1", fullName: "Артем" }, "Граф", [{ name: "Граф", userId: "" }]), false);
+});
+
+test("admin can delete any document request", () => {
+  const request = { createdByLogin: "manager", manager: "Граф" };
+
+  assert.equal(canDeleteDocumentRequest({ role: "admin", login: "admin" }, request), true);
+});
+
+test("manager can delete only a document request created by the same login", () => {
+  const ownRequest = { createdByLogin: "manager", createdBy: "Менеджер", manager: "Граф" };
+  const foreignRequest = { createdByLogin: "other", createdBy: "Другой", manager: "Граф" };
+  const manager = { role: "analyst_abram", login: "Manager", fullName: "Менеджер" };
+
+  assert.equal(canDeleteDocumentRequest(manager, ownRequest), true);
+  assert.equal(canDeleteDocumentRequest(manager, foreignRequest), false);
+});
+
+test("manager ownership falls back to author name for legacy document requests", () => {
+  const legacyRequest = { createdBy: "Менеджер", manager: "Граф" };
+  const manager = { role: "partner", login: "manager", fullName: "Менеджер" };
+
+  assert.equal(canDeleteDocumentRequest(manager, legacyRequest), true);
+});
+
+test("documents officer cannot delete document requests", () => {
+  const request = { createdByLogin: "officer", createdBy: "Оператор", manager: "Граф" };
+  const officer = { role: "documents_officer", login: "officer", fullName: "Оператор" };
+
+  assert.equal(canDeleteDocumentRequest(officer, request), false);
 });

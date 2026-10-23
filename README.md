@@ -57,6 +57,7 @@ Google Sheets используется только как ориентир по
 - `POST /api/knowledge` - добавить программу в базу знаний.
 - `PATCH /api/knowledge/programs/:id` - изменить программу базы знаний.
 - `DELETE /api/knowledge/programs/:id` - удалить программу из базы знаний; существующие заявки сохраняют свой снимок банка и программы.
+- `DELETE /api/document-requests/:id` - удалить запрос документов; администратор может удалить любой запрос, менеджер — только созданный им.
 - `GET /api/application-parameters` - общий реестр параметров клиентов и программ.
 - `POST /api/application-parameters`, `PATCH /api/application-parameters/:id`, `DELETE /api/application-parameters/:id` - управление параметрами (только администратор).
 

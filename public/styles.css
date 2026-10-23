@@ -4214,6 +4214,89 @@ details.client-application-card.is-flash > summary {
   margin-left: 6px;
 }
 
+.deal-document-request-list {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  font-style: normal;
+}
+
+.application-card-head > .deal-document-request-list {
+  grid-column: 1 / -1;
+}
+
+.application-card-head .deal-document-request-list-title,
+.deal-document-request-list-title {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.deal-document-request-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.application-card-head .deal-document-request-list,
+.application-card-head .deal-document-request-list span {
+  justify-self: stretch;
+}
+
+.deal-document-request-details {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.deal-document-request-row .deal-document-request-items {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.deal-document-request-row .deal-document-request-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.deal-document-request-row .deal-doc-badge {
+  justify-self: start;
+  margin-left: 0;
+  font-size: 11px;
+}
+
+.deal-document-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.deal-document-request-actions .doc-confirm-button {
+  margin-left: 0;
+}
+
+@media (max-width: 620px) {
+  .deal-document-request-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .deal-document-request-actions {
+    justify-content: flex-start;
+  }
+}
 @keyframes doc-badge-pulse-amber {
   0%, 100% { box-shadow: 0 0 0 0 rgba(182, 106, 19, 0); }
   50%      { box-shadow: 0 0 0 3px rgba(182, 106, 19, 0.35); }

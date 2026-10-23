@@ -1225,6 +1225,27 @@ function userOwnsManager(user, managerName, managers = []) {
   return String(user.fullName || "").trim().toLowerCase() === ownerKey;
 }
 
+function canDeleteDocumentRequest(user, documentRequest, managers = []) {
+  if (!user || !documentRequest) {
+    return false;
+  }
+  if (user.role === "admin") {
+    return true;
+  }
+  if (user.role !== "analyst_abram" && user.role !== "partner") {
+    return false;
+  }
+  const creatorLogin = String(documentRequest.createdByLogin || "").trim().toLowerCase();
+  if (creatorLogin) {
+    return creatorLogin === String(user.login || "").trim().toLowerCase();
+  }
+  const creatorName = String(documentRequest.createdBy || "").trim().toLowerCase();
+  if (creatorName) {
+    return creatorName === String(user.fullName || "").trim().toLowerCase();
+  }
+  return userOwnsManager(user, documentRequest.manager, managers);
+}
+
 async function ensureAnalystOwnsManager(request, managerName) {
   if (request.user?.role !== "analyst_abram") {
     return;
@@ -2757,10 +2778,20 @@ async function handleApi(request, response) {
     if (scope) {
       ensurePartnerOwnsManager(request, existing.manager);
     }
-    // Параллельно зачистим файлы на Drive (fire-and-forget, не блокируем удаление).
+    const ownershipManagers = existing.createdByLogin || existing.createdBy ? [] : await getManagers();
+    if (!canDeleteDocumentRequest(request.user, existing, ownershipManagers)) {
+      throw new AuthError(403, "Менеджер может удалять только созданные им запросы");
+    }
+    // Параллельно зачистим файлы на Drive и сообщения Telegram (fire-and-forget, не блокируем удаление).
     const attsToDelete = Array.isArray(existing.attachments) ? existing.attachments.filter((a) => a.driveFileId) : [];
     if (attsToDelete.length) {
       Promise.all(attsToDelete.map((a) => googleDrive.deleteFile(a.driveFileId).catch(() => null))).catch(() => null);
+    }
+    const telegramMessageIds = [existing.openMessageId, ...(existing.partialUploadMessageIds || [])]
+      .map((messageId) => String(messageId || ""))
+      .filter(Boolean);
+    if (telegramMessageIds.length) {
+      Promise.all(telegramMessageIds.map((messageId) => telegram.deleteMessage({ messageId }).catch(() => null))).catch(() => null);
     }
     const removed = await deleteDocumentRequest(reqId);
     sendJson(response, 200, { documentRequest: removed });
@@ -3425,6 +3456,7 @@ if (require.main === module) {
 module.exports = {
   acceptsGzip,
   buildSessionCookie,
+  canDeleteDocumentRequest,
   clearSessionCookie,
   computeEtag,
   parseCookies,

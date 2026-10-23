@@ -1698,7 +1698,8 @@ function renderClientApplicationCards(applications, emptyText, type) {
               <summary class="application-card-head">
                 <strong>${renderApplicationProgramTitle(deal)}${Number(deal.submissionNumber) > 0 ? ` <span class="submission-number" title="Номер поданной заявки">№ ${deal.submissionNumber}</span>` : ""}</strong>
                 <span>${money(deal.amountRequested)}${deal.stage === "approved" && Number(deal.amountApproved) > 0 ? ` · <span class="application-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}</span>
-                <em>${escapeHtml(deal.stageLabel)}${renderDealDocumentBadge(deal)}</em>
+                <em>${escapeHtml(deal.stageLabel)}</em>
+                ${renderDealDocumentRequests(deal)}
                 ${(deal.stage === "rejected" || deal.stage === "blocked") && deal.comment
                   ? `<small class="application-reason">Причина: <strong>${escapeHtml(deal.comment)}</strong></small>`
                   : ""}
@@ -3408,13 +3409,16 @@ function summarizeDocRequests(items) {
   return summary;
 }
 
-function documentRequestForDeal(dealId) {
-  if (!dealId) return null;
-  const list = state.documentRequests.filter((req) => req.dealId === dealId);
-  if (!list.length) return null;
-  return list.find((req) => req.status === "open")
-    || list.find((req) => req.status === "fulfilled")
-    || list.slice().sort((a, b) => (a.deliveredAt < b.deliveredAt ? 1 : -1))[0];
+function documentRequestsForDeal(dealId) {
+  if (!dealId) return [];
+  return state.documentRequests
+    .filter((req) => req.dealId === dealId)
+    .slice()
+    .sort((a, b) => {
+      const aCreated = Date.parse(a.createdAt || "") || 0;
+      const bCreated = Date.parse(b.createdAt || "") || 0;
+      return aCreated - bCreated || String(a.id || "").localeCompare(String(b.id || ""));
+    });
 }
 
 function canConfirmRequest(req) {
@@ -3423,22 +3427,66 @@ function canConfirmRequest(req) {
   return currentUserManagerKeys().has(compareKey(req.manager));
 }
 
-function renderDealDocumentBadge(deal) {
-  const req = documentRequestForDeal(deal.id);
-  if (!req) return "";
+function canDeleteDocumentRequest(req) {
+  if (!req) return false;
+  if (isAdmin()) return true;
+  if (!isAnalystAbram() && !isPartner()) return false;
+  const creatorLogin = compareKey(req.createdByLogin);
+  if (creatorLogin) {
+    return creatorLogin === compareKey(state.user?.login);
+  }
+  const creatorName = compareKey(req.createdBy);
+  if (creatorName) {
+    return creatorName === compareKey(state.user?.fullName);
+  }
+  return currentUserManagerKeys().has(compareKey(req.manager));
+}
+
+function documentRequestStatusMeta(req) {
   if (req.status === "delivered") {
-    const when = req.deliveredAt ? formatDate(req.deliveredAt) : "";
-    return `<span class="deal-doc-badge is-delivered" title="Документы получены${when ? ` ${when}` : ""}">✓ Документы получены</span>`;
+    return { badgeClass: "is-delivered", icon: "✓", label: "Документы получены", time: req.deliveredAt };
   }
   if (req.status === "fulfilled") {
-    const when = req.fulfilledAt ? formatDate(req.fulfilledAt) : "";
-    const confirmBtn = canConfirmRequest(req)
-      ? `<button class="ghost-button small-button doc-confirm-button" data-confirm-doc-request="${escapeHtml(req.id)}" type="button">Я забрал</button>`
-      : "";
-    return `<span class="deal-doc-badge is-fulfilled" title="Документы загружены${when ? ` ${when}` : ""}">⚠ Документы на отправку${when ? ` · ${when}` : ""}</span>${confirmBtn}`;
+    return { badgeClass: "is-fulfilled", icon: "⚠", label: "Документы загружены", time: req.fulfilledAt };
   }
-  const when = req.createdAt ? formatDate(req.createdAt) : "";
-  return `<span class="deal-doc-badge is-requested" title="Запрошены ${when}">● Документы запрошены${when ? ` · ${when}` : ""}</span>`;
+  return { badgeClass: "is-requested", icon: "●", label: "Документы запрошены", time: req.createdAt };
+}
+
+function renderDealDocumentRequestRow(req) {
+  const status = documentRequestStatusMeta(req);
+  const when = status.time ? formatDate(status.time) : "";
+  const meta = [
+    req.period ? `Период: ${escapeHtml(req.period)}` : "",
+    when
+  ].filter(Boolean).join(" · ");
+  const confirmBtn = canConfirmRequest(req)
+    ? `<button class="ghost-button small-button doc-confirm-button" data-confirm-doc-request="${escapeHtml(req.id)}" type="button">Я забрал</button>`
+    : "";
+  const deleteBtn = canDeleteDocumentRequest(req)
+    ? `<button class="ghost-button small-button danger-button doc-request-delete-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить</button>`
+    : "";
+  const actions = [confirmBtn, deleteBtn].filter(Boolean).join("");
+  return `
+    <span class="deal-document-request-row" data-doc-request-id="${escapeHtml(req.id)}" role="listitem">
+      <span class="deal-document-request-details">
+        <span class="deal-document-request-items">${escapeHtml(req.items || "Запрос документов")}</span>
+        ${meta ? `<span class="deal-document-request-meta">${meta}</span>` : ""}
+      </span>
+      <span class="deal-doc-badge ${status.badgeClass}" title="${escapeHtml(status.label)}${when ? ` · ${escapeHtml(when)}` : ""}">${status.icon} ${escapeHtml(status.label)}</span>
+      ${actions ? `<span class="deal-document-request-actions">${actions}</span>` : ""}
+    </span>
+  `;
+}
+
+function renderDealDocumentRequests(deal) {
+  const requests = documentRequestsForDeal(deal.id);
+  if (!requests.length) return "";
+  return `
+    <span class="deal-document-request-list" role="list" aria-label="Запросы документов">
+      <span class="deal-document-request-list-title">Запросы документов: ${requests.length}</span>
+      ${requests.map((req) => renderDealDocumentRequestRow(req)).join("")}
+    </span>
+  `;
 }
 
 function renderClientDocStrip(client) {
@@ -3531,7 +3579,7 @@ function renderDocumentRequestsView() {
         ? `<span class="doc-request-pending-note">Ждём подтверждения от ${escapeHtml(req.manager)}</span>`
         : `<button class="primary-button" data-fulfill-doc-request="${escapeHtml(req.id)}" type="button">Отправить пакет (${attachments.length})</button>`;
     }
-    const deleteBtn = isAdmin()
+    const deleteBtn = canDeleteDocumentRequest(req)
       ? `<button class="ghost-button small-button danger-button" data-delete-doc-request="${escapeHtml(req.id)}" type="button">Удалить запрос</button>`
       : "";
     const stateClass = isDelivered ? "is-delivered" : (isFulfilled ? "is-fulfilled" : "");
@@ -5148,7 +5196,7 @@ function renderBoardApplicationRows(applications, groupBy) {
               ? `${escapeHtml(program)} · ${escapeHtml(bankLabel)}`
               : `${escapeHtml(program)} · ${escapeHtml(bankLabel)}`;
           const ageDays = daysSince(deal.lastActionAt || deal.applicationDate);
-          const docBadge = renderDealDocumentBadge(deal);
+          const docRequests = renderDealDocumentRequests(deal);
           return `
             <article class="deal-card is-${tone}">
               <header class="deal-card-head">
@@ -5166,7 +5214,7 @@ function renderBoardApplicationRows(applications, groupBy) {
                 <strong>${money(deal.amountRequested)}</strong>
                 ${deal.amountApproved ? `<span class="deal-card-amount-approved">одобрено ${money(deal.amountApproved)}</span>` : ""}
               </div>
-              ${docBadge ? `<div class="deal-card-doc-row">${docBadge}</div>` : ""}
+              ${docRequests ? `<div class="deal-card-doc-row">${docRequests}</div>` : ""}
               ${(deal.stage === "rejected" || deal.stage === "blocked") && deal.comment
                 ? `<div class="deal-card-reason"><span class="deal-card-reason-label">Причина</span><span class="deal-card-reason-text">${escapeHtml(deal.comment)}</span></div>`
                 : ""}
