@@ -60,6 +60,7 @@ const form = document.querySelector("#dealForm");
 const saveDealButton = document.querySelector("#saveDealButton");
 const clientDialog = document.querySelector("#clientDialog");
 const clientForm = document.querySelector("#clientForm");
+const duplicateClientNameChoice = document.querySelector("#duplicateClientNameChoice");
 const managerDialog = document.querySelector("#managerDialog");
 const managerForm = document.querySelector("#managerForm");
 const dealActionDialog = document.querySelector("#dealActionDialog");
@@ -7005,6 +7006,37 @@ function rebuildKnowledgeTaxonomySelects() {
   }
 }
 
+const DUPLICATE_CLIENT_NAME_VARIANTS = new Set(["Повторно", "Однофамилец"]);
+
+function findDuplicateClientName(name) {
+  const nameKey = compareKey(name);
+  if (!nameKey) {
+    return "";
+  }
+  const duplicate = state.clients.find((client) => compareKey(client.name) === nameKey);
+  return String(duplicate?.name || "").trim();
+}
+
+function updateDuplicateClientNameChoice() {
+  if (!duplicateClientNameChoice) {
+    return "";
+  }
+  const duplicateName = clientForm.elements.clientId.value
+    ? ""
+    : findDuplicateClientName(clientForm.elements.name.value);
+  const options = duplicateClientNameChoice.querySelectorAll('input[name="duplicateNameVariant"]');
+  duplicateClientNameChoice.hidden = !duplicateName;
+  options.forEach((option) => {
+    option.required = Boolean(duplicateName);
+    option.checked = false;
+    const optionText = duplicateClientNameChoice.querySelector(`[data-duplicate-name-option="${option.value}"]`);
+    if (optionText) {
+      optionText.textContent = duplicateName ? `${duplicateName} (${option.value})` : option.value;
+    }
+  });
+  return duplicateName;
+}
+
 function openClientDialog(client = null) {
   fillDealFormOptions();
   clientForm.reset();
@@ -7022,6 +7054,7 @@ function openClientDialog(client = null) {
   clientForm.elements.comment.value = client?.comment || "";
   renderApplicationParameterFields(clientParameterFields, client?.parameters || {}, "client");
   clientForm.elements.manager.disabled = isPartner();
+  updateDuplicateClientNameChoice();
   clientDialog.showModal();
 }
 
@@ -7480,6 +7513,8 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+clientForm.elements.name.addEventListener("input", updateDuplicateClientNameChoice);
+
 clientForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value === "cancel") {
     return;
@@ -7493,7 +7528,19 @@ clientForm.addEventListener("submit", async (event) => {
   const payload = Object.fromEntries(formData.entries());
   payload.parameters = collectApplicationParameterValues(clientForm);
   const clientId = payload.clientId || "";
+  const duplicateClientName = clientId ? "" : findDuplicateClientName(payload.name);
+  if (!clientId && duplicateClientName) {
+    const duplicateNameVariant = String(payload.duplicateNameVariant || "");
+    if (!DUPLICATE_CLIENT_NAME_VARIANTS.has(duplicateNameVariant)) {
+      updateDuplicateClientNameChoice();
+      duplicateClientNameChoice?.querySelector('input[name="duplicateNameVariant"]')?.focus();
+      clientForm.reportValidity();
+      return;
+    }
+    payload.name = `${duplicateClientName} (${duplicateNameVariant})`;
+  }
   delete payload.clientId;
+  delete payload.duplicateNameVariant;
   if (isPartner()) {
     payload.manager = partnerManagerName();
   }

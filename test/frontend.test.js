@@ -163,6 +163,19 @@ test("client card can be edited through the client dialog", () => {
   assert.match(indexSource, /<input name="clientId" type="hidden">/);
 });
 
+test("new client with an existing name requires a duplicate-name variant", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+
+  assert.match(indexSource, /id="duplicateClientNameChoice"/);
+  assert.match(indexSource, /value="Повторно"/);
+  assert.match(indexSource, /value="Однофамилец"/);
+  assert.match(appSource, /function findDuplicateClientName/);
+  assert.match(appSource, /function updateDuplicateClientNameChoice/);
+  assert.match(appSource, /clientForm\.elements\.name\.addEventListener\("input", updateDuplicateClientNameChoice\)/);
+  assert.match(appSource, /if \(!clientId && duplicateClientName\)/);
+  assert.match(appSource, /payload\.name = `\$\{duplicateClientName\} \(\$\{duplicateNameVariant\}\)`/);
+});
+
 test("категории банков убраны из UI, но данные программ сохраняются", () => {
   const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
 

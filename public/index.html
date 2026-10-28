@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0e141b">
     <title>Мониторинг заявок</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20261023-document-requests">
+    <link rel="stylesheet" href="/styles.css?v=20261028-duplicate-client-name">
   </head>
   <body>
     <div class="login-shell is-visible" id="loginShell">
@@ -215,6 +215,18 @@
           Наименование
           <input name="name" required autocomplete="off">
         </label>
+        <fieldset class="duplicate-client-name-choice" id="duplicateClientNameChoice" hidden>
+          <legend>Клиент с таким именем уже есть</legend>
+          <p>Выберите, как назвать новую карточку:</p>
+          <label class="duplicate-client-name-option">
+            <input name="duplicateNameVariant" type="radio" value="Повторно">
+            <span data-duplicate-name-option="Повторно">Имя (Повторно)</span>
+          </label>
+          <label class="duplicate-client-name-option">
+            <input name="duplicateNameVariant" type="radio" value="Однофамилец">
+            <span data-duplicate-name-option="Однофамилец">Имя (Однофамилец)</span>
+          </label>
+        </fieldset>
         <label>
           ИНН
           <input name="inn" inputmode="numeric" pattern="\d{10}|\d{12}" placeholder="10 или 12 цифр" autocomplete="off">
@@ -600,6 +612,6 @@
       </form>
     </dialog>
 
-    <script src="/app.js?v=20261023-document-requests" defer></script>
+    <script src="/app.js?v=20261028-duplicate-client-name" defer></script>
   </body>
 </html>
