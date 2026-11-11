@@ -239,6 +239,17 @@ test("application card renders every document request as a separate status row",
   assert.doesNotMatch(appSource, /function documentRequestForDeal/);
 });
 
+test("long document request text is collapsed to two lines and can be expanded", () => {
+  assert.match(appSource, /deal-document-request-items is-collapsed/);
+  assert.match(appSource, /data-toggle-doc-request-text/);
+  assert.match(appSource, /aria-expanded="false"/);
+  assert.match(appSource, /function syncDocumentRequestTextOverflow/);
+  assert.match(appSource, /Показать полностью/);
+  assert.match(appSource, /Свернуть/);
+  assert.match(stylesSource, /-webkit-line-clamp:\s*2/);
+  assert.match(stylesSource, /\.deal-document-request-items\.is-expanded/);
+});
+
 test("document request delete action is shown only to its creator or an admin", () => {
   const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 

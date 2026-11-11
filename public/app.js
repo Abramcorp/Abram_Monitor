@@ -3486,13 +3486,35 @@ function renderDealDocumentRequestRow(req) {
   return `
     <span class="deal-document-request-row" data-doc-request-id="${escapeHtml(req.id)}" role="listitem">
       <span class="deal-document-request-details">
-        <span class="deal-document-request-items">${escapeHtml(req.items || "Запрос документов")}</span>
+        <span class="deal-document-request-items is-collapsed" id="doc-request-text-${escapeHtml(req.id)}">${escapeHtml(req.items || "Запрос документов")}</span>
+        <button class="deal-document-request-toggle" data-toggle-doc-request-text="${escapeHtml(req.id)}" aria-controls="doc-request-text-${escapeHtml(req.id)}" aria-expanded="false" type="button" hidden>Показать полностью</button>
         ${meta ? `<span class="deal-document-request-meta">${meta}</span>` : ""}
       </span>
       <span class="deal-doc-badge ${status.badgeClass}" title="${escapeHtml(status.label)}${when ? ` · ${escapeHtml(when)}` : ""}">${status.icon} ${escapeHtml(status.label)}</span>
       ${actions ? `<span class="deal-document-request-actions">${actions}</span>` : ""}
     </span>
   `;
+}
+
+function syncDocumentRequestTextOverflow(root = app) {
+  const scope = root || document;
+  scope.querySelectorAll("[data-toggle-doc-request-text]").forEach((toggle) => {
+    const row = toggle.closest(".deal-document-request-row");
+    const text = row?.querySelector(".deal-document-request-items");
+    if (!text) return;
+
+    text.classList.remove("is-collapsed");
+    const fullHeight = text.getBoundingClientRect().height;
+    text.classList.add("is-collapsed");
+    const collapsedHeight = text.getBoundingClientRect().height;
+
+    const hasOverflow = fullHeight > collapsedHeight + 1;
+    toggle.hidden = !hasOverflow;
+    if (!hasOverflow) {
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = "Показать полностью";
+    }
+  });
 }
 
 function renderDealDocumentRequests(deal) {
@@ -6891,6 +6913,22 @@ function initDynamicControls() {
       return;
     }
 
+    const documentRequestTextToggle = target.closest("[data-toggle-doc-request-text]");
+    if (documentRequestTextToggle) {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = documentRequestTextToggle.closest(".deal-document-request-row");
+      const text = row?.querySelector(".deal-document-request-items");
+      if (text) {
+        const expanded = documentRequestTextToggle.getAttribute("aria-expanded") !== "true";
+        text.classList.toggle("is-expanded", expanded);
+        text.classList.toggle("is-collapsed", !expanded);
+        documentRequestTextToggle.setAttribute("aria-expanded", String(expanded));
+        documentRequestTextToggle.textContent = expanded ? "Свернуть" : "Показать полностью";
+      }
+      return;
+    }
+
     const deleteDocRequestBtn = target.closest("[data-delete-doc-request]");
     if (deleteDocRequestBtn) {
       event.preventDefault();
@@ -7169,6 +7207,8 @@ function initDynamicControls() {
 }
 
 function bindDynamicControls() {
+  syncDocumentRequestTextOverflow();
+
   // Каскад «Клиенты в работе»: выбор аналитика/клиента и сброс чипами
   app.querySelectorAll("[data-ws-manager]").forEach((el) => {
     el.addEventListener("click", () => {

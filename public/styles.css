@@ -4258,11 +4258,51 @@ details.client-application-card.is-flash > summary {
 }
 
 .deal-document-request-row .deal-document-request-items {
+  display: block;
   color: var(--ink);
   font-size: 12px;
   font-weight: 650;
   overflow-wrap: anywhere;
   white-space: pre-line;
+}
+
+.deal-document-request-row .deal-document-request-items.is-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.deal-document-request-row .deal-document-request-items.is-expanded {
+  display: block;
+  overflow: visible;
+}
+
+.deal-document-request-toggle {
+  justify-self: start;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.deal-document-request-toggle:hover {
+  text-decoration: underline;
+}
+
+.deal-document-request-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.deal-document-request-toggle[hidden] {
+  display: none;
 }
 
 .deal-document-request-row .deal-document-request-meta {
