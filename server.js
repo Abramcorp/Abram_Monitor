@@ -7,6 +7,7 @@ const zlib = require("node:zlib");
 const crypto = require("node:crypto");
 const { calculateDashboard } = require("./src/analytics");
 const { getMoscowNow, isMoscowWeekend } = require("./src/time");
+const { futureClientReminderKind, moscowDateParts, periodLabel } = require("./src/futureClients");
 const {
   addDealAction,
   appendIntegrationAudit,
@@ -17,6 +18,9 @@ const {
   acknowledgeDocumentRequest,
   createBank,
   createClient,
+  cancelFutureClient,
+  createFutureClient,
+  getFutureClients,
   createDeal,
   createDocumentRequest,
   createKnowledgeEntry,
@@ -43,6 +47,8 @@ const {
   getManagers,
   getPlanTemplates,
   getTasks,
+  markFutureClientReminder,
+  moveFutureClientToWork,
   removeDocumentRequestAttachment,
   updateDeal,
   updateClient,
@@ -53,6 +59,7 @@ const {
   renameManagerReferences,
   updateManager,
   updateTask,
+  updateFutureClient,
   applyPlanTemplateToClient,
   upsertIntegrationClient,
   upsertProgramDiscovery,
@@ -1225,6 +1232,17 @@ function userOwnsManager(user, managerName, managers = []) {
   return String(user.fullName || "").trim().toLowerCase() === ownerKey;
 }
 
+function canManageFutureClient(user, futureClient, managers = []) {
+  if (!user || !futureClient) return false;
+  if (user.role === "admin") return true;
+  if (user.role !== "analyst_abram" && user.role !== "partner") return false;
+  return userOwnsManager(user, futureClient.manager, managers);
+}
+
+function futureClientAccessError() {
+  return new AuthError(403, "\u041c\u043e\u0436\u043d\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u0442\u044c \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u043e \u0441\u0432\u043e\u0438\u043c\u0438 \u0431\u0443\u0434\u0443\u0449\u0438\u043c\u0438 \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c\u0438");
+}
+
 function canDeleteDocumentRequest(user, documentRequest, managers = []) {
   if (!user || !documentRequest) {
     return false;
@@ -1770,6 +1788,98 @@ async function handleApi(request, response) {
     requireRole(request, ["admin", "analyst_abram"]);
     const payload = await readBody(request);
     sendJson(response, 201, { bank: await createBank(payload) });
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/future-clients") {
+    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    const managers = await getManagers();
+    let futureClients = await getFutureClients();
+    if (request.user.role !== "admin") {
+      futureClients = futureClients.filter((item) => canManageFutureClient(request.user, item, managers));
+    }
+    sendJson(response, 200, { futureClients });
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/future-clients") {
+    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    const payload = await readBody(request);
+    const managers = await getManagers();
+    if (!canManageFutureClient(request.user, { manager: payload.manager }, managers)) {
+      throw futureClientAccessError();
+    }
+    const futureClient = await createFutureClient(payload);
+    sendJson(response, 201, { futureClient });
+    return;
+  }
+
+  const futureClientMoveMatch = pathname.match(/^\/api\/future-clients\/([^/]+)\/move-to-work$/);
+  if (request.method === "POST" && futureClientMoveMatch) {
+    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    const futureClientId = decodeURIComponent(futureClientMoveMatch[1]);
+    const existing = (await getFutureClients()).find((item) => item.id === futureClientId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Future client not found" });
+      return;
+    }
+    const managers = await getManagers();
+    if (!canManageFutureClient(request.user, existing, managers)) {
+      throw futureClientAccessError();
+    }
+    const payload = await readBody(request);
+    if (!canManageFutureClient(request.user, { manager: payload.manager || existing.manager }, managers)) {
+      throw futureClientAccessError();
+    }
+    const result = await moveFutureClientToWork(futureClientId, payload);
+    sendJson(response, 201, result);
+    (async () => {
+      try {
+        await resolveClientTopicId(result.client.name, result.client.manager);
+      } catch (error) {
+        console.warn("[future-client] auto-topic error:", error.message);
+      }
+    })().catch(() => {});
+    return;
+  }
+
+  const futureClientMatch = pathname.match(/^\/api\/future-clients\/([^/]+)$/);
+  if (request.method === "PATCH" && futureClientMatch) {
+    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    const futureClientId = decodeURIComponent(futureClientMatch[1]);
+    const existing = (await getFutureClients()).find((item) => item.id === futureClientId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Future client not found" });
+      return;
+    }
+    const managers = await getManagers();
+    if (!canManageFutureClient(request.user, existing, managers)) {
+      throw futureClientAccessError();
+    }
+    const payload = await readBody(request);
+    if (payload.manager !== undefined
+      && !canManageFutureClient(request.user, { manager: payload.manager }, managers)) {
+      throw futureClientAccessError();
+    }
+    const futureClient = await updateFutureClient(futureClientId, payload);
+    sendJson(response, 200, { futureClient });
+    return;
+  }
+
+  if (request.method === "DELETE" && futureClientMatch) {
+    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    const futureClientId = decodeURIComponent(futureClientMatch[1]);
+    const existing = (await getFutureClients()).find((item) => item.id === futureClientId);
+    if (!existing) {
+      sendJson(response, 404, { error: "Future client not found" });
+      return;
+    }
+    const managers = await getManagers();
+    if (!canManageFutureClient(request.user, existing, managers)) {
+      throw futureClientAccessError();
+    }
+    const futureClient = await cancelFutureClient(futureClientId);
+    sendJson(response, 200, { futureClient });
     return;
   }
 
@@ -3329,18 +3439,95 @@ async function performDocumentAcceptanceReminders({ trace = `doc-accept-${Date.n
   return { reminded, total: due.length };
 }
 
+const FUTURE_CLIENT_REMINDER_POLL_MS = Number(process.env.FUTURE_CLIENT_REMINDER_POLL_MS || 15 * 60 * 1000);
+let pendingFutureClientReminderRun = null;
+
+async function performFutureClientReminders({ now = new Date(), trace = `future-clients-${Date.now().toString(36)}` } = {}) {
+  const tlog = (...args) => console.log(`[${trace}]`, ...args);
+  if (isMoscowWeekend(now)) {
+    return { sent: 0, total: 0, skipped: "weekend" };
+  }
+  const time = moscowTimeParts(now);
+  if (time.hour < 8 || (time.hour === 8 && time.minute < 50)) {
+    return { sent: 0, total: 0, skipped: "before-08:50" };
+  }
+
+  const dateKey = moscowDateParts(now).dateKey;
+  const futureClients = await getFutureClients({ now });
+  const due = futureClients
+    .map((item) => ({ item, kind: futureClientReminderKind(item, now) }))
+    .filter(({ kind }) => Boolean(kind));
+  const groups = new Map();
+  for (const entry of due) {
+    const key = String(entry.item.manager || "").trim().toLowerCase();
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, { analystName: entry.item.manager, entries: [] });
+    groups.get(key).entries.push(entry);
+  }
+
+  let sent = 0;
+  for (const { analystName, entries } of groups.values()) {
+    try {
+      const chatId = await resolveAnalystChatId(analystName);
+      if (!chatId || !(await chatAllowsNotify(chatId, "futureClients"))) {
+        tlog("skip", analystName, "- no chat or notifications disabled");
+        continue;
+      }
+      const clients = entries.map(({ item, kind }) => ({
+        id: item.id,
+        name: item.name,
+        status: kind,
+        periodLabel: periodLabel(item.periodYear, item.periodMonth, item.periodThird)
+      }));
+      const result = await telegram.notifyAnalystFutureClients({ chatId, analystName, clients });
+      if (!result || result.ok === false) continue;
+      const sentAt = now.toISOString();
+      for (const { item, kind } of entries) {
+        await markFutureClientReminder(item.id, { kind, sentAt, dateKey });
+      }
+      sent += 1;
+    } catch (error) {
+      tlog("error for", analystName, error.message);
+    }
+  }
+  return { sent, total: groups.size, due: due.length };
+}
+
+function startFutureClientReminderScheduler() {
+  if (process.env.DISABLE_FUTURE_CLIENT_REMINDERS === "1") {
+    console.log("[scheduler] future client reminders disabled by env");
+    return;
+  }
+  const run = () => {
+    if (pendingFutureClientReminderRun) return pendingFutureClientReminderRun;
+    pendingFutureClientReminderRun = performFutureClientReminders()
+      .then((result) => {
+        if (result.sent) console.log(`[scheduler] future client reminders sent: ${result.sent}/${result.total}`);
+        return result;
+      })
+      .catch((error) => console.warn("[scheduler] future client reminders error:", error.message))
+      .finally(() => { pendingFutureClientReminderRun = null; });
+    return pendingFutureClientReminderRun;
+  };
+  const first = setTimeout(run, Math.min(FUTURE_CLIENT_REMINDER_POLL_MS, 30 * 1000));
+  first.unref();
+  const interval = setInterval(run, FUTURE_CLIENT_REMINDER_POLL_MS);
+  interval.unref();
+  console.log(`[scheduler] future client reminders armed every ${FUTURE_CLIENT_REMINDER_POLL_MS}ms`);
+}
+
 // ===== Ежедневный планировщик: 08:50 МСК =====
 const DAILY_RESEND_HOUR_MSK = 8;
 const DAILY_RESEND_MIN_MSK = 50;
 let lastDailyResendDate = ""; // защита от двойного срабатывания
 
-function moscowTimeParts() {
+function moscowTimeParts(now = new Date()) {
   const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Moscow",
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hour12: false
   });
-  const parts = fmt.formatToParts(new Date());
+  const parts = fmt.formatToParts(now);
   const v = (type) => parts.find((p) => p.type === type)?.value || "";
   return {
     date: `${v("year")}-${v("month")}-${v("day")}`,
@@ -3444,6 +3631,7 @@ async function start() {
   });
   startDailyResendScheduler();
   startDocumentAcceptanceReminderScheduler();
+  startFutureClientReminderScheduler();
 }
 
 if (require.main === module) {
@@ -3457,9 +3645,11 @@ module.exports = {
   acceptsGzip,
   buildSessionCookie,
   canDeleteDocumentRequest,
+  canManageFutureClient,
   clearSessionCookie,
   computeEtag,
   parseCookies,
+  performFutureClientReminders,
   sendCompressed,
   sendJson,
   server,

@@ -582,6 +582,28 @@ function notifyAnalystDailyCheck({ chatId, analystName, clientsList = [] }) {
     + `\n\nОткройте приложение — на карточке каждой заявки появится кнопка «Заявка проверена».`;
   return sendTelegramMessage(text, { chatId });
 }
+function buildFutureClientReminderText({ analystName, clients = [] } = {}) {
+  const statusLabels = {
+    soon: "\u0441\u043a\u043e\u0440\u043e",
+    current: "\u0441\u0435\u0439\u0447\u0430\u0441",
+    overdue: "\u043f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d"
+  };
+  const lines = clients.map((client) => {
+    const status = statusLabels[client.status] || statusLabels.current;
+    return `\u2014 <b>${escapeHtml(client.name)}</b> \u2014 ${escapeHtml(client.periodLabel || "")} (${status})`;
+  }).join("\n");
+  return `\u{1F4C5} <b>\u0411\u0443\u0434\u0443\u0449\u0438\u0435 \u043a\u043b\u0438\u0435\u043d\u0442\u044b: \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435</b>\n`
+    + (analystName ? `\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a: <b>${escapeHtml(analystName)}</b>\n` : "")
+    + `\u041a\u043b\u0438\u0435\u043d\u0442\u043e\u0432: <b>${clients.length}</b>\n\n`
+    + lines
+    + `\n\n\u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u043a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c \u0438 \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0438\u0442\u0435 \u0433\u043e\u0442\u043e\u0432\u044b\u0445 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u0432 \u0440\u0430\u0431\u043e\u0442\u0443.`;
+}
+
+function notifyAnalystFutureClients({ chatId, analystName, clients = [] } = {}) {
+  if (!BOT_TOKEN || !chatId || !clients.length) return null;
+  return sendTelegramMessage(buildFutureClientReminderText({ analystName, clients }), { chatId });
+}
+
 
 function pluralRu(n, one, few, many) {
   const mod100 = n % 100;
@@ -650,6 +672,8 @@ module.exports = {
   notifyDocRequestConfirmed,
   notifyDealStageChange,
   notifyAnalystDailyCheck,
+  buildFutureClientReminderText,
+  notifyAnalystFutureClients,
   notifyAnalystNewTask,
   notifyBossClientReport,
   escapeHtml

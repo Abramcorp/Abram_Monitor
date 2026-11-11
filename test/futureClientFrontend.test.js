@@ -1,0 +1,43 @@
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const root = path.join(__dirname, "..");
+const appSource = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+const htmlSource = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+const cssSource = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+const serverSource = fs.readFileSync(path.join(root, "server.js"), "utf8");
+
+test("future clients have a dedicated six-period calendar and admin summary", () => {
+  assert.match(appSource, /id: "future-clients", label: "Будущие клиенты"/);
+  assert.match(appSource, /function futureClientWindow\([^)]*count = 6\)/);
+  assert.match(appSource, /function renderFutureClientsView\(/);
+  assert.match(appSource, /function renderAdminFutureCalendarWidget\(/);
+  assert.match(appSource, /\$\{renderAdminFutureCalendarWidget\(\)\}/);
+  assert.match(appSource, /item\.status === "overdue"/);
+  assert.match(cssSource, /\.future-calendar-grid/);
+});
+
+test("future client form mirrors business fields without contacts", () => {
+  const dialogStart = htmlSource.indexOf('id="futureClientDialog"');
+  const dialogEnd = htmlSource.indexOf('id="planTemplateDialog"');
+  const dialog = htmlSource.slice(dialogStart, dialogEnd);
+
+  assert.ok(dialogStart >= 0 && dialogEnd > dialogStart);
+  for (const field of ["manager", "name", "inn", "periodMonth", "periodThird", "crmUrl", "driveUrl", "instructionUrl", "comment"]) {
+    assert.match(dialog, new RegExp(`name="${field}"`));
+  }
+  assert.doesNotMatch(dialog, /name="(?:contact|phone)"/);
+  assert.doesNotMatch(dialog, /name="(?:crmUrl|driveUrl)"[^>]*required/);
+});
+
+test("moving a future client reuses the ordinary client form and endpoint", () => {
+  assert.match(htmlSource, /name="futureClientId" type="hidden"/);
+  assert.match(appSource, /openClientDialog\(item, \{ futureClientId: item\.id \}\)/);
+  assert.match(appSource, /\/api\/future-clients\/\$\{encodeURIComponent\(futureClientId\)\}\/move-to-work/);
+  assert.match(appSource, /findDuplicateClientName\(payload\.name\)/);
+  assert.match(serverSource, /\/api\\\/future-clients\\\/\(\[\^\/\]\+\)\\\/move-to-work/);
+});

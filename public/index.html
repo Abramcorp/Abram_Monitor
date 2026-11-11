@@ -209,6 +209,7 @@
         <label>
           Аналитик
           <select name="manager" required></select>
+        <input name="futureClientId" type="hidden">
         </label>
 
         <label>
@@ -264,6 +265,79 @@
       </form>
     </dialog>
 
+    <dialog class="deal-dialog" id="futureClientDialog">
+      <form method="dialog" class="deal-form" id="futureClientForm">
+        <div class="dialog-head">
+          <div>
+            <p class="eyebrow">Будущий клиент</p>
+            <h2 id="futureClientDialogTitle">Запланировать клиента</h2>
+          </div>
+          <button class="icon-button" value="cancel" title="Закрыть" type="submit" formnovalidate>×</button>
+        </div>
+
+        <input name="futureClientId" type="hidden">
+
+        <div class="form-grid">
+          <label>
+            Месяц
+            <input name="periodMonth" type="month" required>
+          </label>
+          <label>
+            Треть месяца
+            <select name="periodThird" required>
+              <option value="1">1–10</option>
+              <option value="2">11–20</option>
+              <option value="3">21–конец месяца</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          Аналитик
+          <select name="manager" required></select>
+        </label>
+
+        <label>
+          Наименование
+          <input name="name" required autocomplete="off">
+        </label>
+
+        <label>
+          ИНН
+          <input name="inn" inputmode="numeric" pattern="\d{10}|\d{12}" placeholder="10 или 12 цифр" autocomplete="off">
+        </label>
+
+        <fieldset class="parameter-fieldset">
+          <legend>Параметры заявок</legend>
+          <div class="form-grid parameter-fields" id="futureClientParameterFields"></div>
+        </fieldset>
+
+        <div class="form-grid">
+          <label>
+            Ссылка на CRM <span class="field-hint">(необязательно)</span>
+            <input name="crmUrl" type="url" placeholder="https://..." autocomplete="off">
+          </label>
+          <label>
+            Ссылка на диск <span class="field-hint">(необязательно)</span>
+            <input name="driveUrl" type="url" placeholder="https://..." autocomplete="off">
+          </label>
+          <label>
+            Ссылка на инструкцию
+            <input name="instructionUrl" type="url" placeholder="https://..." autocomplete="off">
+          </label>
+        </div>
+
+        <label>
+          Комментарий
+          <textarea name="comment" rows="3"></textarea>
+        </label>
+
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Отмена</button>
+          <button class="primary-button" value="default" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
     <dialog class="deal-dialog" id="planTemplateDialog">
       <form method="dialog" class="deal-form" id="planTemplateForm">
         <div class="dialog-head">
@@ -412,6 +486,7 @@
           <label class="checkbox-row"><input type="checkbox" name="np_docPackage" checked> <span>Пакет собранных документов (в личку)</span></label>
           <label class="checkbox-row"><input type="checkbox" name="np_stageChanges" checked> <span>Смена стадий заявок (Босс-чат)</span></label>
           <label class="checkbox-row"><input type="checkbox" name="np_clientReports" checked> <span>Сводные отчёты по клиентам (Босс-чат)</span></label>
+          <label class="checkbox-row"><input type="checkbox" name="np_futureClients" checked> <span>Будущие клиенты и перенос в работу</span></label>
         </fieldset>
 
         <p class="login-error" id="userFormError" hidden></p>

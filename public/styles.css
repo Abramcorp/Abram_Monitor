@@ -5432,3 +5432,202 @@ button.donut-legend-row.is-clickable:hover {
   min-height: 0;
   margin: 0;
 }
+/* Календарь будущих клиентов */
+.future-calendar-summary {
+  margin-top: 16px;
+}
+
+.future-calendar-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.future-calendar-summary-period {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-flat);
+  cursor: pointer;
+}
+
+.future-calendar-summary-period:hover {
+  border-color: rgba(0, 122, 255, 0.35);
+  background: rgba(0, 122, 255, 0.05);
+}
+
+.future-calendar-summary-period span,
+.future-calendar-summary-period small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.future-calendar-summary-period span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.future-calendar-summary-period strong {
+  font-size: 24px;
+}
+
+.future-calendar-summary-period small {
+  min-height: 2.5em;
+  color: var(--muted);
+  line-height: 1.25;
+}
+
+.future-calendar-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.future-calendar-head {
+  align-items: flex-start;
+}
+
+.future-calendar-nav,
+.future-client-actions,
+.future-client-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.future-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(260px, 1fr));
+  gap: 14px;
+  align-items: start;
+  padding-bottom: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+}
+
+.future-period {
+  min-height: 220px;
+  padding: 14px;
+  scroll-snap-align: start;
+}
+
+.future-period-head,
+.future-client-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.future-period-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.future-period-list,
+.future-overdue-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.future-overdue-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.future-overdue-panel {
+  border-color: var(--danger-line);
+  background: linear-gradient(135deg, var(--panel-strong), var(--danger-soft));
+}
+
+.future-client-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid #8e99ab;
+  border-radius: 12px;
+  background: var(--panel-flat);
+}
+
+.future-client-card.status-soon {
+  border-left-color: #d97706;
+}
+
+.future-client-card.status-current {
+  border-left-color: #007aff;
+}
+
+.future-client-card.status-overdue {
+  border-color: var(--danger-line);
+  border-left-color: #c2414b;
+}
+
+.future-client-card.status-moved {
+  border-left-color: #16845b;
+}
+
+.future-client-card.status-cancelled {
+  opacity: 0.72;
+}
+
+.future-client-status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.future-client-comment {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.future-client-links a {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.future-client-history {
+  margin-top: 14px;
+}
+
+.future-client-history > summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.compact-empty {
+  padding: 22px 8px;
+}
+
+@media (max-width: 1100px) {
+  .future-calendar-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .future-calendar-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .future-calendar-head {
+    display: grid;
+  }
+
+  .future-calendar-grid {
+    grid-template-columns: repeat(6, minmax(84vw, 1fr));
+  }
+}

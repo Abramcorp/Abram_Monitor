@@ -7,6 +7,11 @@ const { normalizeDeal } = require("./analytics");
 const postgresStore = require("./postgresStore");
 const telegram = require("./telegram");
 const { getMoscowNowIso, toIsoDate } = require("./time");
+const {
+  normalizeFutureClient,
+  validateFutureClient,
+  withDerivedFutureClientStatus
+} = require("./futureClients");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DEALS_FILE = path.join(DATA_DIR, "deals.json");
@@ -19,6 +24,7 @@ const DOCUMENT_REQUESTS_FILE = path.join(DATA_DIR, "document_requests.json");
 const INTEGRATION_AUDIT_FILE = path.join(DATA_DIR, "integration_audit.json");
 const PLAN_TEMPLATES_FILE = path.join(DATA_DIR, "plan_templates.json");
 const APPLICATION_PARAMETERS_FILE = path.join(DATA_DIR, "application_parameters.json");
+const FUTURE_CLIENTS_FILE = path.join(DATA_DIR, "future_clients.json");
 // Дефолтные списки. Используются:
 //   а) для bootstrap (засев пустых коллекций при первом запуске);
 //   б) как fallback при чтении, если коллекции ещё не инициализированы.
@@ -553,7 +559,7 @@ async function updateManager(id, patch) {
 async function renameManagerReferences(oldName, newName) {
   const from = cleanText(oldName);
   const to = cleanText(newName);
-  const counts = { deals: 0, clients: 0, tasks: 0, documentRequests: 0 };
+  const counts = { deals: 0, clients: 0, futureClients: 0, tasks: 0, documentRequests: 0 };
   if (!from || !to || from === to) {
     return counts;
   }
@@ -561,7 +567,7 @@ async function renameManagerReferences(oldName, newName) {
 
   if (postgresStore.isEnabled()) {
     await initStore();
-    for (const [table, key] of [["deals", "deals"], ["clients", "clients"], ["tasks", "tasks"], ["document_requests", "documentRequests"]]) {
+    for (const [table, key] of [["deals", "deals"], ["clients", "clients"], ["future_clients", "futureClients"], ["tasks", "tasks"], ["document_requests", "documentRequests"]]) {
       const rows = await postgresStore.listRows(table);
       for (const row of rows) {
         if (matches(row.manager)) {
@@ -594,6 +600,17 @@ async function renameManagerReferences(oldName, newName) {
     }
   });
   if (counts.clients) writeJson(CLIENTS_FILE, clients);
+
+  const futureClients = readJson(FUTURE_CLIENTS_FILE, []);
+  futureClients.forEach((client) => {
+    if (matches(client.manager)) {
+      client.manager = to;
+      client.updatedAt = new Date().toISOString();
+      counts.futureClients += 1;
+    }
+  });
+  if (counts.futureClients) writeJson(FUTURE_CLIENTS_FILE, futureClients);
+
 
   const tasks = readJson(TASKS_FILE, []);
   tasks.forEach((task) => {
@@ -689,6 +706,154 @@ function normalizeClient(raw = {}) {
     createdAt,
     updatedAt: updatedAt || createdAt
   };
+}
+
+async function readFutureClientRows() {
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    return postgresStore.listRows("future_clients");
+  }
+  return readJson(FUTURE_CLIENTS_FILE, []);
+}
+
+async function getFutureClients({ now = new Date() } = {}) {
+  const rows = await readFutureClientRows();
+  return rows.map((item) => withDerivedFutureClientStatus(item, now));
+}
+
+async function createFutureClient(payload = {}) {
+  const now = new Date().toISOString();
+  const item = normalizeFutureClient({
+    ...payload,
+    id: payload.id || `future-client-${crypto.randomUUID()}`,
+    movedClientId: "",
+    movedAt: "",
+    cancelledAt: "",
+    preReminderSentAt: "",
+    lastReminderDate: "",
+    createdAt: now,
+    updatedAt: now
+  });
+  validateFutureClient(item);
+
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const created = await postgresStore.insertRow("future_clients", item);
+    return withDerivedFutureClientStatus(created);
+  }
+
+  const rows = await readFutureClientRows();
+  rows.push(item);
+  writeJson(FUTURE_CLIENTS_FILE, rows);
+  return withDerivedFutureClientStatus(item);
+}
+
+async function replaceFutureClient(id, replacer) {
+  const cleanId = cleanText(id);
+  if (postgresStore.isEnabled()) {
+    await initStore();
+    const updated = await postgresStore.updateRow("future_clients", cleanId, (current) =>
+      normalizeFutureClient(replacer(normalizeFutureClient(current)))
+    );
+    return updated ? withDerivedFutureClientStatus(updated) : null;
+  }
+
+  const rows = await readFutureClientRows();
+  const index = rows.findIndex((item) => cleanText(item.id) === cleanId);
+  if (index === -1) return null;
+  rows[index] = normalizeFutureClient(replacer(normalizeFutureClient(rows[index])));
+  writeJson(FUTURE_CLIENTS_FILE, rows);
+  return withDerivedFutureClientStatus(rows[index]);
+}
+
+async function updateFutureClient(id, patch = {}) {
+  return replaceFutureClient(id, (current) => {
+    const status = withDerivedFutureClientStatus(current).status;
+    if (status === "moved" || status === "cancelled") {
+      throw new Error("\u0417\u0430\u043f\u0438\u0441\u044c \u0443\u0436\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0430");
+    }
+    const periodChanged = ["periodYear", "periodMonth", "periodThird"].some(
+      (key) => patch[key] !== undefined && Number(patch[key]) !== Number(current[key])
+    );
+    const next = normalizeFutureClient({
+      ...current,
+      ...patch,
+      id: current.id,
+      createdAt: current.createdAt,
+      movedClientId: current.movedClientId,
+      movedAt: current.movedAt,
+      cancelledAt: current.cancelledAt,
+      preReminderSentAt: periodChanged ? "" : current.preReminderSentAt,
+      lastReminderDate: periodChanged ? "" : current.lastReminderDate,
+      updatedAt: new Date().toISOString()
+    });
+    validateFutureClient(next);
+    return next;
+  });
+}
+
+async function cancelFutureClient(id) {
+  return replaceFutureClient(id, (current) => {
+    if (current.movedAt || current.movedClientId) {
+      throw new Error("\u041a\u043b\u0438\u0435\u043d\u0442 \u0443\u0436\u0435 \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0451\u043d \u0432 \u0440\u0430\u0431\u043e\u0442\u0443");
+    }
+    if (current.cancelledAt) return current;
+    return {
+      ...current,
+      cancelledAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  });
+}
+
+async function markFutureClientReminder(id, { kind, sentAt = new Date().toISOString(), dateKey = "" } = {}) {
+  if (!["soon", "current", "overdue"].includes(kind)) {
+    throw new Error("\u041d\u0435\u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 \u0442\u0438\u043f \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f");
+  }
+  return replaceFutureClient(id, (current) => ({
+    ...current,
+    preReminderSentAt: kind === "soon" ? sentAt : current.preReminderSentAt,
+    lastReminderDate: kind === "soon" ? current.lastReminderDate : cleanText(dateKey),
+    updatedAt: new Date().toISOString()
+  }));
+}
+
+async function moveFutureClientToWork(id, payload = {}) {
+  const rows = await readFutureClientRows();
+  const future = rows.map(normalizeFutureClient).find((item) => item.id === cleanText(id));
+  if (!future) return null;
+  if (future.cancelledAt) throw new Error("\u041e\u0442\u043c\u0435\u043d\u0451\u043d\u043d\u043e\u0433\u043e \u043a\u043b\u0438\u0435\u043d\u0442\u0430 \u043d\u0435\u043b\u044c\u0437\u044f \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0432 \u0440\u0430\u0431\u043e\u0442\u0443");
+
+  const clientId = future.movedClientId || `client-from-${future.id}`;
+  const clients = await getClients();
+  let client = clients.find((item) => item.id === clientId);
+  if (!client) {
+    client = await createClient({
+      ...future,
+      ...payload,
+      id: clientId,
+      name: cleanText(payload.name) || future.name,
+      manager: cleanText(payload.manager) || future.manager,
+      inn: payload.inn === undefined ? future.inn : payload.inn,
+      parameters: payload.parameters === undefined ? future.parameters : payload.parameters,
+      crmUrl: payload.crmUrl === undefined ? future.crmUrl : payload.crmUrl,
+      driveUrl: payload.driveUrl === undefined ? future.driveUrl : payload.driveUrl,
+      instructionUrl: payload.instructionUrl === undefined ? future.instructionUrl : payload.instructionUrl,
+      comment: payload.comment === undefined ? future.comment : payload.comment,
+      contact: cleanText(payload.contact),
+      phone: cleanText(payload.phone),
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  validateClient(client);
+  const moved = await replaceFutureClient(future.id, (current) => ({
+    ...current,
+    movedClientId: client.id,
+    movedAt: current.movedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }));
+  return { futureClient: moved, client };
 }
 
 async function upsertIntegrationClient(payload) {
@@ -2710,6 +2875,13 @@ const updateProgramCategory = (id, patch) => updateTaxonomyItem("program_categor
 const deleteProgramCategory = (id) => deleteTaxonomyItem("program_categories", id);
 
 module.exports = {
+  cancelFutureClient,
+  createFutureClient,
+  getFutureClients,
+  markFutureClientReminder,
+  moveFutureClientToWork,
+  normalizeFutureClient,
+  updateFutureClient,
   addDealAction,
   addDocumentRequestAttachment,
   archiveClient,

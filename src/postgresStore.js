@@ -13,6 +13,10 @@ const COLLECTIONS = {
     file: path.join(DATA_DIR, "clients.json"),
     table: "app_clients"
   },
+  future_clients: {
+    file: path.join(DATA_DIR, "future_clients.json"),
+    table: "app_future_clients"
+  },
   deals: {
     file: path.join(DATA_DIR, "deals.json"),
     table: "app_deals"
@@ -182,6 +186,22 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
           created_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now()
         );
+
+        CREATE TABLE IF NOT EXISTS app_future_clients (
+          id text PRIMARY KEY,
+          data jsonb NOT NULL,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS app_future_clients_period_idx
+          ON app_future_clients ((data->>'periodYear'), (data->>'periodMonth'), (data->>'periodThird'));
+
+        CREATE INDEX IF NOT EXISTS app_future_clients_manager_idx
+          ON app_future_clients (lower(data->>'manager'));
+
+        CREATE INDEX IF NOT EXISTS app_future_clients_terminal_idx
+          ON app_future_clients ((data->>'movedAt'), (data->>'cancelledAt'));
 
         CREATE TABLE IF NOT EXISTS app_banks (
           id text PRIMARY KEY,
@@ -425,6 +445,7 @@ async function ensureReady({ normalizeDeal, normalizeKnowledgeEntries }) {
 
       await seedCollection("deals", readJson(COLLECTIONS.deals.file, []).map(normalizeDeal));
       await seedCollection("clients", readJson(COLLECTIONS.clients.file, []));
+      await seedCollection("future_clients", readJson(COLLECTIONS.future_clients.file, []));
       await seedCollection("banks", readJson(COLLECTIONS.banks.file, []));
       await seedCollection("managers", readJson(COLLECTIONS.managers.file, []));
       await seedCollection("tasks", readJson(COLLECTIONS.tasks.file, []));

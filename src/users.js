@@ -47,7 +47,7 @@ function normalizeLogin(value) {
 // Типы Telegram-оповещений, отправляемых на личный chatId пользователя.
 // Ключи используются в user.notifyPrefs (true = слать, дефолт true);
 // какие слать — задаёт АДМИН в Панели управления.
-const NOTIFY_PREF_KEYS = ["newTask", "dailyCheck", "docPackage", "stageChanges", "clientReports"];
+const NOTIFY_PREF_KEYS = ["newTask", "dailyCheck", "docPackage", "stageChanges", "clientReports", "futureClients"];
 
 function normalizeNotifyPrefs(raw) {
   const source = raw && typeof raw === "object" ? raw : {};

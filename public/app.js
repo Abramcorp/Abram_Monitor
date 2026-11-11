@@ -3,6 +3,7 @@
 const state = {
   banks: [],
   clients: [],
+  futureClients: [],
   dashboard: null,
   knowledge: [],
   managers: [],
@@ -42,6 +43,9 @@ const state = {
   archive: {
     groupBy: "manager"
   },
+  futureCalendar: {
+    offset: 0
+  },
   knowledgeSection: "banks",
   view: "summary"
 };
@@ -61,6 +65,10 @@ const saveDealButton = document.querySelector("#saveDealButton");
 const clientDialog = document.querySelector("#clientDialog");
 const clientForm = document.querySelector("#clientForm");
 const duplicateClientNameChoice = document.querySelector("#duplicateClientNameChoice");
+const futureClientDialog = document.querySelector("#futureClientDialog");
+const futureClientForm = document.querySelector("#futureClientForm");
+const futureClientDialogTitle = document.querySelector("#futureClientDialogTitle");
+const futureClientParameterFields = document.querySelector("#futureClientParameterFields");
 const managerDialog = document.querySelector("#managerDialog");
 const managerForm = document.querySelector("#managerForm");
 const dealActionDialog = document.querySelector("#dealActionDialog");
@@ -132,6 +140,7 @@ function partnerManagerName() {
 const VIEWS = [
   { id: "summary", label: "Аналитика", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "tasks", label: "Задачи", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "future-clients", label: "Будущие клиенты", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "funnels", label: "Клиенты в работе", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
@@ -176,17 +185,19 @@ const SERVICE_DENIED_ROLES = new Set(["partner", "service_analytics"]);
 
 // Типы личных TG-оповещений (зеркало src/users.js NOTIFY_PREF_KEYS);
 // какие приходят пользователю — задаёт админ в Панели управления
-const NOTIFY_PREF_KEYS = ["newTask", "dailyCheck", "docPackage", "stageChanges", "clientReports"];
+const NOTIFY_PREF_KEYS = ["newTask", "dailyCheck", "docPackage", "stageChanges", "clientReports", "futureClients"];
 const NOTIFY_PREF_LABELS = {
   newTask: "Новая задача",
   dailyCheck: "Ежедневная проверка клиентов",
   docPackage: "Пакет собранных документов",
   stageChanges: "Смена стадий заявок (Босс-чат)",
-  clientReports: "Сводные отчёты по клиентам (Босс-чат)"
+  clientReports: "Сводные отчёты по клиентам (Босс-чат)",
+  futureClients: "Будущие клиенты и перенос в работу"
 };
 
 // Инлайн-SVG иконки разделов для сайдбара (без внешних CDN — правило проекта)
 const VIEW_ICONS = {
+  "future-clients": `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h1V3a1 1 0 0 1 1-1Zm11 7H4v7h12V9ZM4 6v1h12V6H4Z"/></svg>`,
   summary: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M3 16a1 1 0 0 1-1-1V4a1 1 0 1 1 2 0v10h13a1 1 0 1 1 0 2H3Zm3.3-4.7a1 1 0 0 1 0-1.4l3-3a1 1 0 0 1 1.4 0l1.8 1.79 3.29-3.3a1 1 0 1 1 1.42 1.42l-4 4a1 1 0 0 1-1.42 0L10 8.9l-2.3 2.4a1 1 0 0 1-1.4 0Z"/></svg>`,
   tasks: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M4 3h9a1 1 0 0 1 1 1v1H6a2 2 0 0 0-2 2v8H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm3 4h9a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Zm1.8 4.9a1 1 0 0 0-1.4 1.4l1.8 1.8a1 1 0 0 0 1.4 0l3.3-3.3a1 1 0 0 0-1.4-1.4l-2.6 2.58-1.1-1.08Z"/></svg>`,
   funnels: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M7 9a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0 1c-2.67 0-5 1.34-5 3v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2c0-1.66-2.33-3-5-3Zm7-1a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Zm.5 1.1c1.9.3 3.5 1.36 3.5 2.9v1a1 1 0 0 1-1 1h-2v-2c0-1.08-.4-2.05-1.07-2.84.19-.04.38-.06.57-.06Z"/></svg>`,
@@ -874,6 +885,7 @@ async function requestJson(url, options) {
 
 const LOAD_DATA_TARGETS = {
   dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; }, notForRoles: ["documents_officer"] },
+  futureClients: { url: "/api/future-clients", apply: (payload) => { state.futureClients = payload.futureClients || []; }, notForRoles: ["documents_officer"] },
   banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; }, notForRoles: ["documents_officer"] },
   clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; }, notForRoles: ["documents_officer"] },
   managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; }, notForRoles: ["documents_officer"] },
@@ -1249,6 +1261,10 @@ function renderServiceLinks() {
 // Открытые запросы не считаем нигде: документы по ним ещё собирают,
 // действия они не ждут. Их видно списком в самом разделе.
 function viewAttentionCount(viewId) {
+  if (viewId === "future-clients") {
+    return (state.futureClients || []).filter((item) => item.status === "current" || item.status === "overdue").length;
+  }
+
   if (viewId === "document-requests") {
     return Array.isArray(state.documentRequests)
       ? state.documentRequests.filter((req) => req.status === "fulfilled").length
@@ -5543,6 +5559,7 @@ function renderSummary() {
   return `
     ${renderKpis()}
     ${summaryAlerts()}
+    ${renderAdminFutureCalendarWidget()}
     <section class="panel">
       <div class="summary-scope-bar">
         <div class="segmented summary-scope" role="tablist" aria-label="Скоуп заявок">
@@ -5755,6 +5772,194 @@ function renderDealsByGrouping(kind) {
   `;
 }
 
+const FUTURE_CLIENT_STATUS_LABELS = {
+  scheduled: "Запланирован",
+  soon: "Скоро",
+  current: "Текущий период",
+  overdue: "Просрочен",
+  moved: "Перенесён в работу",
+  cancelled: "Отменён"
+};
+const FUTURE_CLIENT_MONTHS = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря"
+];
+
+function futureCalendarNowParts() {
+  const source = state.dashboard?.time?.iso || state.dashboard?.generatedAt || new Date().toISOString();
+  const date = new Date(source);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return { year: Number(parts.year), month: Number(parts.month), day: Number(parts.day) };
+}
+
+function futureClientWindow(offset = state.futureCalendar?.offset || 0, count = 6) {
+  const current = futureCalendarNowParts();
+  const currentThird = current.day <= 10 ? 1 : current.day <= 20 ? 2 : 3;
+  const startIndex = current.year * 36 + (current.month - 1) * 3 + currentThird - 1 + Number(offset || 0);
+  return Array.from({ length: count }, (_, position) => {
+    const index = startIndex + position;
+    const year = Math.floor(index / 36);
+    const withinYear = index - year * 36;
+    const month = Math.floor(withinYear / 3) + 1;
+    const third = withinYear % 3 + 1;
+    const startDay = third === 1 ? 1 : third === 2 ? 11 : 21;
+    const endDay = third === 1 ? 10 : third === 2 ? 20 : new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return {
+      key: `${year}-${String(month).padStart(2, "0")}-${third}`,
+      year,
+      month,
+      third,
+      label: `${startDay}–${endDay} ${FUTURE_CLIENT_MONTHS[month - 1]} ${year}`
+    };
+  });
+}
+
+function futureClientPeriodKey(item) {
+  return `${item.periodYear}-${String(item.periodMonth).padStart(2, "0")}-${item.periodThird}`;
+}
+
+function sortFutureClients(items) {
+  return [...items].sort((left, right) =>
+    String(left.manager || "").localeCompare(String(right.manager || ""), "ru")
+    || String(left.name || "").localeCompare(String(right.name || ""), "ru")
+  );
+}
+
+function renderFutureClientLinks(item) {
+  const links = [
+    ["CRM", item.crmUrl],
+    ["Диск", item.driveUrl],
+    ["Инструкция", item.instructionUrl]
+  ].filter(([, url]) => url);
+  if (!links.length) return "";
+  return `<div class="future-client-links">${links.map(([label, url]) =>
+    `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${label}</a>`
+  ).join("")}</div>`;
+}
+
+function renderFutureClientCard(item, { compact = false } = {}) {
+  const status = FUTURE_CLIENT_STATUS_LABELS[item.status] || item.status || "—";
+  const terminal = item.status === "moved" || item.status === "cancelled";
+  return `
+    <article class="future-client-card status-${escapeHtml(item.status || "scheduled")}">
+      <div class="future-client-card-head">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span class="future-client-status">${escapeHtml(status)}</span>
+      </div>
+      ${isAdmin() ? `<span class="muted">Аналитик: ${escapeHtml(item.manager || "—")}</span>` : ""}
+      ${item.inn ? `<span class="muted">ИНН: ${escapeHtml(item.inn)}</span>` : ""}
+      ${compact ? "" : renderApplicationParameterBadges(item.parameters)}
+      ${compact ? "" : renderFutureClientLinks(item)}
+      ${!compact && item.comment ? `<p class="future-client-comment">${escapeHtml(item.comment)}</p>` : ""}
+      ${terminal ? "" : `
+        <div class="future-client-actions">
+          <button class="primary-button small-button" data-move-future-client="${escapeHtml(item.id)}" type="button">Перенести в работу</button>
+          <button class="ghost-button small-button" data-edit-future-client="${escapeHtml(item.id)}" type="button">Изменить</button>
+          <button class="ghost-button small-button danger-button" data-cancel-future-client="${escapeHtml(item.id)}" data-client-name="${escapeHtml(item.name)}" type="button">Отменить</button>
+        </div>
+      `}
+    </article>
+  `;
+}
+
+function renderAdminFutureCalendarWidget() {
+  if (!isAdmin()) return "";
+  const periods = futureClientWindow(0, 6);
+  const active = (state.futureClients || []).filter((item) => item.status !== "moved" && item.status !== "cancelled");
+  const overdue = active.filter((item) => item.status === "overdue");
+  return `
+    <section class="panel future-calendar-summary">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Календарь</p>
+          <h2>Ближайшие будущие клиенты</h2>
+        </div>
+        <button class="ghost-button" data-open-future-calendar type="button">
+          Открыть календарь${overdue.length ? ` · просрочено ${overdue.length}` : ""}
+        </button>
+      </div>
+      <div class="future-calendar-summary-grid">
+        ${periods.map((period) => {
+          const items = sortFutureClients(active.filter((item) => futureClientPeriodKey(item) === period.key));
+          return `
+            <button class="future-calendar-summary-period" data-open-future-calendar type="button">
+              <span>${escapeHtml(period.label)}</span>
+              <strong>${items.length}</strong>
+              <small>${items.slice(0, 3).map((item) => escapeHtml(item.name)).join(", ") || "Нет клиентов"}${items.length > 3 ? ` и ещё ${items.length - 3}` : ""}</small>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderFutureClientsView() {
+  const periods = futureClientWindow();
+  const all = state.futureClients || [];
+  const active = all.filter((item) => item.status !== "moved" && item.status !== "cancelled");
+  const overdue = sortFutureClients(active.filter((item) => item.status === "overdue"));
+  const history = sortFutureClients(all.filter((item) => item.status === "moved" || item.status === "cancelled"));
+  return `
+    <section class="panel future-calendar-panel">
+      <div class="panel-head future-calendar-head">
+        <div>
+          <p class="eyebrow">Планирование</p>
+          <h2>Будущие клиенты</h2>
+          <p class="muted">Периоды: 1–10, 11–20 и 21–конец месяца. Статусы меняются автоматически.</p>
+        </div>
+        <button class="primary-button" data-add-future-client type="button">+ Будущий клиент</button>
+      </div>
+      <div class="future-calendar-nav">
+        <button class="ghost-button small-button" data-future-calendar-nav="-6" type="button">← Раньше</button>
+        <button class="ghost-button small-button" data-future-calendar-nav="0" type="button">Текущие 6 третей</button>
+        <button class="ghost-button small-button" data-future-calendar-nav="6" type="button">Позже →</button>
+      </div>
+    </section>
+
+    ${overdue.length ? `
+      <section class="panel future-overdue-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Требует внимания</p>
+            <h2>Просроченные · ${overdue.length}</h2>
+          </div>
+        </div>
+        <div class="future-overdue-grid">${overdue.map((item) => renderFutureClientCard(item)).join("")}</div>
+      </section>
+    ` : ""}
+
+    <section class="future-calendar-grid" aria-label="Календарь будущих клиентов">
+      ${periods.map((period) => {
+        const items = sortFutureClients(active.filter((item) => futureClientPeriodKey(item) === period.key && item.status !== "overdue"));
+        return `
+          <section class="panel future-period" data-future-period="${period.key}">
+            <div class="future-period-head">
+              <h3>${escapeHtml(period.label)}</h3>
+              <span class="badge">${items.length}</span>
+            </div>
+            <div class="future-period-list">
+              ${items.length ? items.map((item) => renderFutureClientCard(item)).join("") : `<div class="empty compact-empty">Нет клиентов</div>`}
+            </div>
+          </section>
+        `;
+      }).join("")}
+    </section>
+
+    ${history.length ? `
+      <details class="panel future-client-history">
+        <summary>Перенесённые и отменённые · ${history.length}</summary>
+        <div class="future-overdue-grid">${history.slice(0, 50).map((item) => renderFutureClientCard(item, { compact: true })).join("")}</div>
+      </details>
+    ` : ""}
+  `;
+}
+
 function pluralClients(n) {
   const mod100 = n % 100;
   const mod10 = n % 10;
@@ -5927,6 +6132,7 @@ function render() {
     completed: renderCompleted,
     archive: renderArchiveView,
     knowledge: renderKnowledgeView,
+    "future-clients": renderFutureClientsView,
     summary: renderSummary,
     tasks: renderTasksView,
     profile: renderProfileView,
@@ -6423,6 +6629,57 @@ function initDynamicControls() {
       event.stopPropagation();
       return;
     }
+    const openFutureCalendar = target.closest("[data-open-future-calendar]");
+    if (openFutureCalendar) {
+      state.futureCalendar.offset = 0;
+      state.view = "future-clients";
+      render();
+      return;
+    }
+
+    const futureCalendarNav = target.closest("[data-future-calendar-nav]");
+    if (futureCalendarNav) {
+      const delta = Number(futureCalendarNav.dataset.futureCalendarNav || 0);
+      state.futureCalendar.offset = delta === 0 ? 0 : Number(state.futureCalendar.offset || 0) + delta;
+      render();
+      return;
+    }
+
+    const addFutureClient = target.closest("[data-add-future-client]");
+    if (addFutureClient) {
+      openFutureClientDialog();
+      return;
+    }
+
+    const editFutureClient = target.closest("[data-edit-future-client]");
+    if (editFutureClient) {
+      const item = state.futureClients.find((entry) => entry.id === editFutureClient.dataset.editFutureClient);
+      if (item) openFutureClientDialog(item);
+      return;
+    }
+
+    const moveFutureClient = target.closest("[data-move-future-client]");
+    if (moveFutureClient) {
+      const item = state.futureClients.find((entry) => entry.id === moveFutureClient.dataset.moveFutureClient);
+      if (item) openClientDialog(item, { futureClientId: item.id });
+      return;
+    }
+
+    const cancelFutureClient = target.closest("[data-cancel-future-client]");
+    if (cancelFutureClient) {
+      const clientName = cancelFutureClient.dataset.clientName || "клиента";
+      if (!window.confirm(`Отменить будущего клиента «${clientName}»? Запись останется в истории.`)) return;
+      try {
+        await requestJson(`/api/future-clients/${encodeURIComponent(cancelFutureClient.dataset.cancelFutureClient)}`, {
+          method: "DELETE"
+        });
+        await loadData({ targets: ["futureClients"] });
+      } catch (error) {
+        window.alert(error.message);
+      }
+      return;
+    }
+
 
     const summaryGroupBy = target.closest("[data-summary-groupby]");
     if (summaryGroupBy) {
@@ -6972,7 +7229,7 @@ function fillDealFormOptions() {
       ...state.knowledge.map((entry) => entry.bank)
     ])
   ].sort((a, b) => a.localeCompare(b, "ru"));
-  [form.elements.manager, clientForm.elements.manager].forEach((select) => {
+  [form.elements.manager, clientForm.elements.manager, futureClientForm?.elements?.manager].filter(Boolean).forEach((select) => {
     const selected = select.value;
     select.innerHTML = `<option value="">Выберите аналитика</option>${managerOptions || `<option value="" disabled>Сначала добавьте аналитика</option>`}`;
     if (selected && state.managers.some((manager) => manager.name === selected)) {
@@ -7038,13 +7295,19 @@ function updateDuplicateClientNameChoice() {
 }
 
 function openClientDialog(client = null) {
+  const options = arguments[1] || {};
   fillDealFormOptions();
   clientForm.reset();
+  const futureClientId = String(options.futureClientId || "");
+  const movingFutureClient = Boolean(futureClientId);
   const title = clientDialog.querySelector("h2");
   if (title) {
-    title.textContent = client ? "Редактировать клиента" : "Новый клиент";
+    title.textContent = movingFutureClient
+      ? "Перенести клиента в работу"
+      : client ? "Редактировать клиента" : "Новый клиент";
   }
-  clientForm.elements.clientId.value = client?.id || "";
+  clientForm.elements.clientId.value = movingFutureClient ? "" : client?.id || "";
+  clientForm.elements.futureClientId.value = futureClientId;
   clientForm.elements.manager.value = client?.manager || (isPartner() ? partnerManagerName() : "");
   clientForm.elements.name.value = client?.name || "";
   clientForm.elements.inn.value = client?.inn || "";
@@ -7056,6 +7319,30 @@ function openClientDialog(client = null) {
   clientForm.elements.manager.disabled = isPartner();
   updateDuplicateClientNameChoice();
   clientDialog.showModal();
+}
+
+function openFutureClientDialog(item = null) {
+  fillDealFormOptions();
+  futureClientForm.reset();
+  const now = futureCalendarNowParts();
+  if (futureClientDialogTitle) {
+    futureClientDialogTitle.textContent = item ? "Изменить будущего клиента" : "Запланировать клиента";
+  }
+  futureClientForm.elements.futureClientId.value = item?.id || "";
+  futureClientForm.elements.manager.value = item?.manager || state.managers.find((manager) => manager.userId === state.user?.id)?.name || partnerManagerName() || state.user?.fullName || "";
+  futureClientForm.elements.name.value = item?.name || "";
+  futureClientForm.elements.inn.value = item?.inn || "";
+  futureClientForm.elements.periodMonth.value = item
+    ? `${item.periodYear}-${String(item.periodMonth).padStart(2, "0")}`
+    : `${now.year}-${String(now.month).padStart(2, "0")}`;
+  futureClientForm.elements.periodThird.value = String(item?.periodThird || (now.day <= 10 ? 1 : now.day <= 20 ? 2 : 3));
+  futureClientForm.elements.crmUrl.value = item?.crmUrl || "";
+  futureClientForm.elements.driveUrl.value = item?.driveUrl || "";
+  futureClientForm.elements.instructionUrl.value = item?.instructionUrl || "";
+  futureClientForm.elements.comment.value = item?.comment || "";
+  renderApplicationParameterFields(futureClientParameterFields, item?.parameters || {}, "future-client");
+  futureClientForm.elements.manager.disabled = !isAdmin();
+  futureClientDialog.showModal();
 }
 
 function openKnowledgeDialog(entry = null) {
@@ -7528,6 +7815,7 @@ clientForm.addEventListener("submit", async (event) => {
   const payload = Object.fromEntries(formData.entries());
   payload.parameters = collectApplicationParameterValues(clientForm);
   const clientId = payload.clientId || "";
+  const futureClientId = payload.futureClientId || "";
   const duplicateClientName = clientId ? "" : findDuplicateClientName(payload.name);
   if (!clientId && duplicateClientName) {
     const duplicateNameVariant = String(payload.duplicateNameVariant || "");
@@ -7540,16 +7828,56 @@ clientForm.addEventListener("submit", async (event) => {
     payload.name = `${duplicateClientName} (${duplicateNameVariant})`;
   }
   delete payload.clientId;
+  delete payload.futureClientId;
   delete payload.duplicateNameVariant;
   if (isPartner()) {
     payload.manager = partnerManagerName();
   }
-  await requestJson(clientId ? `/api/clients/${encodeURIComponent(clientId)}` : "/api/clients", {
+  const endpoint = futureClientId
+    ? `/api/future-clients/${encodeURIComponent(futureClientId)}/move-to-work`
+    : clientId ? `/api/clients/${encodeURIComponent(clientId)}` : "/api/clients";
+  const requestOptions = {
     method: clientId ? "PATCH" : "POST",
     body: JSON.stringify(payload)
-  });
+  };
+  if (futureClientId) {
+    requestOptions.method = "POST";
+  }
+  await requestJson(endpoint, requestOptions);
   clientDialog.close();
-  await loadData({ targets: ["clients", "dashboard", "tasks", "documentRequests"] });
+  await loadData({ targets: ["clients", "futureClients", "dashboard", "tasks", "documentRequests"] });
+});
+
+futureClientForm.addEventListener("submit", async (event) => {
+  if (event.submitter?.value === "cancel") {
+    return;
+  }
+
+  event.preventDefault();
+  const formData = new FormData(futureClientForm);
+  if (futureClientForm.elements.manager.disabled) {
+    formData.set("manager", futureClientForm.elements.manager.value);
+  }
+  const payload = Object.fromEntries(formData.entries());
+  const futureClientId = String(payload.futureClientId || "");
+  const [periodYear, periodMonth] = String(payload.periodMonth || "").split("-").map(Number);
+  payload.periodYear = periodYear;
+  payload.periodMonth = periodMonth;
+  payload.periodThird = Number(payload.periodThird);
+  payload.parameters = collectApplicationParameterValues(futureClientForm);
+  delete payload.futureClientId;
+  if (isPartner()) {
+    payload.manager = partnerManagerName();
+  }
+  await requestJson(
+    futureClientId ? `/api/future-clients/${encodeURIComponent(futureClientId)}` : "/api/future-clients",
+    {
+      method: futureClientId ? "PATCH" : "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+  futureClientDialog.close();
+  await loadData({ targets: ["futureClients"] });
 });
 
 dealActionForm.addEventListener("submit", async (event) => {
@@ -8422,6 +8750,7 @@ if (logoutButton) {
     state.dashboard = null;
     state.banks = [];
     state.clients = [];
+    state.futureClients = [];
     state.managers = [];
     state.knowledge = [];
     state.planTemplates = [];
@@ -8448,10 +8777,21 @@ document.addEventListener("visibilitychange", () => {
     return;
   }
   lastVisibilityRefreshAt = now;
-  loadData({ targets: ["dashboard", "tasks"] }).catch(() => {
+  loadData({ targets: ["dashboard", "tasks", "futureClients"] }).catch(() => {
     // ignore — main app still usable; next manual ↻ will retry
   });
 });
+const FUTURE_CLIENT_STATUS_REFRESH_MS = 5 * 60 * 1000;
+setInterval(async () => {
+  if (!state.user || isDocumentsOfficer() || isUiBusy()) return;
+  try {
+    const snapshot = captureUiState();
+    await loadData({ targets: ["dashboard", "futureClients"], restoreUi: snapshot });
+  } catch {
+    // Следующая фоновая или ручная загрузка повторит попытку.
+  }
+}, FUTURE_CLIENT_STATUS_REFRESH_MS);
+
 
 // ===== Live updates via Server-Sent Events =====
 // Бэк дёргает eventBus.emit("dashboard") на любую успешную мутацию,
@@ -8486,7 +8826,7 @@ function scheduleLiveReload() {
     try {
       const snapshot = captureUiState();
       await loadData({
-        targets: ["dashboard", "clients", "managers", "tasks", "documentRequests", "planTemplates"],
+        targets: ["dashboard", "clients", "futureClients", "managers", "tasks", "documentRequests", "planTemplates"],
         restoreUi: snapshot
       });
     } catch (error) {
