@@ -20,7 +20,15 @@ const COMPLETED_STAGES = [
   { id: "blocked", label: "Нет возможности завести заявку (УКАЗАТЬ ПРИЧИНУ)" }
 ];
 
-const ALL_STAGES = [...CURRENT_STAGES, ...EXTRA_CURRENT_STAGES, ...COMPLETED_STAGES];
+// Полный каталог повторяет фактический порядок смены статусов. При этом
+// «Запрос документов» остаётся дополнительным статусом и не создаёт
+// отдельную колонку в текущей воронке.
+const ALL_STAGES = [
+  ...CURRENT_STAGES.slice(0, 2),
+  ...EXTRA_CURRENT_STAGES,
+  ...CURRENT_STAGES.slice(2),
+  ...COMPLETED_STAGES
+];
 const STAGE_LABELS = Object.fromEntries(ALL_STAGES.map((stage) => [stage.id, stage.label]));
 const CURRENT_STAGE_IDS = new Set([...CURRENT_STAGES, ...EXTRA_CURRENT_STAGES].map((stage) => stage.id));
 const COMPLETED_STAGE_IDS = new Set(COMPLETED_STAGES.map((stage) => stage.id));
