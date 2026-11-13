@@ -5868,24 +5868,28 @@ function renderFutureClientCard(item, { compact = false } = {}) {
   const status = FUTURE_CLIENT_STATUS_LABELS[item.status] || item.status || "—";
   const terminal = item.status === "moved" || item.status === "cancelled";
   return `
-    <article class="future-client-card status-${escapeHtml(item.status || "scheduled")}">
-      <div class="future-client-card-head">
+    <details class="future-client-card status-${escapeHtml(item.status || "scheduled")}">
+      <summary class="future-client-card-summary">
         <strong>${escapeHtml(item.name)}</strong>
-        <span class="future-client-status">${escapeHtml(status)}</span>
-      </div>
-      <span class="muted">Аналитик: ${escapeHtml(item.manager || "—")}</span>
-      ${item.inn ? `<span class="muted">ИНН: ${escapeHtml(item.inn)}</span>` : ""}
-      ${compact ? "" : renderApplicationParameterBadges(item.parameters)}
-      ${compact ? "" : renderFutureClientLinks(item)}
-      ${!compact && item.comment ? `<p class="future-client-comment">${escapeHtml(item.comment)}</p>` : ""}
-      ${terminal ? "" : `
-        <div class="future-client-actions">
-          <button class="primary-button small-button" data-move-future-client="${escapeHtml(item.id)}" type="button">Перенести в работу</button>
-          <button class="ghost-button small-button" data-edit-future-client="${escapeHtml(item.id)}" type="button">Изменить</button>
-          <button class="ghost-button small-button danger-button" data-cancel-future-client="${escapeHtml(item.id)}" data-client-name="${escapeHtml(item.name)}" type="button">Отменить</button>
+        ${item.manager ? `<span class="future-client-manager muted">Аналитик: ${escapeHtml(item.manager)}</span>` : ""}
+      </summary>
+      <div class="future-client-card-body">
+        <div class="future-client-card-meta">
+          <span class="future-client-status">${escapeHtml(status)}</span>
+          ${item.inn ? `<span class="muted">ИНН: ${escapeHtml(item.inn)}</span>` : ""}
         </div>
-      `}
-    </article>
+        ${compact ? "" : renderApplicationParameterBadges(item.parameters)}
+        ${renderFutureClientLinks(item)}
+        ${!compact && item.comment ? `<p class="future-client-comment">${escapeHtml(item.comment)}</p>` : ""}
+        ${terminal ? "" : `
+          <div class="future-client-actions">
+            <button class="primary-button small-button" data-move-future-client="${escapeHtml(item.id)}" type="button">Перенести в работу</button>
+            <button class="ghost-button small-button" data-edit-future-client="${escapeHtml(item.id)}" type="button">Изменить</button>
+            <button class="ghost-button small-button danger-button" data-cancel-future-client="${escapeHtml(item.id)}" data-client-name="${escapeHtml(item.name)}" type="button">Отменить</button>
+          </div>
+        `}
+      </div>
+    </details>
   `;
 }
 

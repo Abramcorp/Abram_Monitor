@@ -33,6 +33,16 @@ test("future calendar is shared by internal managers and hidden from the partner
   assert.doesNotMatch(futureApi, /"partner"/);
 });
 
+test("future client cards stay compact until selected and cannot overflow their period", () => {
+  assert.match(appSource, /<details class="future-client-card/);
+  assert.match(appSource, /<summary class="future-client-card-summary">/);
+  assert.match(appSource, /item\.manager \? `<span class="future-client-manager muted">/);
+  assert.match(appSource, /<div class="future-client-card-body">/);
+  assert.match(cssSource, /\.future-period\s*\{[^}]*min-width:\s*0;/s);
+  assert.match(cssSource, /\.future-client-card\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;[^}]*overflow:\s*hidden;/s);
+  assert.match(cssSource, /\.future-client-card-summary strong\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
+});
+
 test("future client form mirrors business fields without contacts", () => {
   const dialogStart = htmlSource.indexOf('id="futureClientDialog"');
   const dialogEnd = htmlSource.indexOf('id="planTemplateDialog"');
