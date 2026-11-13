@@ -7369,7 +7369,8 @@ function openFutureClientDialog(item = null) {
     futureClientDialogTitle.textContent = item ? "Изменить будущего клиента" : "Запланировать клиента";
   }
   futureClientForm.elements.futureClientId.value = item?.id || "";
-  futureClientForm.elements.manager.value = item?.manager || state.managers.find((manager) => manager.userId === state.user?.id)?.name || partnerManagerName() || state.user?.fullName || "";
+  futureClientForm.elements.manager.value = item ? (item.manager || "")
+    : state.managers.find((manager) => manager.userId === state.user?.id)?.name || partnerManagerName() || state.user?.fullName || "";
   futureClientForm.elements.name.value = item?.name || "";
   futureClientForm.elements.inn.value = item?.inn || "";
   futureClientForm.elements.periodMonth.value = item

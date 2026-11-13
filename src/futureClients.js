@@ -161,7 +161,7 @@ function isHttpUrl(value) {
 function validateFutureClient(item) {
   if (!item.name) throw new Error("Наименование клиента обязательно");
   if (item.name.length > 240) throw new Error("Наименование клиента слишком длинное");
-  if (!item.manager) throw new Error("Аналитик обязателен");
+  if (!item.crmUrl) throw new Error("Ссылка на CRM обязательна");
   if (item.inn && !/^\d{10}(?:\d{2})?$/.test(item.inn)) {
     throw new Error("ИНН должен содержать 10 или 12 цифр");
   }

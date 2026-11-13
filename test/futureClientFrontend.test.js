@@ -31,10 +31,14 @@ test("future client form mirrors business fields without contacts", () => {
     assert.match(dialog, new RegExp(`name="${field}"`));
   }
   assert.doesNotMatch(dialog, /name="(?:contact|phone)"/);
-  assert.doesNotMatch(dialog, /name="(?:crmUrl|driveUrl)"[^>]*required/);
+  assert.match(dialog, /name="crmUrl"[^>]*required/);
+  assert.doesNotMatch(dialog, /name="driveUrl"[^>]*required/);
+  assert.doesNotMatch(dialog, /<select name="manager"[^>]*required/);
+  assert.match(appSource, /futureClientForm\.elements\.manager\.value = item \? \(item\.manager \|\| ""\)\s*:/);
 });
 
 test("moving a future client reuses the ordinary client form and endpoint", () => {
+  assert.match(htmlSource, /id="clientForm"[\s\S]*?<select name="manager" required/);
   assert.match(htmlSource, /name="futureClientId" type="hidden"/);
   assert.match(appSource, /openClientDialog\(item, \{ futureClientId: item\.id \}\)/);
   assert.match(appSource, /\/api\/future-clients\/\$\{encodeURIComponent\(futureClientId\)\}\/move-to-work/);

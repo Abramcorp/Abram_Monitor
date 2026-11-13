@@ -977,9 +977,7 @@ function createClient(payload) {
     updatedAt: now
   });
 
-  if (!client.name) {
-    throw new Error("Client name is required");
-  }
+  validateClient(client);
 
   if (postgresStore.isEnabled()) {
     return initStore().then(() => postgresStore.insertRow("clients", client));
@@ -2938,6 +2936,7 @@ module.exports = {
   normalizeManager,
   normalizeKnowledgeProgram,
   normalizeTask,
+  validateClient,
   validateDealDates,
   validateDocumentRequest,
   validateTask,

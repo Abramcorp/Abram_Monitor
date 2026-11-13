@@ -15,6 +15,7 @@ const {
   normalizeManager,
   normalizePlanTemplate,
   normalizeTask,
+  validateClient,
   validateDealDates,
   validateDocumentRequest,
   validateTask
@@ -27,6 +28,11 @@ function restoreEnv(name, value) {
   }
   process.env[name] = value;
 }
+
+test("active client requires an analyst", () => {
+  assert.throws(() => validateClient({ name: "ООО Клиент", manager: "" }), /Аналитик обязателен/);
+  assert.doesNotThrow(() => validateClient({ name: "ООО Клиент", manager: "Артем" }));
+});
 
 test("validateDealDates requires inquiry date for lead applications", () => {
   assert.throws(

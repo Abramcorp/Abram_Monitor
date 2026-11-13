@@ -7,7 +7,8 @@ const {
   futureClientReminderKind,
   getFutureClientPeriodBounds,
   getFutureClientWindow,
-  normalizeFutureClient
+  normalizeFutureClient,
+  validateFutureClient
 } = require("../src/futureClients");
 
 test("future client thirds are non-overlapping and the last one reaches month end", () => {
@@ -106,6 +107,29 @@ test("future client keeps the same business fields as the client form", () => {
   assert.equal(item.periodThird, 3);
   assert.equal("contact" in item, false);
   assert.equal("phone" in item, false);
+});
+
+test("future client can be planned without an analyst", () => {
+  const item = normalizeFutureClient({
+    name: "ООО Без назначения",
+    manager: "",
+    crmUrl: "https://crm.example/unassigned",
+    periodYear: 2026,
+    periodMonth: 12,
+    periodThird: 1
+  });
+
+  assert.doesNotThrow(() => validateFutureClient(item));
+  assert.equal(item.manager, "");
+  assert.throws(
+    () => validateFutureClient(normalizeFutureClient({
+      name: "ООО Без CRM",
+      periodYear: 2026,
+      periodMonth: 12,
+      periodThird: 1
+    })),
+    /Ссылка на CRM обязательна/
+  );
 });
 
 test("reminders are sent once before the period and once per active day", () => {
