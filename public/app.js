@@ -140,7 +140,7 @@ function partnerManagerName() {
 const VIEWS = [
   { id: "summary", label: "Аналитика", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "tasks", label: "Задачи", allowedRoles: ["admin", "analyst_abram", "partner"] },
-  { id: "future-clients", label: "Будущие клиенты", allowedRoles: ["admin", "analyst_abram", "partner"] },
+  { id: "future-clients", label: "Будущие клиенты", allowedRoles: ["admin", "analyst_abram"] },
   { id: "funnels", label: "Клиенты в работе", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "archive", label: "Архив клиентов", allowedRoles: ["admin", "analyst_abram", "partner"] },
   { id: "knowledge", label: "База знаний", allowedRoles: ["admin", "analyst_abram", "partner"] },
@@ -885,7 +885,7 @@ async function requestJson(url, options) {
 
 const LOAD_DATA_TARGETS = {
   dashboard: { url: "/api/dashboard", apply: (payload) => { state.dashboard = payload; }, notForRoles: ["documents_officer"] },
-  futureClients: { url: "/api/future-clients", apply: (payload) => { state.futureClients = payload.futureClients || []; }, notForRoles: ["documents_officer"] },
+  futureClients: { url: "/api/future-clients", apply: (payload) => { state.futureClients = payload.futureClients || []; }, allowedRoles: ["admin", "analyst_abram"] },
   banks: { url: "/api/banks", apply: (payload) => { state.banks = payload.banks; }, notForRoles: ["documents_officer"] },
   clients: { url: "/api/clients", apply: (payload) => { state.clients = payload.clients; }, notForRoles: ["documents_officer"] },
   managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; }, notForRoles: ["documents_officer"] },
@@ -5873,7 +5873,7 @@ function renderFutureClientCard(item, { compact = false } = {}) {
         <strong>${escapeHtml(item.name)}</strong>
         <span class="future-client-status">${escapeHtml(status)}</span>
       </div>
-      ${isAdmin() ? `<span class="muted">Аналитик: ${escapeHtml(item.manager || "—")}</span>` : ""}
+      <span class="muted">Аналитик: ${escapeHtml(item.manager || "—")}</span>
       ${item.inn ? `<span class="muted">ИНН: ${escapeHtml(item.inn)}</span>` : ""}
       ${compact ? "" : renderApplicationParameterBadges(item.parameters)}
       ${compact ? "" : renderFutureClientLinks(item)}
@@ -7382,7 +7382,7 @@ function openFutureClientDialog(item = null) {
   futureClientForm.elements.instructionUrl.value = item?.instructionUrl || "";
   futureClientForm.elements.comment.value = item?.comment || "";
   renderApplicationParameterFields(futureClientParameterFields, item?.parameters || {}, "future-client");
-  futureClientForm.elements.manager.disabled = !isAdmin();
+  futureClientForm.elements.manager.disabled = false;
   futureClientDialog.showModal();
 }
 
@@ -7896,9 +7896,6 @@ futureClientForm.addEventListener("submit", async (event) => {
 
   event.preventDefault();
   const formData = new FormData(futureClientForm);
-  if (futureClientForm.elements.manager.disabled) {
-    formData.set("manager", futureClientForm.elements.manager.value);
-  }
   const payload = Object.fromEntries(formData.entries());
   const futureClientId = String(payload.futureClientId || "");
   const [periodYear, periodMonth] = String(payload.periodMonth || "").split("-").map(Number);
@@ -7907,9 +7904,6 @@ futureClientForm.addEventListener("submit", async (event) => {
   payload.periodThird = Number(payload.periodThird);
   payload.parameters = collectApplicationParameterValues(futureClientForm);
   delete payload.futureClientId;
-  if (isPartner()) {
-    payload.manager = partnerManagerName();
-  }
   await requestJson(
     futureClientId ? `/api/future-clients/${encodeURIComponent(futureClientId)}` : "/api/future-clients",
     {

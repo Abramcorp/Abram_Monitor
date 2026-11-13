@@ -1232,15 +1232,10 @@ function userOwnsManager(user, managerName, managers = []) {
   return String(user.fullName || "").trim().toLowerCase() === ownerKey;
 }
 
-function canManageFutureClient(user, futureClient, managers = []) {
-  if (!user || !futureClient) return false;
-  if (user.role === "admin") return true;
-  if (user.role !== "analyst_abram" && user.role !== "partner") return false;
-  return userOwnsManager(user, futureClient.manager, managers);
-}
+const FUTURE_CLIENT_ROLES = ["admin", "analyst_abram"];
 
-function futureClientAccessError() {
-  return new AuthError(403, "\u041c\u043e\u0436\u043d\u043e \u0440\u0430\u0431\u043e\u0442\u0430\u0442\u044c \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u043e \u0441\u0432\u043e\u0438\u043c\u0438 \u0431\u0443\u0434\u0443\u0449\u0438\u043c\u0438 \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c\u0438");
+function canManageFutureClient(user) {
+  return FUTURE_CLIENT_ROLES.includes(user?.role);
 }
 
 function canDeleteDocumentRequest(user, documentRequest, managers = []) {
@@ -1792,23 +1787,15 @@ async function handleApi(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/future-clients") {
-    requireRole(request, ["admin", "analyst_abram", "partner"]);
-    const managers = await getManagers();
-    let futureClients = await getFutureClients();
-    if (request.user.role !== "admin") {
-      futureClients = futureClients.filter((item) => canManageFutureClient(request.user, item, managers));
-    }
+    requireRole(request, FUTURE_CLIENT_ROLES);
+    const futureClients = await getFutureClients();
     sendJson(response, 200, { futureClients });
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/future-clients") {
-    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    requireRole(request, FUTURE_CLIENT_ROLES);
     const payload = await readBody(request);
-    const managers = await getManagers();
-    if (!canManageFutureClient(request.user, { manager: payload.manager }, managers)) {
-      throw futureClientAccessError();
-    }
     const futureClient = await createFutureClient(payload);
     sendJson(response, 201, { futureClient });
     return;
@@ -1816,21 +1803,14 @@ async function handleApi(request, response) {
 
   const futureClientMoveMatch = pathname.match(/^\/api\/future-clients\/([^/]+)\/move-to-work$/);
   if (request.method === "POST" && futureClientMoveMatch) {
-    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    requireRole(request, FUTURE_CLIENT_ROLES);
     const futureClientId = decodeURIComponent(futureClientMoveMatch[1]);
     const existing = (await getFutureClients()).find((item) => item.id === futureClientId);
     if (!existing) {
       sendJson(response, 404, { error: "Future client not found" });
       return;
     }
-    const managers = await getManagers();
-    if (!canManageFutureClient(request.user, existing, managers)) {
-      throw futureClientAccessError();
-    }
     const payload = await readBody(request);
-    if (!canManageFutureClient(request.user, { manager: payload.manager || existing.manager }, managers)) {
-      throw futureClientAccessError();
-    }
     const result = await moveFutureClientToWork(futureClientId, payload);
     sendJson(response, 201, result);
     (async () => {
@@ -1845,38 +1825,26 @@ async function handleApi(request, response) {
 
   const futureClientMatch = pathname.match(/^\/api\/future-clients\/([^/]+)$/);
   if (request.method === "PATCH" && futureClientMatch) {
-    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    requireRole(request, FUTURE_CLIENT_ROLES);
     const futureClientId = decodeURIComponent(futureClientMatch[1]);
     const existing = (await getFutureClients()).find((item) => item.id === futureClientId);
     if (!existing) {
       sendJson(response, 404, { error: "Future client not found" });
       return;
     }
-    const managers = await getManagers();
-    if (!canManageFutureClient(request.user, existing, managers)) {
-      throw futureClientAccessError();
-    }
     const payload = await readBody(request);
-    if (payload.manager !== undefined
-      && !canManageFutureClient(request.user, { manager: payload.manager }, managers)) {
-      throw futureClientAccessError();
-    }
     const futureClient = await updateFutureClient(futureClientId, payload);
     sendJson(response, 200, { futureClient });
     return;
   }
 
   if (request.method === "DELETE" && futureClientMatch) {
-    requireRole(request, ["admin", "analyst_abram", "partner"]);
+    requireRole(request, FUTURE_CLIENT_ROLES);
     const futureClientId = decodeURIComponent(futureClientMatch[1]);
     const existing = (await getFutureClients()).find((item) => item.id === futureClientId);
     if (!existing) {
       sendJson(response, 404, { error: "Future client not found" });
       return;
-    }
-    const managers = await getManagers();
-    if (!canManageFutureClient(request.user, existing, managers)) {
-      throw futureClientAccessError();
     }
     const futureClient = await cancelFutureClient(futureClientId);
     sendJson(response, 200, { futureClient });

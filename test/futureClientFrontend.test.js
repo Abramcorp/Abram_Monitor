@@ -21,6 +21,18 @@ test("future clients have a dedicated six-period calendar and admin summary", ()
   assert.match(cssSource, /\.future-calendar-grid/);
 });
 
+test("future calendar is shared by internal managers and hidden from the partner contour", () => {
+  assert.match(appSource, /id: "future-clients", label: "Будущие клиенты", allowedRoles: \["admin", "analyst_abram"\]/);
+  assert.match(appSource, /futureClients: \{[^\n]*allowedRoles: \["admin", "analyst_abram"\]/);
+  assert.match(appSource, /futureClientForm\.elements\.manager\.disabled = false/);
+
+  const futureApiStart = serverSource.indexOf('pathname === "/api/future-clients"');
+  const futureApiEnd = serverSource.indexOf('pathname === "/api/clients"', futureApiStart);
+  const futureApi = serverSource.slice(futureApiStart, futureApiEnd);
+  assert.ok(futureApiStart >= 0 && futureApiEnd > futureApiStart);
+  assert.doesNotMatch(futureApi, /"partner"/);
+});
+
 test("future client form mirrors business fields without contacts", () => {
   const dialogStart = htmlSource.indexOf('id="futureClientDialog"');
   const dialogEnd = htmlSource.indexOf('id="planTemplateDialog"');

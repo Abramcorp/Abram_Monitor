@@ -5,13 +5,15 @@ const assert = require("node:assert/strict");
 const { canManageFutureClient } = require("../server");
 const { buildFutureClientReminderText } = require("../src/telegram");
 
-test("admin manages every future client while managers only manage linked records", () => {
+test("admin and internal managers manage every future client while partner roles have no access", () => {
   const futureClient = { manager: "Артем" };
   const managers = [{ id: "manager-artem", name: "Артем", userId: "user-artem" }];
 
   assert.equal(canManageFutureClient({ role: "admin" }, futureClient, managers), true);
   assert.equal(canManageFutureClient({ id: "user-artem", role: "analyst_abram" }, futureClient, managers), true);
-  assert.equal(canManageFutureClient({ id: "user-graf", role: "analyst_abram", fullName: "Граф" }, futureClient, managers), false);
+  assert.equal(canManageFutureClient({ id: "user-graf", role: "analyst_abram", fullName: "Граф" }, futureClient, managers), true);
+  assert.equal(canManageFutureClient({ id: "user-graf", role: "analyst_abram" }, { manager: "" }, managers), true);
+  assert.equal(canManageFutureClient({ id: "user-artem", role: "partner" }, futureClient, managers), false);
   assert.equal(canManageFutureClient({ id: "user-artem", role: "documents_officer" }, futureClient, managers), false);
 });
 
