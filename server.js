@@ -2260,7 +2260,10 @@ async function handleApi(request, response) {
   if (request.method === "GET" && pathname === "/api/users") {
     requireRole(request, ["admin"]);
     const items = await users.listUsers();
-    sendJson(response, 200, { users: items.map(users.publicUser) });
+    sendJson(response, 200, {
+      users: items.map(users.publicUser),
+      services: [...SSO_SERVICES.keys()]
+    });
     return;
   }
 
@@ -2268,11 +2271,16 @@ async function handleApi(request, response) {
     requireRole(request, ["admin"]);
     const payload = await readBody(request);
     try {
+      const serviceRoles = sso.normalizeServiceRoles(payload.serviceRoles, {
+        allowedServiceIds: SSO_SERVICES.keys(),
+        rejectInvalid: true
+      });
       const created = await users.createUser({
         login: payload.login,
         password: payload.password,
         fullName: payload.fullName,
         role: payload.role,
+        serviceRoles,
         telegramChatId: payload.telegramChatId
       });
       // Авто-создаём manager для ролей-аналитиков (admin/analyst_abram/partner), если такого ещё нет.
@@ -2310,9 +2318,16 @@ async function handleApi(request, response) {
     const userId = decodeURIComponent(userMatch[1]);
     const payload = await readBody(request);
     try {
+      const serviceRoles = payload.serviceRoles === undefined
+        ? undefined
+        : sso.normalizeServiceRoles(payload.serviceRoles, {
+          allowedServiceIds: SSO_SERVICES.keys(),
+          rejectInvalid: true
+        });
       const updated = await users.updateUser(userId, {
         fullName: payload.fullName,
         role: payload.role,
+        serviceRoles,
         password: payload.password,
         telegramChatId: payload.telegramChatId,
         notifyPrefs: payload.notifyPrefs
@@ -3089,9 +3104,14 @@ async function handleSso(request, response) {
 
   if (request.method === "GET" && url.pathname === "/sso/services") {
     requireAuth(request);
+    const serviceIds = [...SSO_SERVICES.keys()];
+    const access = Object.fromEntries(
+      serviceIds.map((serviceId) => [serviceId, sso.resolveServiceRole(request.user, serviceId)])
+    );
     sendJson(response, 200, {
-      services: [...SSO_SERVICES.keys()],
-      allowed: sso.isRoleAllowed(request.user.role)
+      services: serviceIds,
+      access,
+      allowed: Object.values(access).some(Boolean)
     });
     return;
   }
@@ -3140,7 +3160,8 @@ async function handleSso(request, response) {
     return;
   }
 
-  if (!sso.isRoleAllowed(request.user.role)) {
+  const serviceRole = sso.resolveServiceRole(request.user, serviceId);
+  if (!serviceRole) {
     const page = ssoPage("Доступ закрыт",
       `<h1>Доступ закрыт</h1><p>Роль «${request.user.role}» не имеет доступа к сервису
        «${serviceId}». <a href="/">Вернуться в Монитор</a></p>`, 403);
@@ -3149,7 +3170,7 @@ async function handleSso(request, response) {
     return;
   }
 
-  const ticket = sso.createTicket(request.user, { audience: serviceId, secret });
+  const ticket = sso.createTicket(request.user, { audience: serviceId, secret, role: serviceRole });
   const target = new URL(redirect);
   target.searchParams.set("ticket", ticket);
   response.writeHead(302, { Location: target.toString() });

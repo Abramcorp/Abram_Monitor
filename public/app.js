@@ -9,6 +9,7 @@ const state = {
   managers: [],
   tasks: [],
   users: [],
+  serviceCatalog: [],
   documentRequests: [],
   integrations: null,
   planTemplates: [],
@@ -80,6 +81,7 @@ const clientParameterFields = document.querySelector("#clientParameterFields");
 const knowledgeParameterFields = document.querySelector("#knowledgeParameterFields");
 const userDialog = document.querySelector("#userDialog");
 const userForm = document.querySelector("#userForm");
+const userServiceRoles = document.querySelector("#userServiceRoles");
 const userDialogTitle = document.querySelector("#userDialogTitle");
 const userFormError = document.querySelector("#userFormError");
 const userPasswordHint = document.querySelector("#userPasswordHint");
@@ -179,9 +181,33 @@ const SERVICE_LINKS = [
     icon: `<svg viewBox="0 0 20 20" width="18" height="18"><path fill="currentColor" d="M5 2h6.59a1 1 0 0 1 .7.3l3.42 3.4a1 1 0 0 1 .29.71v2.3l-2 2V7h-3.5a1 1 0 0 1-1-1V4H6v12h4.2l-.2.78V18H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm11.9 7.4a1 1 0 0 1 1.4 1.4l-.75.75-1.4-1.4.75-.75Zm-1.45 2.16 1.4 1.4-3.9 3.9a1 1 0 0 1-.44.26l-1.85.5a.5.5 0 0 1-.62-.61l.5-1.86a1 1 0 0 1 .26-.44l3.9-3.9Z"/></svg>`
   }
 ];
-// Партнёрский контур в смежные сервисы не пускаем — зеркало DENIED_ROLES
-// из src/sso.js (сервер всё равно отдаст 403, но кнопку не показываем).
-const SERVICE_DENIED_ROLES = new Set(["partner", "service_analytics"]);
+const SERVICE_ROLE_LABELS = {
+  none: "Нет доступа",
+  partner: "Партнёр",
+  manager: "Менеджер",
+  admin: "Администратор"
+};
+const DEFAULT_SERVICE_ROLE_BY_MONITOR_ROLE = {
+  admin: "admin",
+  analyst_abram: "manager",
+  partner: "partner",
+  documents_officer: "manager"
+};
+
+function effectiveServiceRole(user, serviceId) {
+  const override = user?.serviceRoles?.[serviceId];
+  if (override === "none") {
+    return "";
+  }
+  if (override === "partner" || override === "manager" || override === "admin") {
+    return override;
+  }
+  return DEFAULT_SERVICE_ROLE_BY_MONITOR_ROLE[user?.role] || "";
+}
+
+function canAccessService(serviceId) {
+  return Boolean(effectiveServiceRole(state.user, serviceId));
+}
 
 // Типы личных TG-оповещений (зеркало src/users.js NOTIFY_PREF_KEYS);
 // какие приходят пользователю — задаёт админ в Панели управления
@@ -891,7 +917,14 @@ const LOAD_DATA_TARGETS = {
   managers: { url: "/api/managers", apply: (payload) => { state.managers = payload.managers; }, notForRoles: ["documents_officer"] },
   knowledge: { url: "/api/knowledge", apply: (payload) => { state.knowledge = payload.knowledge; }, notForRoles: ["documents_officer"] },
   tasks: { url: "/api/tasks", apply: (payload) => { state.tasks = payload.tasks || []; }, notForRoles: ["documents_officer"] },
-  users: { url: "/api/users", apply: (payload) => { state.users = payload.users || []; }, allowedRoles: ["admin"] },
+  users: {
+    url: "/api/users",
+    apply: (payload) => {
+      state.users = payload.users || [];
+      state.serviceCatalog = payload.services || [];
+    },
+    allowedRoles: ["admin"]
+  },
   integrations: { url: "/api/integrations", apply: (payload) => { state.integrations = payload || null; }, allowedRoles: ["admin"] },
   planTemplates: { url: "/api/plan-templates", apply: (payload) => { state.planTemplates = payload.planTemplates || []; }, notForRoles: ["documents_officer"] },
   programTypes: { url: "/api/program-types", apply: (payload) => { state.programTypes = payload.items || []; }, notForRoles: ["documents_officer"] },
@@ -1235,13 +1268,12 @@ function renderServiceLinks() {
   if (!serviceLinks) {
     return;
   }
-  const role = currentRole();
-  const allowed = Boolean(role) && !SERVICE_DENIED_ROLES.has(role);
-  serviceLinks.hidden = !allowed;
-  serviceLinks.innerHTML = allowed
+  const availableServices = SERVICE_LINKS.filter((service) => canAccessService(service.key));
+  serviceLinks.hidden = availableServices.length === 0;
+  serviceLinks.innerHTML = availableServices.length
     ? `
       <span class="sidebar-section-title sidebar-label">Сервисы</span>
-      ${SERVICE_LINKS.map(
+      ${availableServices.map(
         (service) => `
           <a class="sidebar-item sidebar-service" href="${escapeHtml(service.href)}"
              target="_blank" rel="noopener noreferrer" title="${escapeHtml(service.label)}">
@@ -2022,13 +2054,13 @@ function clientServiceLinks(client) {
   const next = `/?client=${encodeURIComponent(client.clientId)}${client.inn ? `&inn=${client.inn}` : ""}`;
   // Сервис «Анкеты» открывается сразу на этом клиенте: единый вход вернёт на /?client=<id карточки>.
   // ИНН в карточке не ведут — сервис возьмёт его из Инструкции, поэтому ссылка есть у всех, у кого задана Инструкция или Диск.
-  if (client.instructionUrl || client.driveUrl) {
+  if ((client.instructionUrl || client.driveUrl) && canAccessService("anketa")) {
     links.push({ key: "anketa", label: "Анкеты", url: `/sso/authorize?service=anketa&next=${encodeURIComponent(next)}` });
   }
   // «Договор» открывается на этом же клиенте и сразу подхватывает его папку на
   // Диске: оттуда берётся выписка, туда же ложится готовый договор. Без папки
   // сервису неоткуда брать выписку, поэтому ссылка появляется только с Диском.
-  if (client.driveUrl) {
+  if (client.driveUrl && canAccessService("dogovor")) {
     links.push({ key: "dogovor", label: "Договор", url: `/sso/authorize?service=dogovor&next=${encodeURIComponent(next)}` });
   }
   return links;
@@ -4047,6 +4079,7 @@ function renderUsersView() {
               <th>Логин</th>
               <th>ФИО</th>
               <th>Роль</th>
+              <th>Сервисы</th>
               <th>Создан</th>
               <th></th>
             </tr>
@@ -4057,6 +4090,7 @@ function renderUsersView() {
                 <td><code>${escapeHtml(user.login)}</code></td>
                 <td>${escapeHtml(user.fullName)}${user.id === meId ? ` <span class="user-row-self">— это вы</span>` : ""}</td>
                 <td><span class="user-role-badge user-role-${escapeHtml(user.role)}">${escapeHtml(ROLE_LABELS[user.role] || user.role)}</span></td>
+                <td>${renderUserServiceAccessSummary(user)}</td>
                 <td><time>${formatDate(user.createdAt)}</time></td>
                 <td class="users-row-actions">
                   <button class="ghost-button small-button" data-edit-user="${escapeHtml(user.id)}" type="button">Изменить</button>
@@ -8023,6 +8057,52 @@ if (planTemplateForm) {
 
 // ===== Users management =====
 
+function serviceDisplayName(serviceId) {
+  return SERVICE_LINKS.find((service) => service.key === serviceId)?.label || serviceId;
+}
+
+function renderUserServiceAccessSummary(user) {
+  const overrides = Object.entries(user?.serviceRoles || {});
+  if (!overrides.length) {
+    return '<span class="muted">По общей роли</span>';
+  }
+  return `<div class="user-service-access-summary">${overrides.map(([serviceId, role]) =>
+    `<span><strong>${escapeHtml(serviceDisplayName(serviceId))}:</strong> ${escapeHtml(SERVICE_ROLE_LABELS[role] || role)}</span>`
+  ).join("")}</div>`;
+}
+
+function renderUserServiceRoles(entry) {
+  if (!userServiceRoles) {
+    return;
+  }
+  const configuredServiceIds = state.serviceCatalog || [];
+  if (!configuredServiceIds.length) {
+    userServiceRoles.innerHTML = '<p class="muted">Подключённые SSO-сервисы не настроены.</p>';
+    return;
+  }
+
+  const roleOptions = [
+    ["inherit", "По общей роли"],
+    ["none", "Нет доступа"],
+    ["partner", "Партнёр"],
+    ["manager", "Менеджер"],
+    ["admin", "Администратор"]
+  ];
+  userServiceRoles.innerHTML = configuredServiceIds.map((serviceId) => {
+    const current = entry?.serviceRoles?.[serviceId] || "inherit";
+    return `
+      <label class="user-service-access-row">
+        <span>${escapeHtml(serviceDisplayName(serviceId))}</span>
+        <select data-user-service-role="${escapeHtml(serviceId)}">
+          ${roleOptions.map(([value, label]) =>
+            `<option value="${value}"${current === value ? " selected" : ""}>${escapeHtml(label)}</option>`
+          ).join("")}
+        </select>
+      </label>
+    `;
+  }).join("");
+}
+
 function openUserDialog(entry) {
   if (!userDialog || !userForm) {
     return;
@@ -8042,6 +8122,7 @@ function openUserDialog(entry) {
   }
   userForm.elements.fullName.value = entry?.fullName || "";
   userForm.elements.role.value = entry?.role || "partner";
+  renderUserServiceRoles(entry);
   userForm.elements.password.value = "";
   userForm.elements.password.required = !entry;
   if (userForm.elements.telegramChatId) {
@@ -8403,15 +8484,27 @@ if (userForm) {
       payload.notifyPrefs[key] = Boolean(userForm.elements[`np_${key}`]?.checked);
       delete payload[`np_${key}`];
     }
+    payload.serviceRoles = {};
+    userServiceRoles?.querySelectorAll("[data-user-service-role]").forEach((select) => {
+      const serviceId = select.dataset.userServiceRole;
+      const role = select.value;
+      if (serviceId && role && role !== "inherit") {
+        payload.serviceRoles[serviceId] = role;
+      }
+    });
     if (userFormError) {
       userFormError.hidden = true;
       userFormError.textContent = "";
     }
     try {
-      await requestJson(
+      const { user: savedUser } = await requestJson(
         userId ? `/api/users/${encodeURIComponent(userId)}` : "/api/users",
         { method: userId ? "PATCH" : "POST", body: JSON.stringify(payload) }
       );
+      if (savedUser?.id === state.user?.id) {
+        state.user = savedUser;
+        applyUserToBadge(savedUser);
+      }
       userDialog.close();
       await loadData({ targets: ["users"] });
     } catch (error) {

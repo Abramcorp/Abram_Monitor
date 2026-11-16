@@ -8,8 +8,19 @@
 const crypto = require("node:crypto");
 
 const DEFAULT_TTL_MS = 60 * 1000;   // тикет живёт минуту: его сразу обменивают
-// Партнёрский контур в сервисы не пускаем; сервисная роль — не человек.
-const DENIED_ROLES = new Set(["partner", "service_analytics"]);
+// Adjacent services use their own compact role vocabulary. Missing overrides
+// inherit a role derived from the user's Monitor role.
+const SERVICE_ROLES = ["partner", "manager", "admin"];
+const SERVICE_ROLE_SET = new Set(SERVICE_ROLES);
+const SERVICE_ACCESS_LEVELS = ["none", ...SERVICE_ROLES];
+const SERVICE_ACCESS_LEVEL_SET = new Set(SERVICE_ACCESS_LEVELS);
+const SERVICE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const DEFAULT_SERVICE_ROLE_BY_MONITOR_ROLE = Object.freeze({
+  admin: "admin",
+  analyst_abram: "manager",
+  partner: "partner",
+  documents_officer: "manager"
+});
 
 function base64url(buffer) {
   return Buffer.from(buffer).toString("base64url");
@@ -62,22 +73,77 @@ function isAllowedRedirect(redirect, serviceBase) {
   return target.pathname === basePath || target.pathname.startsWith(`${basePath}/`);
 }
 
+function normalizeServiceRoles(raw, { allowedServiceIds, rejectInvalid = false } = {}) {
+  if (raw === undefined || raw === null || raw === "") {
+    return {};
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    if (rejectInvalid) throw new Error("serviceRoles must be an object");
+    return {};
+  }
+
+  const allowed = allowedServiceIds === undefined
+    ? null
+    : new Set([...allowedServiceIds].map((id) => String(id || "").trim().toLowerCase()));
+  const normalized = {};
+  for (const [rawId, rawLevel] of Object.entries(raw)) {
+    const serviceId = String(rawId || "").trim().toLowerCase();
+    const level = String(rawLevel || "").trim().toLowerCase();
+    if (!SERVICE_ID_PATTERN.test(serviceId) || (allowed && !allowed.has(serviceId))) {
+      if (rejectInvalid) throw new Error(`Unknown service: ${rawId}`);
+      continue;
+    }
+    if (!level || level === "inherit") {
+      continue;
+    }
+    if (!SERVICE_ACCESS_LEVEL_SET.has(level)) {
+      if (rejectInvalid) throw new Error(`Unsupported service access level: ${rawLevel}`);
+      continue;
+    }
+    normalized[serviceId] = level;
+  }
+  return normalized;
+}
+
+function resolveServiceRole(user, serviceId) {
+  const normalizedServiceId = String(serviceId || "").trim().toLowerCase();
+  if (!SERVICE_ID_PATTERN.test(normalizedServiceId)) {
+    return "";
+  }
+  const inheritedRole = DEFAULT_SERVICE_ROLE_BY_MONITOR_ROLE[String(user?.role || "")] || "";
+  if (!inheritedRole) {
+    return "";
+  }
+  const override = normalizeServiceRoles(user?.serviceRoles)[normalizedServiceId];
+  if (override === "none") {
+    return "";
+  }
+  if (SERVICE_ROLE_SET.has(override)) {
+    return override;
+  }
+  return inheritedRole;
+}
+
 function isRoleAllowed(role) {
-  return Boolean(role) && !DENIED_ROLES.has(String(role));
+  return Boolean(DEFAULT_SERVICE_ROLE_BY_MONITOR_ROLE[String(role || "")]);
 }
 
 /** Подписанный тикет: base64url(JSON).base64url(HMAC-SHA256). */
-function createTicket(user, { audience, secret, ttlMs = DEFAULT_TTL_MS, now = () => Date.now() }) {
+function createTicket(user, { audience, secret, role, ttlMs = DEFAULT_TTL_MS, now = () => Date.now() }) {
   if (!user || !user.id) throw new Error("user is required");
   if (!audience) throw new Error("audience is required");
   if (!secret) throw new Error("secret is required");
+  const ticketRole = String(role || resolveServiceRole(user, audience));
+  if (!SERVICE_ROLE_SET.has(ticketRole)) {
+    throw new Error("valid service role is required");
+  }
 
   const issuedAt = now();
   const payload = {
     sub: String(user.id),
     login: String(user.login || ""),
     name: String(user.fullName || ""),
-    role: String(user.role || ""),
+    role: ticketRole,
     aud: String(audience),
     iat: Math.floor(issuedAt / 1000),
     exp: Math.floor((issuedAt + ttlMs) / 1000),
@@ -106,11 +172,15 @@ function verifyTicket(ticket, { audience, secret, now = () => Date.now() }) {
 }
 
 module.exports = {
-  DENIED_ROLES,
   DEFAULT_TTL_MS,
+  DEFAULT_SERVICE_ROLE_BY_MONITOR_ROLE,
+  SERVICE_ACCESS_LEVELS,
+  SERVICE_ROLES,
   parseServices,
   isAllowedRedirect,
   isRoleAllowed,
+  normalizeServiceRoles,
+  resolveServiceRole,
   createTicket,
   verifyTicket
 };

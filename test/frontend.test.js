@@ -288,3 +288,17 @@ test("clients and programs share extensible checkbox and select-with-input param
   assert.match(serverSource, /pathname === "\/api\/application-parameters"/);
   assert.match(serverSource, /requireRole\(request, \["admin"\]\)/);
 });
+test("admin user dialog edits per-service access and sidebar respects it", () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+  assert.match(indexSource, /id="userServiceRoles"/);
+  assert.match(appSource, /function renderUserServiceRoles/);
+  assert.match(appSource, /payload\.serviceRoles/);
+  assert.match(appSource, /function effectiveServiceRole/);
+  assert.match(appSource, /serviceRoles\?\.\[serviceId\]/);
+  assert.doesNotMatch(appSource, /SERVICE_DENIED_ROLES/);
+  assert.match(appSource, /state\.user = savedUser/);
+  assert.match(serverSource, /resolveServiceRole\(request\.user, serviceId\)/);
+  assert.match(serverSource, /normalizeServiceRoles\(payload\.serviceRoles/);
+});

@@ -30,11 +30,11 @@ test("возврат разрешён только на адрес самого 
   assert.equal(sso.isAllowedRedirect("", base), false);
 });
 
-test("партнёрский контур и сервисные учётки в сервисы не пускаются", () => {
+test("monitor roles map to service access while service accounts stay blocked", () => {
   assert.ok(sso.isRoleAllowed("admin"));
   assert.ok(sso.isRoleAllowed("analyst_abram"));
   assert.ok(sso.isRoleAllowed("documents_officer"));
-  assert.equal(sso.isRoleAllowed("partner"), false);
+  assert.equal(sso.isRoleAllowed("partner"), true);
   assert.equal(sso.isRoleAllowed("service_analytics"), false);
   assert.equal(sso.isRoleAllowed(""), false);
 });
@@ -80,4 +80,59 @@ test("каждый тикет уникален", () => {
   const first = sso.createTicket(USER, { audience: "stamp", secret: SECRET });
   const second = sso.createTicket(USER, { audience: "stamp", secret: SECRET });
   assert.notEqual(first, second);
+});
+test("service role defaults follow the monitor role and can be overridden per service", () => {
+  assert.equal(sso.resolveServiceRole({ role: "admin" }, "anketa"), "admin");
+  assert.equal(sso.resolveServiceRole({ role: "analyst_abram" }, "anketa"), "manager");
+  assert.equal(sso.resolveServiceRole({ role: "partner" }, "anketa"), "partner");
+  assert.equal(sso.resolveServiceRole({ role: "documents_officer" }, "anketa"), "manager");
+  assert.equal(
+    sso.resolveServiceRole({ role: "partner", serviceRoles: { anketa: "manager" } }, "anketa"),
+    "manager"
+  );
+  assert.equal(
+    sso.resolveServiceRole({ role: "admin", serviceRoles: { anketa: "none" } }, "anketa"),
+    ""
+  );
+  assert.equal(sso.resolveServiceRole({ role: "service_analytics" }, "anketa"), "");
+  assert.equal(
+    sso.resolveServiceRole({ role: "service_analytics", serviceRoles: { anketa: "admin" } }, "anketa"),
+    ""
+  );
+});
+
+test("service role overrides are validated against configured services and known access levels", () => {
+  assert.deepEqual(
+    sso.normalizeServiceRoles(
+      { anketa: "manager", stamp: "inherit", edo: "none" },
+      { allowedServiceIds: ["anketa", "stamp", "edo"], rejectInvalid: true }
+    ),
+    { anketa: "manager", edo: "none" }
+  );
+  assert.throws(
+    () => sso.normalizeServiceRoles({ unknown: "manager" }, {
+      allowedServiceIds: ["anketa"], rejectInvalid: true
+    }),
+    /unknown service/i
+  );
+  assert.throws(
+    () => sso.normalizeServiceRoles({ anketa: "owner" }, {
+      allowedServiceIds: ["anketa"], rejectInvalid: true
+    }),
+    /access level/i
+  );
+});
+
+test("ticket uses the resolved service role instead of the global monitor role", () => {
+  const ticket = sso.createTicket(
+    { ...USER, role: "partner", serviceRoles: { anketa: "manager" } },
+    { audience: "anketa", secret: SECRET, role: "manager" }
+  );
+  const payload = sso.verifyTicket(ticket, { audience: "anketa", secret: SECRET });
+
+  assert.equal(payload.role, "manager");
+  assert.throws(
+    () => sso.createTicket(USER, { audience: "anketa", secret: SECRET, role: "owner" }),
+    /valid service role/i
+  );
 });

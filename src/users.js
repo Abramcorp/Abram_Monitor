@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const postgresStore = require("./postgresStore");
 const { hashPassword, verifyPassword } = require("./passwords");
+const { normalizeServiceRoles } = require("./sso");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -65,6 +66,7 @@ function normalizeUser(raw = {}) {
     login: normalizeLogin(raw.login || raw.username),
     fullName: cleanText(raw.fullName || raw.name) || cleanText(raw.login),
     role: normalizeRole(raw.role) || "partner",
+    serviceRoles: normalizeServiceRoles(raw.serviceRoles),
     passwordHash: cleanText(raw.passwordHash) || "",
     telegramChatId: cleanText(raw.telegramChatId),
     notifyPrefs: normalizeNotifyPrefs(raw.notifyPrefs),
@@ -82,6 +84,7 @@ function publicUser(user) {
     login: user.login,
     fullName: user.fullName,
     role: user.role,
+    serviceRoles: normalizeServiceRoles(user.serviceRoles),
     telegramChatId: user.telegramChatId || "",
     notifyPrefs: normalizeNotifyPrefs(user.notifyPrefs),
     createdAt: user.createdAt,
@@ -129,7 +132,7 @@ async function findUserById(id) {
   return users.find((user) => user.id === id) || null;
 }
 
-async function createUser({ login, password, fullName, role, telegramChatId, id, createdAt }) {
+async function createUser({ login, password, fullName, role, serviceRoles, telegramChatId, id, createdAt }) {
   const normalizedLogin = validateLogin(login);
   const normalizedRole = validateRole(role);
   const normalizedFullName = cleanText(fullName) || normalizedLogin;
@@ -147,6 +150,7 @@ async function createUser({ login, password, fullName, role, telegramChatId, id,
     login: normalizedLogin,
     fullName: normalizedFullName,
     role: normalizedRole,
+    serviceRoles,
     passwordHash,
     telegramChatId,
     createdAt: createdAt || now,
@@ -173,6 +177,9 @@ async function updateUser(id, patch = {}) {
   }
   if (patch.role !== undefined) {
     updates.role = validateRole(patch.role);
+  }
+  if (patch.serviceRoles !== undefined) {
+    updates.serviceRoles = normalizeServiceRoles(patch.serviceRoles);
   }
   if (patch.password) {
     updates.passwordHash = await hashPassword(patch.password);

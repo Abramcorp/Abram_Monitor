@@ -75,3 +75,18 @@ test("normalizeUser/publicUser переносят notifyPrefs", () => {
   assert.equal(u.notifyPrefs.dailyCheck, true);
   assert.equal(publicUser(u).notifyPrefs.newTask, false);
 });
+test("normalizeUser/publicUser preserve only supported per-service access overrides", () => {
+  const user = normalizeUser({
+    login: "rock",
+    role: "partner",
+    serviceRoles: {
+      anketa: "manager",
+      edo: "none",
+      stamp: "inherit",
+      invalid: "owner"
+    }
+  });
+
+  assert.deepEqual(user.serviceRoles, { anketa: "manager", edo: "none" });
+  assert.deepEqual(publicUser(user).serviceRoles, { anketa: "manager", edo: "none" });
+});
